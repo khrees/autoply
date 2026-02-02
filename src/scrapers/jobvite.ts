@@ -92,10 +92,13 @@ export class JobviteScraper extends BaseScraper {
       resumePath: options.resumePath,
       coverLetterPath: options.coverLetterPath,
       answeredQuestions: options.answeredQuestions,
+      autoMode: options.autoMode,
     });
 
-    // Fill form fields
-    const formResult = await filler.fillForm(options.jobData.form_fields);
+    // Extract form fields from the live form, fall back to pre-scraped data
+    const liveFormFields = await this.extractFormFields();
+    const formFields = liveFormFields.length > 0 ? liveFormFields : options.jobData.form_fields;
+    const formResult = await filler.fillForm(formFields);
     errors.push(...formResult.errors);
 
     // Upload resume

@@ -6,6 +6,7 @@ import { createAIProvider } from '../ai/provider';
 
 export class GreenhouseScraper extends BaseScraper {
   platform: Platform = 'greenhouse';
+  private autoMode = false;
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
@@ -92,6 +93,7 @@ export class GreenhouseScraper extends BaseScraper {
     const errors: string[] = [];
 
     try {
+      this.autoMode = !!options.autoMode;
       await this.initialize();
       if (!this.page) throw new Error('Browser not initialized');
 
@@ -124,10 +126,18 @@ export class GreenhouseScraper extends BaseScraper {
         resumePath: options.resumePath,
         coverLetterPath: options.coverLetterPath,
         answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
       });
 
-      // Fill basic fields (name, email, phone, etc.)
-      await this.fillGreenhouseBasicFields(options);
+      // Extract form fields from the live application form and fill via FormFiller
+      const liveFormFields = await this.extractFormFields();
+      if (liveFormFields.length > 0) {
+        const formResult = await filler.fillForm(liveFormFields);
+        errors.push(...formResult.errors);
+      } else {
+        // Fallback: fill basic fields manually if extraction found nothing
+        await this.fillGreenhouseBasicFields(options);
+      }
 
       // Upload resume
       if (options.resumePath) {
@@ -318,10 +328,60 @@ export class GreenhouseScraper extends BaseScraper {
     }
 
     // Fill candidate-location autocomplete field
-    await this.fillCandidateLocationAutocomplete(profile.location || 'Lagos, Nigeria');
+    if (profile.location) {
+      await this.fillCandidateLocationAutocomplete(profile.location);
+    }
 
     // Fill country React Select if present
-    await this.fillCountryReactSelect('Nigeria');
+    const country = this.deriveCountryFromProfile(profile);
+    if (country) {
+      await this.fillCountryReactSelect(country);
+    }
+  }
+
+  private matchCountryName(location: string): string | null {
+    const normalized = location.toLowerCase();
+    const mappings: Array<{ pattern: RegExp; name: string }> = [
+      { pattern: /\b(united states|usa|us)\b/i, name: 'United States' },
+      { pattern: /\b(canada)\b/i, name: 'Canada' },
+      { pattern: /\b(united kingdom|uk|england|scotland|wales|northern ireland)\b/i, name: 'United Kingdom' },
+      { pattern: /\b(australia)\b/i, name: 'Australia' },
+      { pattern: /\b(india)\b/i, name: 'India' },
+      { pattern: /\b(nigeria)\b/i, name: 'Nigeria' },
+      { pattern: /\b(germany)\b/i, name: 'Germany' },
+      { pattern: /\b(france)\b/i, name: 'France' },
+      { pattern: /\b(spain)\b/i, name: 'Spain' },
+      { pattern: /\b(italy)\b/i, name: 'Italy' },
+      { pattern: /\b(netherlands|holland)\b/i, name: 'Netherlands' },
+      { pattern: /\b(sweden)\b/i, name: 'Sweden' },
+      { pattern: /\b(norway)\b/i, name: 'Norway' },
+      { pattern: /\b(denmark)\b/i, name: 'Denmark' },
+      { pattern: /\b(switzerland)\b/i, name: 'Switzerland' },
+      { pattern: /\b(ireland)\b/i, name: 'Ireland' },
+      { pattern: /\b(singapore)\b/i, name: 'Singapore' },
+      { pattern: /\b(new zealand)\b/i, name: 'New Zealand' },
+    ];
+
+    for (const { pattern, name } of mappings) {
+      if (pattern.test(normalized)) return name;
+    }
+    return null;
+  }
+
+  private deriveCountryFromProfile(profile: Profile): string | null {
+    if (!profile.location) return null;
+    return this.matchCountryName(profile.location);
+  }
+
+  private deriveCityFromProfile(profile: Profile): string | null {
+    const location = profile.location?.trim();
+    if (!location) return null;
+    const parts = location.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) return null;
+    if (parts.length === 1 && this.matchCountryName(parts[0])) {
+      return null;
+    }
+    return parts[0];
   }
 
   /**
@@ -921,7 +981,8 @@ export class GreenhouseScraper extends BaseScraper {
    * Greenhouse uses .select-shell containers with .select__control inside.
    */
   private async fillReactSelectDropdowns(
-    questionPatterns: Array<{ pattern: RegExp; answer: string }>
+    questionPatterns: Array<{ pattern: RegExp; answer: string }>,
+    profile: Profile
   ): Promise<void> {
     if (!this.page) return;
 
@@ -980,9 +1041,9 @@ export class GreenhouseScraper extends BaseScraper {
         if (!answerToSelect) {
           const fieldContextLower = fieldContext.toLowerCase();
           if (fieldContextLower.includes('country')) {
-            answerToSelect = 'Nigeria';
+            answerToSelect = this.deriveCountryFromProfile(profile);
           } else if (fieldContextLower.includes('location') || fieldContextLower.includes('city')) {
-            answerToSelect = 'Lagos';
+            answerToSelect = this.deriveCityFromProfile(profile);
           } else if (fieldContextLower.includes('gender')) {
             answerToSelect = 'Decline';
           }
@@ -1054,9 +1115,16 @@ export class GreenhouseScraper extends BaseScraper {
     if (!this.page) return;
 
     // Common question patterns and their default answers
-    const questionPatterns = [
-      { pattern: /^country\b/i, answer: 'Nigeria' },
-      { pattern: /location.*city|city/i, answer: 'Lagos' },
+    const questionPatterns: Array<{ pattern: RegExp; answer: string }> = [];
+    const country = this.deriveCountryFromProfile(profile);
+    const city = this.deriveCityFromProfile(profile);
+    if (country) {
+      questionPatterns.push({ pattern: /^country\b/i, answer: country });
+    }
+    if (city) {
+      questionPatterns.push({ pattern: /location.*city|city/i, answer: city });
+    }
+    questionPatterns.push(
       { pattern: /source.*right.*work|right.*work.*source/i, answer: 'Citizen' },
       { pattern: /relocation|relocate|willing.*move|open.*move/i, answer: 'Yes' },
       { pattern: /open.*working.*in-person|work.*office|hybrid/i, answer: 'Yes' },
@@ -1077,11 +1145,11 @@ export class GreenhouseScraper extends BaseScraper {
       { pattern: /experience.*typescript|typescript.*production/i, answer: 'Yes' },
       { pattern: /react.*hooks|component.*architecture/i, answer: 'Yes' },
       { pattern: /cli.*tools|ide.*extension|plugin/i, answer: 'Yes' },
-      { pattern: /ai.*ml.*component|machine.*learning/i, answer: 'Yes' },
-    ];
+      { pattern: /ai.*ml.*component|machine.*learning/i, answer: 'Yes' }
+    );
 
     // Handle React Select custom dropdowns (used by Greenhouse)
-    await this.fillReactSelectDropdowns(questionPatterns);
+    await this.fillReactSelectDropdowns(questionPatterns, profile);
 
     // Also handle native select elements as fallback
     const selects = await this.page.$$('select[required], select');
@@ -1544,6 +1612,7 @@ export class GreenhouseScraper extends BaseScraper {
             const id = (el.id || '').toLowerCase();
             const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
             const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+            const requiredAttr = el.getAttribute('required') !== null || el.getAttribute('aria-required') === 'true';
             // Check if this is a React Select internal input
             const isReactSelect = !!el.closest('[class*="select__"]') || !!el.closest('[class*="Select"]');
             // Get label
@@ -1555,7 +1624,8 @@ export class GreenhouseScraper extends BaseScraper {
               const containerLabel = container?.querySelector('label');
               labelText = containerLabel?.textContent?.trim() || '';
             }
-            return { name, id, placeholder, autocomplete, label: labelText.toLowerCase(), isReactSelect };
+            const required = requiredAttr || labelText.includes('*') || !!el.closest('.required');
+            return { name, id, placeholder, autocomplete, label: labelText.toLowerCase(), isReactSelect, required };
           }, input);
 
           // Skip React Select internal inputs — they're handled by fillReactSelectDropdowns
@@ -1564,6 +1634,7 @@ export class GreenhouseScraper extends BaseScraper {
           const combined = `${info.name} ${info.id} ${info.placeholder} ${info.autocomplete} ${info.label}`;
 
           let value = '';
+          let isFallback = false;
           if (combined.includes('linkedin')) {
             value = profile.linkedin_url || '';
           } else if (combined.includes('github')) {
@@ -1571,22 +1642,25 @@ export class GreenhouseScraper extends BaseScraper {
           } else if (combined.includes('portfolio') || combined.includes('website')) {
             value = profile.portfolio_url || '';
           } else if (combined.includes('country')) {
-            value = 'Nigeria';
+            value = this.deriveCountryFromProfile(profile) || '';
           } else if (combined.includes('location') || combined.includes('city')) {
-            value = profile.location || 'Lagos, Nigeria';
+            value = profile.location || '';
           } else if (combined.includes('preferred') && combined.includes('name')) {
             value = profile.name.split(' ')[0];
           } else if (combined.includes('phone') || combined.includes('tel')) {
             value = profile.phone || '';
           } else if (combined.includes('salary') || combined.includes('compensation') || combined.includes('pay')) {
             value = 'Negotiable';
+            isFallback = true;
           } else if (combined.includes('referral') || combined.includes('referred')) {
             value = 'N/A';
+            isFallback = true;
           } else if (combined.includes('address')) {
-            value = profile.location || 'Lagos, Nigeria';
+            value = profile.location || '';
           }
 
           if (value) {
+            if (!info.required && isFallback) continue;
             await input.click();
             await input.fill(value);
             await this.humanDelay(true);
@@ -1692,16 +1766,19 @@ export class GreenhouseScraper extends BaseScraper {
 
       if (unfilledFields.length === 0) return;
 
+      const requiredFields = unfilledFields.filter((field) => field.required);
+      if (requiredFields.length === 0) return;
+
       // Use AI to get answers
       const provider = createAIProvider();
       if (!(await provider.isAvailable())) return;
 
-      const answers = await analyzeAndFillFormFields(provider, profile, unfilledFields);
+      const answers = await analyzeAndFillFormFields(provider, profile, requiredFields);
 
       // Apply answers to the form, track what's still unfilled
-      const stillUnfilled: typeof unfilledFields = [];
+      const stillUnfilled: typeof requiredFields = [];
 
-      for (const field of unfilledFields) {
+      for (const field of requiredFields) {
         const answer = answers.get(field.id);
         if (!answer) {
           if (field.required) stillUnfilled.push(field);
@@ -2055,6 +2132,8 @@ export class GreenhouseScraper extends BaseScraper {
    */
   private async handleEmailVerification(): Promise<{ success: boolean; message: string } | null> {
     if (!this.page) return null;
+    const { configRepository } = await import('../db/repositories/config');
+    const config = configRepository.loadAppConfig();
 
     // Detect verification page — Greenhouse shows a code/pin input after emailing a confirmation code
     const verificationSelectors = [
@@ -2124,6 +2203,14 @@ export class GreenhouseScraper extends BaseScraper {
       return { success: false, message: 'Email verification required but could not find code input field. Check your email and complete verification manually.' };
     }
 
+    if (this.autoMode || !config.application.interactivePrompts) {
+      return { success: false, message: 'Email verification required. Run without --auto and ensure interactive prompts are enabled to enter the code.' };
+    }
+
+    if (!process.stdin.isTTY) {
+      return { success: false, message: 'Email verification required but no interactive TTY is available to enter the code.' };
+    }
+
     // Prompt user for the verification code
     console.log('\n');
     console.log('  ┌─────────────────────────────────────────────┐');
@@ -2132,21 +2219,16 @@ export class GreenhouseScraper extends BaseScraper {
     console.log('  └─────────────────────────────────────────────┘');
     console.log('');
 
-    const { input: promptInput } = await import('@inquirer/prompts');
-
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const code = await promptInput({
-        message: `Verification code${attempt > 1 ? ` (attempt ${attempt}/${maxAttempts})` : ''}:`,
-        validate: (value) => {
-          if (!value.trim()) return 'Code is required';
-          return true;
-        },
-      });
+      const code = await this.promptForVerificationCode(attempt, maxAttempts);
+      if (!code) {
+        return { success: false, message: 'Email verification required but no code was entered. Complete verification manually.' };
+      }
 
       // Fill the code
       await codeInput.fill('');
-      await codeInput.type(code.trim(), { delay: 50 });
+      await codeInput.type(code, { delay: 50 });
       await this.humanDelay();
 
       // Look for and click a verify/confirm/submit button
@@ -2228,6 +2310,38 @@ export class GreenhouseScraper extends BaseScraper {
     }
 
     return { success: false, message: 'Email verification failed after 3 attempts. Complete verification manually.' };
+  }
+
+  private async promptForVerificationCode(attempt: number, maxAttempts: number): Promise<string | null> {
+    const message = `Verification code${attempt > 1 ? ` (attempt ${attempt}/${maxAttempts})` : ''}:`;
+
+    try {
+      const { input } = await import('@inquirer/prompts');
+      const code = await input({
+        message,
+        validate: (value) => {
+          if (!value.trim()) return 'Code is required';
+          return true;
+        },
+      });
+      return code.trim() || null;
+    } catch {
+      try {
+        const { createInterface } = await import('readline');
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          const answer = await new Promise<string>((resolve) => {
+            rl.question(`${message} `, (result) => resolve(result));
+          });
+          const trimmed = answer.trim();
+          return trimmed || null;
+        } finally {
+          rl.close();
+        }
+      } catch {
+        return null;
+      }
+    }
   }
 
   protected async extractJobData(url: string): Promise<JobData> {

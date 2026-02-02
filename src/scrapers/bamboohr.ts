@@ -102,8 +102,23 @@ ${pageText.slice(0, 6000)}`,
       await this.waitForApplicationForm();
       await this.humanDelay(true);
 
-      // Fill basic fields
-      await this.fillBambooHRBasicFields(options);
+      // Fill all detected form fields via FormFiller (handles prompts for unfillable required fields)
+      const filler = new FormFiller(this.page, options.profile, options.jobData, {
+        resumePath: options.resumePath,
+        coverLetterPath: options.coverLetterPath,
+        answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
+      });
+
+      // Extract form fields from the live application form and fill via FormFiller
+      const liveFormFields = await this.extractFormFields();
+      if (liveFormFields.length > 0) {
+        const formResult = await filler.fillForm(liveFormFields);
+        errors.push(...formResult.errors);
+      } else {
+        // Fallback: fill basic fields manually if extraction found nothing
+        await this.fillBambooHRBasicFields(options);
+      }
 
       // Upload resume
       if (options.resumePath) {
@@ -120,11 +135,6 @@ ${pageText.slice(0, 6000)}`,
 
       // Fill custom questions using FormFiller
       if (options.answeredQuestions && options.answeredQuestions.length > 0) {
-        const filler = new FormFiller(this.page, options.profile, options.jobData, {
-          resumePath: options.resumePath,
-          coverLetterPath: options.coverLetterPath,
-          answeredQuestions: options.answeredQuestions,
-        });
         const questionsResult = await filler.fillCustomQuestions(options.answeredQuestions);
         if (questionsResult.errors.length > 0) {
           errors.push(...questionsResult.errors);

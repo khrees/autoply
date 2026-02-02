@@ -148,13 +148,27 @@ export class WorkdayScraper extends BaseScraper {
 
     const { profile } = options;
 
-    // Name fields
-    await this.fillWorkdayInput('[data-automation-id="legalNameSection_firstName"]', profile.name.split(' ')[0]);
-    await this.fillWorkdayInput('[data-automation-id="legalNameSection_lastName"]', profile.name.split(' ').slice(1).join(' '));
-    await this.fillWorkdayInput('[data-automation-id="email"]', profile.email);
+    // Fill all detected form fields via FormFiller (handles prompts for unfillable required fields)
+    const filler = new FormFiller(this.page, profile, options.jobData, {
+      resumePath: options.resumePath,
+      answeredQuestions: options.answeredQuestions,
+      autoMode: options.autoMode,
+    });
 
-    if (profile.phone) {
-      await this.fillWorkdayInput('[data-automation-id="phone-number"]', profile.phone);
+    // Extract form fields from the live application form and fill via FormFiller
+    const liveFormFields = await this.extractFormFields();
+    if (liveFormFields.length > 0) {
+      const formResult = await filler.fillForm(liveFormFields);
+      errors.push(...formResult.errors);
+    } else {
+      // Fallback: fill basic fields manually if extraction found nothing
+      await this.fillWorkdayInput('[data-automation-id="legalNameSection_firstName"]', profile.name.split(' ')[0]);
+      await this.fillWorkdayInput('[data-automation-id="legalNameSection_lastName"]', profile.name.split(' ').slice(1).join(' '));
+      await this.fillWorkdayInput('[data-automation-id="email"]', profile.email);
+
+      if (profile.phone) {
+        await this.fillWorkdayInput('[data-automation-id="phone-number"]', profile.phone);
+      }
     }
 
     // Resume upload
@@ -168,7 +182,6 @@ export class WorkdayScraper extends BaseScraper {
 
     // Custom questions
     if (options.answeredQuestions) {
-      const filler = new FormFiller(this.page, profile, options.jobData, { answeredQuestions: options.answeredQuestions });
       const result = await filler.fillCustomQuestions(options.answeredQuestions);
       errors.push(...result.errors);
     }

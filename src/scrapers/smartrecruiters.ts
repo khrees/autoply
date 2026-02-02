@@ -93,14 +93,22 @@ export class SmartRecruitersScraper extends BaseScraper {
       resumePath: options.resumePath,
       coverLetterPath: options.coverLetterPath,
       answeredQuestions: options.answeredQuestions,
+      autoMode: options.autoMode,
     });
 
-    // Fill basic fields
-    await this.fillInput('input[name*="firstName"]', profile.name.split(' ')[0]);
-    await this.fillInput('input[name*="lastName"]', profile.name.split(' ').slice(1).join(' '));
-    await this.fillInput('input[name*="email"], input[type="email"]', profile.email);
-    if (profile.phone) {
-      await this.fillInput('input[name*="phone"], input[type="tel"]', profile.phone);
+    // Extract form fields from the live application form and fill via FormFiller
+    const liveFormFields = await this.extractFormFields();
+    if (liveFormFields.length > 0) {
+      const formResult = await filler.fillForm(liveFormFields);
+      errors.push(...formResult.errors);
+    } else {
+      // Fallback: fill basic fields manually if extraction found nothing
+      await this.fillInput('input[name*="firstName"]', profile.name.split(' ')[0]);
+      await this.fillInput('input[name*="lastName"]', profile.name.split(' ').slice(1).join(' '));
+      await this.fillInput('input[name*="email"], input[type="email"]', profile.email);
+      if (profile.phone) {
+        await this.fillInput('input[name*="phone"], input[type="tel"]', profile.phone);
+      }
     }
 
     // Upload resume

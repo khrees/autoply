@@ -88,10 +88,18 @@ export class LeverScraper extends BaseScraper {
         resumePath: options.resumePath,
         coverLetterPath: options.coverLetterPath,
         answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
       });
 
-      // Fill basic fields
-      await this.fillLeverBasicFields(options);
+      // Extract form fields from the live application form and fill via FormFiller
+      const liveFormFields = await this.extractFormFields();
+      if (liveFormFields.length > 0) {
+        const formResult = await filler.fillForm(liveFormFields);
+        errors.push(...formResult.errors);
+      } else {
+        // Fallback: fill basic fields manually if extraction found nothing
+        await this.fillLeverBasicFields(options);
+      }
 
       // Upload resume
       if (options.resumePath) {

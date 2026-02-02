@@ -24,8 +24,10 @@ export const applyCommand = new Command('apply')
   .option('-f, --file <path>', 'Read URLs from file (one per line)')
   .option('-d, --dry-run', 'Generate documents without submitting')
   .option('-r, --resume', 'Resume interrupted bulk application')
+  .option('--resume-file <path>', 'Use a specific resume PDF for submission')
+  .option('--cover-letter-file <path>', 'Use a specific cover letter PDF for submission')
   .option('--auto', 'Skip confirmations and apply with smart defaults')
-  .action(async (urls: string[], options: { file?: string; dryRun?: boolean; resume?: boolean; auto?: boolean }) => {
+  .action(async (urls: string[], options: { file?: string; dryRun?: boolean; resume?: boolean; auto?: boolean; resumeFile?: string; coverLetterFile?: string }) => {
     // Check for profile
     let profile = profileRepository.findFirst();
     if (!profile) {
@@ -74,6 +76,18 @@ export const applyCommand = new Command('apply')
       if (!profile) {
         process.exit(1);
       }
+    }
+
+    // Validate provided document paths (if any)
+    const resumeFilePath = options.resumeFile?.trim();
+    const coverLetterFilePath = options.coverLetterFile?.trim();
+    if (resumeFilePath && !existsSync(resumeFilePath)) {
+      logger.error(`Resume file not found: ${resumeFilePath}`);
+      process.exit(1);
+    }
+    if (coverLetterFilePath && !existsSync(coverLetterFilePath)) {
+      logger.error(`Cover letter file not found: ${coverLetterFilePath}`);
+      process.exit(1);
     }
 
     // Handle resume mode
@@ -182,6 +196,8 @@ export const applyCommand = new Command('apply')
         dryRun: options.dryRun,
         profile,
         autoMode: options.auto,
+        resumePath: resumeFilePath,
+        coverLetterPath: coverLetterFilePath,
       });
 
       results.push(result);

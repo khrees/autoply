@@ -19,6 +19,7 @@ export interface SubmissionOptions {
   resumePath?: string;
   coverLetterPath?: string;
   answeredQuestions?: CustomQuestion[];
+  autoMode?: boolean;
 }
 
 // Random delay to mimic human behavior
@@ -391,12 +392,15 @@ export abstract class BaseScraper {
         resumePath: options.resumePath,
         coverLetterPath: options.coverLetterPath,
         answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
       };
 
       const filler = new FormFiller(this.page, options.profile, options.jobData, fillerOptions);
 
-      // Fill form fields
-      const formResult = await filler.fillForm(options.jobData.form_fields);
+      // Extract form fields from the live form, fall back to pre-scraped data
+      const liveFormFields = await this.extractFormFields();
+      const formFields = liveFormFields.length > 0 ? liveFormFields : options.jobData.form_fields;
+      const formResult = await filler.fillForm(formFields);
       if (formResult.errors.length > 0) {
         errors.push(...formResult.errors);
       }

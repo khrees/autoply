@@ -5,6 +5,7 @@ import { createAIProvider } from '../ai/provider';
 import { tailorResume } from '../ai/resume';
 import { generateCoverLetter, answerAllQuestions } from '../ai/cover-letter';
 import { evaluateJobFit, type JobFitResult } from '../ai/job-matcher';
+import { verifySubmissionScreenshot } from '../ai/screenshot-verifier';
 export type { JobFitResult } from '../ai/job-matcher';
 import { profileRepository } from '../db/repositories/profile';
 import { applicationRepository } from '../db/repositories/application';
@@ -29,6 +30,8 @@ export interface ApplyOptions {
   profile?: Profile;
   generateOnly?: boolean;
   autoMode?: boolean;
+  resumePath?: string;
+  coverLetterPath?: string;
 }
 
 export class ApplicationOrchestrator {
@@ -39,7 +42,7 @@ export class ApplicationOrchestrator {
   }
 
   async applyToJob(url: string, options: ApplyOptions = {}): Promise<ApplicationResult> {
-    const { dryRun = false, generateOnly = false, autoMode = false } = options;
+    const { dryRun = false, generateOnly = false, autoMode = false, resumePath, coverLetterPath } = options;
 
     // Validate URL
     const parsedUrl = parseJobUrl(url);
@@ -153,7 +156,7 @@ export class ApplicationOrchestrator {
         platform: parsedUrl.platform,
         company: jobData.company,
         job_title: jobData.title,
-        status: dryRun ? 'pending' : 'submitted',
+        status: 'pending',
         generated_resume: documents.resume,
         generated_cover_letter: documents.coverLetter,
       });
@@ -223,30 +226,106 @@ export class ApplicationOrchestrator {
     // Check if auto-submit is enabled
     const config = configRepository.loadAppConfig();
     if (config.application.autoSubmit) {
-      logger.debug(`Submitting application to ${parsedUrl.platform} at ${url}`);
-      spinner.start('Submitting application...');
-      try {
-        await this.submitApplication(application, jobData, profile, documents);
-        applicationRepository.update(application.id!, {
-          status: 'submitted',
-          applied_at: new Date().toISOString(),
-        });
-        spinner.succeed('Application submitted!');
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        applicationRepository.update(application.id!, {
-          status: 'failed',
-          error_message: msg,
-        });
-        spinner.fail(`Submission failed on ${parsedUrl.platform}`);
-        return {
-          success: false,
-          application,
-          error: `[${parsedUrl.platform}] Submission failed for ${url}: ${msg}. Try with --dry-run to verify documents generate correctly.`,
-          documents,
-          fitResult,
-        };
+      const maxRetries = Math.max(1, config.application.retryAttempts ?? 3);
+      let lastError = '';
+      let lastScreenshotPath: string | undefined;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        logger.debug(`Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`);
+        spinner.start(attempt === 1 ? 'Submitting application...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
+        // Stop spinner so interactive prompts for unfillable fields can display on stdin
+        if (!autoMode) {
+          spinner.info(attempt === 1 ? 'Filling application form...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
+        }
+
+        try {
+          const submissionResult = await this.submitApplication(
+            application,
+            jobData,
+            profile,
+            documents,
+            autoMode,
+            resumePath,
+            coverLetterPath
+          );
+          lastScreenshotPath = submissionResult.screenshotPath;
+
+          // Verify submission with AI screenshot analysis
+          if (submissionResult.screenshotPath) {
+            spinner.start('Verifying submission...');
+
+            // Brief pause to let confirmation page fully render before verification
+            await new Promise((r) => setTimeout(r, 2000));
+
+            const verification = await verifySubmissionScreenshot(submissionResult.screenshotPath);
+
+            if (verification.submitted) {
+              logger.debug(`Submission verified with ${verification.confidence} confidence: ${verification.reason}`);
+              applicationRepository.update(application.id!, {
+                status: 'submitted',
+                applied_at: new Date().toISOString(),
+              });
+              spinner.succeed('Application submitted!');
+              return { success: true, application, documents, fitResult };
+            }
+
+            // Screenshot verification disagreed — but if scraper's DOM check confirmed success,
+            // trust the scraper (screenshot AI can misread pages)
+            if (verification.confidence === 'low') {
+              logger.debug(`Screenshot verification uncertain (${verification.confidence}): ${verification.reason} — trusting scraper result`);
+              applicationRepository.update(application.id!, {
+                status: 'submitted',
+                applied_at: new Date().toISOString(),
+              });
+              spinner.succeed('Application submitted!');
+              return { success: true, application, documents, fitResult };
+            }
+
+            // Not confirmed - prepare for retry
+            lastError = verification.errors?.length
+              ? `${verification.reason}: ${verification.errors.join(', ')}`
+              : verification.reason;
+            spinner.warn(`Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`);
+
+            if (attempt < maxRetries) {
+              logger.info('Retrying submission...');
+              await new Promise((r) => setTimeout(r, 2000)); // Wait before retry
+            }
+          } else {
+            // No screenshot to verify - trust scraper result
+            applicationRepository.update(application.id!, {
+              status: 'submitted',
+              applied_at: new Date().toISOString(),
+            });
+            spinner.succeed('Application submitted!');
+            return { success: true, application, documents, fitResult };
+          }
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : 'Unknown error';
+          spinner.warn(`Submission attempt ${attempt} failed: ${lastError}`);
+
+          if (attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
       }
+
+      // All retries exhausted
+      applicationRepository.update(application.id!, {
+        status: 'failed',
+        error_message: lastError,
+      });
+      spinner.fail(`Submission failed after ${maxRetries} attempts`);
+      if (lastScreenshotPath) {
+        logger.info(`Screenshot saved to: ${lastScreenshotPath}`);
+      }
+      return {
+        success: false,
+        application,
+        error: `[${parsedUrl.platform}] Submission failed after ${maxRetries} attempts: ${lastError}`,
+        documents,
+        fitResult,
+      };
     } else {
       logger.info('Auto-submit disabled. Application prepared but not submitted.');
       logger.info('Set autoSubmit to true in config to enable automatic submission.');
@@ -259,8 +338,11 @@ export class ApplicationOrchestrator {
     application: Application,
     jobData: JobData,
     profile: Profile,
-    documents: GeneratedDocuments
-  ): Promise<void> {
+    documents: GeneratedDocuments,
+    autoMode = false,
+    resumePathOverride?: string,
+    coverLetterPathOverride?: string
+  ): Promise<{ screenshotPath?: string }> {
     const config = configRepository.loadAppConfig();
 
     // Ensure directories exist
@@ -274,16 +356,20 @@ export class ApplicationOrchestrator {
     // Save documents (markdown and PDF)
     const resumeMdPath = join(docsDir, `${application.id}_resume.md`);
     const coverLetterMdPath = join(docsDir, `${application.id}_cover_letter.md`);
-    const resumePdfPath = join(docsDir, generateDocumentFilename(profile.name, 'resume'));
-    const coverLetterPdfPath = join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
+    const resumePdfPath = resumePathOverride ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
+    const coverLetterPdfPath = coverLetterPathOverride ?? join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
 
     // Save markdown versions
     await Bun.write(resumeMdPath, documents.resume);
     await Bun.write(coverLetterMdPath, documents.coverLetter);
 
     // Generate PDFs for uploading
-    await generateResumePdf(documents.resume, resumePdfPath, profile.name);
-    await generateCoverLetterPdf(documents.coverLetter, coverLetterPdfPath, profile.name);
+    if (!resumePathOverride) {
+      await generateResumePdf(documents.resume, resumePdfPath, profile.name);
+    }
+    if (!coverLetterPathOverride) {
+      await generateCoverLetterPdf(documents.coverLetter, coverLetterPdfPath, profile.name);
+    }
 
     // Create scraper for this platform
     const scraper = createScraper(application.platform);
@@ -299,6 +385,7 @@ export class ApplicationOrchestrator {
       resumePath: resumePdfPath,
       coverLetterPath: coverLetterPdfPath,
       answeredQuestions,
+      autoMode,
     });
 
     if (!result.success) {
@@ -308,10 +395,7 @@ export class ApplicationOrchestrator {
       throw new Error(errorMsg);
     }
 
-    // Log success details
-    if (result.screenshotPath) {
-      logger.info(`Screenshot saved to: ${result.screenshotPath}`);
-    }
+    return { screenshotPath: result.screenshotPath };
   }
 
   async applyToMultipleJobs(urls: string[], options: ApplyOptions = {}): Promise<ApplicationResult[]> {

@@ -79,8 +79,8 @@ Provide answers for each field. For select/dropdown, use EXACTLY one of the prov
       
       if (labelLower.includes('preferred') && labelLower.includes('name')) {
         results.set(field.id, profile.name.split(' ')[0]);
-      } else if (labelLower.includes('location') || labelLower.includes('city')) {
-        results.set(field.id, profile.location || 'Lagos, Nigeria');
+      } else if ((labelLower.includes('location') || labelLower.includes('city')) && profile.location) {
+        results.set(field.id, profile.location);
       } else if (labelLower.includes('first name')) {
         results.set(field.id, profile.name.split(' ')[0]);
       }
@@ -105,7 +105,7 @@ ${options ? `Options: ${options.join(', ')}` : ''}
 
 Candidate:
 - Name: ${profile.name}
-- Location: ${profile.location || 'Lagos, Nigeria'}
+- Location: ${profile.location || 'Not provided'}
 - Phone: ${profile.phone || 'Not provided'}
 
 Return ONLY the answer value, nothing else. For dropdowns, return EXACTLY one of the options.`;
