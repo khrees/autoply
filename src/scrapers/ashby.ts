@@ -9,7 +9,7 @@ export class AshbyScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('[data-testid="job-post-title"], .ashby-job-posting-heading, h1', {
       timeout: 10000,
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // ============ Ashby Form Submission ============
@@ -22,7 +22,7 @@ export class AshbyScraper extends BaseScraper {
       if (!this.page) throw new Error('Browser not initialized');
 
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -101,7 +101,7 @@ export class AshbyScraper extends BaseScraper {
       if (button) {
         await this.humanDelay(true);
         await button.click();
-        await this.page.waitForLoadState('networkidle');
+        await this.page.waitForLoadState('domcontentloaded');
         return;
       }
     }
@@ -123,7 +123,7 @@ export class AshbyScraper extends BaseScraper {
 
     await this.page.waitForSelector('form, [data-testid*="application"], .ashby-application-form', {
       timeout: 10000,
-    }).catch(() => {});
+    }).catch(() => { });
     await this.humanDelay(true);
   }
 
@@ -296,24 +296,24 @@ export class AshbyScraper extends BaseScraper {
         if (combobox) {
           const existingValue = await combobox.textContent().catch(() => '');
           if (!existingValue || /select|choose/i.test(existingValue)) {
-            await combobox.click().catch(() => {});
+            await combobox.click().catch(() => { });
             await this.page.waitForTimeout(300);
 
             const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
-            const options = [];
+            const dropdownOptions = [];
             for (const opt of optionElements) {
               const text = await opt.textContent();
               if (text) {
                 const clean = text.trim();
-                if (clean) options.push(clean);
+                if (clean) dropdownOptions.push(clean);
               }
             }
 
-            if (options.length > 0) {
-              const defaultAnswer = filler.getValueForLabel(label, 'select', options);
-              const answer = defaultAnswer ?? (await this.getAIAnswer(profile, jobData, label, { type: 'select', choices: options }));
+            if (dropdownOptions.length > 0) {
+              const defaultAnswer = filler.getValueForLabel(label, 'select', dropdownOptions);
+              const answer = defaultAnswer ?? (await this.getAIAnswer(profile, jobData, label, { type: 'select', choices: dropdownOptions }));
               if (answer) {
-                const target = filler.findBestMatchingOption(answer, options);
+                const target = filler.findBestMatchingOption(answer, dropdownOptions);
                 const clickText = target ?? answer;
                 let clicked = false;
                 for (const el of optionElements) {
@@ -325,13 +325,13 @@ export class AshbyScraper extends BaseScraper {
                   }
                 }
                 if (!clicked) {
-                  await optionElements[0].click().catch(() => {});
+                  await optionElements[0].click().catch(() => { });
                 }
                 await this.humanDelay(true);
                 continue;
               }
               if (options.autoMode) {
-                await optionElements[0].click().catch(() => {});
+                await optionElements[0].click().catch(() => { });
                 await this.humanDelay(true);
                 continue;
               }
@@ -341,10 +341,10 @@ export class AshbyScraper extends BaseScraper {
                   type: 'select',
                   label,
                   required: true,
-                  options,
+                  options: dropdownOptions,
                 });
                 if (userAnswer) {
-                  const target = filler.findBestMatchingOption(userAnswer, options);
+                  const target = filler.findBestMatchingOption(userAnswer, dropdownOptions);
                   const clickText = target ?? userAnswer;
                   for (const el of optionElements) {
                     const t = await el.textContent();
@@ -379,7 +379,7 @@ export class AshbyScraper extends BaseScraper {
             if (target) {
               for (const opt of optionData) {
                 if (opt.label.toLowerCase() === target.toLowerCase()) {
-                  await opt.el.click().catch(() => {});
+                  await opt.el.click().catch(() => { });
                   await this.humanDelay(true);
                   break;
                 }
@@ -387,7 +387,7 @@ export class AshbyScraper extends BaseScraper {
               continue;
             }
             if (options.autoMode) {
-              await optionData[0].el.click().catch(() => {});
+              await optionData[0].el.click().catch(() => { });
               await this.humanDelay(true);
               continue;
             }
@@ -403,7 +403,7 @@ export class AshbyScraper extends BaseScraper {
                 const targetAnswer = filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
                 for (const opt of optionData) {
                   if (opt.label.toLowerCase() === targetAnswer.toLowerCase()) {
-                    await opt.el.click().catch(() => {});
+                    await opt.el.click().catch(() => { });
                     await this.humanDelay(true);
                     break;
                   }
@@ -427,7 +427,7 @@ export class AshbyScraper extends BaseScraper {
         if (!required) continue;
 
         const forId = await labelEl.getAttribute('for');
-        let fieldContainer = await labelEl.evaluateHandle((el) =>
+        const fieldContainer = await labelEl.evaluateHandle((el) =>
           el.closest('.ashby-application-form-field, [data-testid*="field"], fieldset') || el.parentElement
         );
         let fieldEl = forId ? await context.$(`#${forId}`) : null;
@@ -449,7 +449,7 @@ export class AshbyScraper extends BaseScraper {
             }
           }
         } else if (tag === 'select' || role === 'combobox') {
-          await fieldEl.click().catch(() => {});
+          await fieldEl.click().catch(() => { });
           await this.page.waitForTimeout(300);
           const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
           const options = [];
@@ -473,7 +473,7 @@ export class AshbyScraper extends BaseScraper {
                 }
               }
               if (!clicked) {
-                await optionElements[0].click().catch(() => {});
+                await optionElements[0].click().catch(() => { });
               }
               await this.humanDelay(true);
             }
@@ -538,7 +538,7 @@ export class AshbyScraper extends BaseScraper {
 
     try {
       // Wait for page to settle after submit — try to detect navigation or DOM change first
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.page.waitForTimeout(5000);
 
       const errorSelectors = [
@@ -691,7 +691,7 @@ export class AshbyScraper extends BaseScraper {
       }
       const target = pickBestOption(label, optionTexts);
       if (!target && forceFirst) {
-        await optionElements[0].click().catch(() => {});
+        await optionElements[0].click().catch(() => { });
         await this.humanDelay(true);
         return true;
       }
@@ -699,7 +699,7 @@ export class AshbyScraper extends BaseScraper {
       for (const opt of optionElements) {
         const t = await opt.textContent();
         if (t?.trim().toLowerCase() === target.toLowerCase()) {
-          await opt.click().catch(() => {});
+          await opt.click().catch(() => { });
           await this.humanDelay(true);
           return true;
         }
@@ -754,7 +754,7 @@ export class AshbyScraper extends BaseScraper {
       }
       if (optionData.length === 0) {
         if (options.autoMode) {
-          await radioOptions[0].click().catch(() => {});
+          await radioOptions[0].click().catch(() => { });
           await this.humanDelay(true);
           return true;
         }
@@ -766,7 +766,7 @@ export class AshbyScraper extends BaseScraper {
       if (target) {
         for (const opt of optionData) {
           if (opt.label.toLowerCase() === target.toLowerCase()) {
-            await opt.el.click().catch(() => {});
+            await opt.el.click().catch(() => { });
             await this.humanDelay(true);
             return true;
           }
@@ -774,7 +774,7 @@ export class AshbyScraper extends BaseScraper {
       }
 
       if (options.autoMode) {
-        await optionData[0].el.click().catch(() => {});
+        await optionData[0].el.click().catch(() => { });
         await this.humanDelay(true);
         return true;
       }
@@ -791,7 +791,7 @@ export class AshbyScraper extends BaseScraper {
           const targetAnswer = filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
           for (const opt of optionData) {
             if (opt.label.toLowerCase() === targetAnswer.toLowerCase()) {
-              await opt.el.click().catch(() => {});
+              await opt.el.click().catch(() => { });
               await this.humanDelay(true);
               return true;
             }
@@ -812,7 +812,7 @@ export class AshbyScraper extends BaseScraper {
       ].join(', ');
       const field = await context.$(selector);
       if (!field) return false;
-      await field.click().catch(() => {});
+      await field.click().catch(() => { });
       await this.page?.waitForTimeout(200);
 
       let didFill = false;
@@ -831,8 +831,8 @@ export class AshbyScraper extends BaseScraper {
       // Fallback: keyboard select first option if list exists but options not matched.
       const listbox = await context.$('[role="listbox"]');
       if (this.page && listbox) {
-        await this.page.keyboard.press('ArrowDown').catch(() => {});
-        await this.page.keyboard.press('Enter').catch(() => {});
+        await this.page.keyboard.press('ArrowDown').catch(() => { });
+        await this.page.keyboard.press('Enter').catch(() => { });
         await this.humanDelay(true);
         return true;
       }
@@ -851,13 +851,13 @@ export class AshbyScraper extends BaseScraper {
           if (keywordFilled) continue;
           const combobox = await findComboboxByLabel(label);
           if (combobox) {
-            await combobox.click().catch(() => {});
+            await combobox.click().catch(() => { });
             await this.page?.waitForTimeout(200);
             const picked = await selectFromOpenList(label, options.autoMode);
             if (picked) continue;
             if (options.autoMode && this.page) {
-              await this.page.keyboard.press('ArrowDown').catch(() => {});
-              await this.page.keyboard.press('Enter').catch(() => {});
+              await this.page.keyboard.press('ArrowDown').catch(() => { });
+              await this.page.keyboard.press('Enter').catch(() => { });
               await this.humanDelay(true);
               continue;
             }
@@ -887,9 +887,10 @@ export class AshbyScraper extends BaseScraper {
         }
 
         let container = labelEl
-          ? await labelEl.evaluateHandle((el) =>
-              el.closest('.ashby-application-form-field, [data-testid*="field"], [data-testid*="question"], fieldset') || el.parentElement
-            )
+          ? await labelEl.evaluateHandle((el) => {
+            const element = el as HTMLElement;
+            return element.closest('.ashby-application-form-field, [data-testid*="field"], [data-testid*="question"], fieldset') || element.parentElement;
+          })
           : null;
 
         if (!container) {
@@ -910,7 +911,7 @@ export class AshbyScraper extends BaseScraper {
             if (fallbackField) {
               const answer = filler.getValueForLabel(label, 'text') ?? options.profile.location ?? '';
               if (answer) {
-                await fallbackField.fill(answer).catch(() => {});
+                await fallbackField.fill(answer).catch(() => { });
                 await this.humanDelay(true);
                 const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
                 if (optionElements.length > 0) {
@@ -924,13 +925,13 @@ export class AshbyScraper extends BaseScraper {
                     for (const opt of optionElements) {
                       const t = await opt.textContent();
                       if (t?.trim().toLowerCase() === target.toLowerCase()) {
-                        await opt.click().catch(() => {});
+                        await opt.click().catch(() => { });
                         await this.humanDelay(true);
                         break;
                       }
                     }
                   } else if (options.autoMode) {
-                    await optionElements[0].click().catch(() => {});
+                    await optionElements[0].click().catch(() => { });
                     await this.humanDelay(true);
                   }
                 }
@@ -939,11 +940,11 @@ export class AshbyScraper extends BaseScraper {
           } else if (/office/i.test(label)) {
             const fallbackField = await context.$('[name*="office" i], [id*="office" i], [aria-label*="office" i], [placeholder*="office" i]');
             if (fallbackField) {
-              await fallbackField.click().catch(() => {});
+              await fallbackField.click().catch(() => { });
               await this.page?.waitForTimeout(300);
               const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
               if (optionElements.length > 0) {
-                await optionElements[0].click().catch(() => {});
+                await optionElements[0].click().catch(() => { });
                 await this.humanDelay(true);
               }
             }
@@ -970,7 +971,7 @@ export class AshbyScraper extends BaseScraper {
         }
         if (!fieldEl) continue;
 
-        const tag = await fieldEl.evaluate((el) => el.tagName.toLowerCase());
+        const tag = await fieldEl.evaluate((el) => (el as Element).tagName.toLowerCase());
         const role = await fieldEl.getAttribute('role');
 
         if (tag === 'input' || tag === 'textarea') {
@@ -993,13 +994,13 @@ export class AshbyScraper extends BaseScraper {
                   for (const opt of optionElements) {
                     const t = await opt.textContent();
                     if (t?.trim().toLowerCase() === target.toLowerCase()) {
-                      await opt.click().catch(() => {});
+                      await opt.click().catch(() => { });
                       await this.humanDelay(true);
                       break;
                     }
                   }
                 } else if (options.autoMode) {
-                  await optionElements[0].click().catch(() => {});
+                  await optionElements[0].click().catch(() => { });
                   await this.humanDelay(true);
                 }
               }
@@ -1017,7 +1018,7 @@ export class AshbyScraper extends BaseScraper {
             }
           }
         } else if (tag === 'select' || role === 'combobox') {
-          await fieldEl.click().catch(() => {});
+          await fieldEl.click().catch(() => { });
           await this.page?.waitForTimeout(300);
           const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
           const optionTexts: string[] = [];
@@ -1034,17 +1035,17 @@ export class AshbyScraper extends BaseScraper {
               for (const opt of optionElements) {
                 const t = await opt.textContent();
                 if (t?.trim().toLowerCase() === target.toLowerCase()) {
-                  await opt.click().catch(() => {});
+                  await opt.click().catch(() => { });
                   clicked = true;
                   break;
                 }
               }
               if (!clicked) {
-                await optionElements[0].click().catch(() => {});
+                await optionElements[0].click().catch(() => { });
               }
               await this.humanDelay(true);
             } else if (options.autoMode) {
-              await optionElements[0].click().catch(() => {});
+              await optionElements[0].click().catch(() => { });
               await this.humanDelay(true);
             } else if (filler.isInteractive()) {
               const userAnswer = await filler.promptForField({
@@ -1059,7 +1060,7 @@ export class AshbyScraper extends BaseScraper {
                 for (const opt of optionElements) {
                   const t = await opt.textContent();
                   if (t?.trim().toLowerCase() === targetAnswer.toLowerCase()) {
-                    await opt.click().catch(() => {});
+                    await opt.click().catch(() => { });
                     await this.humanDelay(true);
                     break;
                   }
@@ -1084,13 +1085,13 @@ export class AshbyScraper extends BaseScraper {
             if (target) {
               for (const opt of optionData) {
                 if (opt.label.toLowerCase() === target.toLowerCase()) {
-                  await opt.el.click().catch(() => {});
+                  await opt.el.click().catch(() => { });
                   await this.humanDelay(true);
                   break;
                 }
               }
             } else if (options.autoMode) {
-              await optionData[0].el.click().catch(() => {});
+              await optionData[0].el.click().catch(() => { });
               await this.humanDelay(true);
             } else if (filler.isInteractive()) {
               const userAnswer = await filler.promptForField({
@@ -1104,7 +1105,7 @@ export class AshbyScraper extends BaseScraper {
                 const targetAnswer = filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
                 for (const opt of optionData) {
                   if (opt.label.toLowerCase() === targetAnswer.toLowerCase()) {
-                    await opt.el.click().catch(() => {});
+                    await opt.el.click().catch(() => { });
                     await this.humanDelay(true);
                     break;
                   }

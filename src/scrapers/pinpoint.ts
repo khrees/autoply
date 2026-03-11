@@ -22,7 +22,7 @@ export class PinpointScraper extends BaseScraper {
       if (!this.page) throw new Error('Browser not initialized');
 
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -71,7 +71,7 @@ export class PinpointScraper extends BaseScraper {
       if (button) {
         await this.humanDelay(true);
         await button.click();
-        await this.page.waitForLoadState('networkidle');
+        await this.page.waitForLoadState('domcontentloaded');
         return;
       }
     }
@@ -149,7 +149,7 @@ export class PinpointScraper extends BaseScraper {
         return { success: true, message: 'Pinpoint application submitted' };
       }
 
-      return { success: true, message: 'Submission completed' };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
     } catch {
       return { success: false, message: 'Confirmation check failed' };
     }

@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { AIProvider, Profile } from '../types';
 
 interface FormField {
@@ -9,10 +10,6 @@ interface FormField {
   required: boolean;
 }
 
-interface FieldAnswer {
-  id: string;
-  answer: string;
-}
 
 const FORM_ANALYZER_PROMPT = `You help fill job application forms. Given a candidate's profile and unfilled form fields, provide the best answers.
 
@@ -76,7 +73,7 @@ Provide answers for each field. For select/dropdown, use EXACTLY one of the prov
     // Fallback: use simple rules
     for (const field of unfilledFields) {
       const labelLower = field.label.toLowerCase();
-      
+
       if (labelLower.includes('preferred') && labelLower.includes('name')) {
         results.set(field.id, profile.name.split(' ')[0]);
       } else if ((labelLower.includes('location') || labelLower.includes('city')) && profile.location) {

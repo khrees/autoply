@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Profile, FormField, CustomQuestion, JobData } from '../types';
+import type { Profile } from '../types';
 
 // Import the FIELD_PATTERNS by recreating them for testing
 // (since they're not exported from form-filler.ts)

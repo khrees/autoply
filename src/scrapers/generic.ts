@@ -7,7 +7,7 @@ export class GenericScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   protected async extractJobData(url: string): Promise<JobData> {
@@ -82,7 +82,7 @@ ${pageText.slice(0, 6000)}`,
       if (!this.page) throw new Error('Browser not initialized');
 
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -169,7 +169,7 @@ ${pageText.slice(0, 6000)}`,
         if (el && await el.isVisible()) {
           await this.humanDelay(true);
           await el.click();
-          await this.page.waitForLoadState('networkidle');
+          await this.page.waitForLoadState('domcontentloaded');
           return;
         }
       } catch {

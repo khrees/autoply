@@ -66,7 +66,7 @@ export async function promptForProfile(options: ProfilePromptOptions = {}): Prom
     .filter(Boolean);
 
   // Education - use AI extracted or prompt
-  let education: Education[] = defaults?.education ?? [];
+  const education: Education[] = defaults?.education ?? [];
   if (!defaults?.education?.length) {
     const addEducation = await confirm({
       message: 'Add education?',

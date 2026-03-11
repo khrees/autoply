@@ -12,7 +12,7 @@ export class GreenhouseScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('#app_body, .app-body, [data-mapped="true"], h1', {
       timeout: 10000,
-    }).catch(() => {});
+    }).catch(() => { });
     // Extra wait for JS rendering
     await this.page.waitForTimeout(2000);
   }
@@ -112,7 +112,7 @@ export class GreenhouseScraper extends BaseScraper {
         const ghFrame = this.page.frames().find(f => f.url().includes('greenhouse.io'));
         if (ghFrame) {
           // Navigate directly to the Greenhouse embed URL instead
-          await this.page.goto(ghFrame.url(), { waitUntil: 'networkidle' });
+          await this.page.goto(ghFrame.url(), { waitUntil: 'domcontentloaded' });
           await this.humanDelay(true);
         }
       }
@@ -414,7 +414,7 @@ export class GreenhouseScraper extends BaseScraper {
       }
 
       // Find phone field container - look for field with phone-related label
-      const phoneContainer = await this.page.$('#phone')?.then(el => el?.evaluateHandle(e => e.closest('.field, .form-group, div')))
+      const _phoneContainer = await this.page.$('div.field:has(label:has-text("Phone"))')?.then(el => el?.evaluateHandle(e => e.closest('.field, .form-group, div')))
         .catch(() => null);
 
       // Look for React Select near phone field
@@ -443,7 +443,7 @@ export class GreenhouseScraper extends BaseScraper {
             await this.humanDelay(true);
 
             // Wait for menu and type country name
-            await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+            await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
             const input = await this.page.$('.select__menu-list input, .select__input input, .select__control input');
             if (input) {
               await input.fill(countryCode);
@@ -494,15 +494,15 @@ export class GreenhouseScraper extends BaseScraper {
         if (candidateLocationInput) {
           const container = candidateLocationInput.closest('.field, .form-group, div');
           const hasReactSelect = container?.querySelector('.select__control');
-          const hasDirectInput = candidateLocationInput.tagName === 'INPUT' && 
+          const hasDirectInput = candidateLocationInput.tagName === 'INPUT' &&
             (candidateLocationInput as HTMLInputElement).type !== 'hidden';
-          return { 
-            hasReactSelect: !!hasReactSelect, 
+          return {
+            hasReactSelect: !!hasReactSelect,
             hasDirectInput,
             containerId: container?.id || ''
           };
         }
-        
+
         // Try by label
         const labels = Array.from(document.querySelectorAll('label'));
         for (const label of labels) {
@@ -513,7 +513,7 @@ export class GreenhouseScraper extends BaseScraper {
             return { hasReactSelect: !!hasReactSelect, hasDirectInput: false, containerId: '' };
           }
         }
-        
+
         return { hasReactSelect: false, hasDirectInput: false, containerId: '' };
       });
 
@@ -582,7 +582,7 @@ export class GreenhouseScraper extends BaseScraper {
           // Check for hidden input with candidate-location
           const container = el.closest('.field, .form-group, div');
           if (container?.querySelector('#candidate-location')) return true;
-          
+
           // Check label text
           let current: Element | null = el;
           for (let i = 0; i < 10 && current; i++) {
@@ -603,8 +603,8 @@ export class GreenhouseScraper extends BaseScraper {
           await this.humanDelay(true);
 
           // Wait for menu and find the input
-          await this.page.waitForSelector('.select__menu, .select__input', { timeout: 3000 }).catch(() => {});
-          
+          await this.page.waitForSelector('.select__menu, .select__input', { timeout: 3000 }).catch(() => { });
+
           // Type location
           const input = await this.page.$('.select__input input, .select__control input, input:focus');
           if (input) {
@@ -725,7 +725,7 @@ export class GreenhouseScraper extends BaseScraper {
       await this.humanDelay(true);
 
       // Wait for menu
-      await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+      await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
       // Type country name
       const input = await this.page.$('.select__input input, .select__control input');
@@ -1056,7 +1056,7 @@ export class GreenhouseScraper extends BaseScraper {
         await this.humanDelay(true);
 
         // Wait for menu
-        await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+        await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
         // For searchable selects (like Country, Location), type the answer
         const input = await control.$('input');
@@ -1357,13 +1357,13 @@ export class GreenhouseScraper extends BaseScraper {
           }
 
           // "How did you hear" group — check one (prefer LinkedIn, then Job Board, etc.)
-          const isHowDidYouHear = ctxLower.includes('how did you hear') || 
-            ctxLower.includes('where did you find') || 
+          const isHowDidYouHear = ctxLower.includes('how did you hear') ||
+            ctxLower.includes('where did you find') ||
             ctxLower.includes('how did you find') ||
             ctxLower.includes('how did you learn') ||
             nameLower.includes('source') ||
             nameLower.includes('referral');
-            
+
           if (isHowDidYouHear && !howDidYouHearChecked) {
             // Check if this is a preferred option
             const isPreferred = preferredHowDidYouHearLabels.some(pref => lblLower.includes(pref));
@@ -1384,7 +1384,7 @@ export class GreenhouseScraper extends BaseScraper {
         try {
           // Method 1: by ID/value/name attribute
           let linkedinCheckbox = await this.page.$('input[type="checkbox"][id*="linkedin" i], input[type="checkbox"][value*="linkedin" i], input[type="checkbox"][name*="linkedin" i]');
-          
+
           // Method 2: by label text using page context
           if (!linkedinCheckbox) {
             const handle = await this.page.evaluateHandle(() => {
@@ -1400,7 +1400,7 @@ export class GreenhouseScraper extends BaseScraper {
             });
             linkedinCheckbox = handle.asElement() as typeof linkedinCheckbox;
           }
-          
+
           if (linkedinCheckbox && await linkedinCheckbox.isVisible() && !(await linkedinCheckbox.isChecked())) {
             await linkedinCheckbox.check();
             await this.humanDelay(true);
@@ -1567,7 +1567,7 @@ export class GreenhouseScraper extends BaseScraper {
           await this.humanDelay(true);
 
           // Wait for menu
-          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
           // Look for "Decline" option
           const options = await this.page.$$('.select__option');
@@ -1808,7 +1808,7 @@ export class GreenhouseScraper extends BaseScraper {
               await controls[index].click();
               await this.humanDelay(true);
 
-              await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+              await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
               // Type answer if there's an input
               const input = await this.page.$('.select__input input');
@@ -1951,7 +1951,7 @@ export class GreenhouseScraper extends BaseScraper {
         if (controls[index]) {
           await controls[index].click();
           await new Promise(r => setTimeout(r, 300));
-          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
           const searchInput = await this.page.$('.select__input input');
           if (searchInput) {
@@ -2038,7 +2038,7 @@ export class GreenhouseScraper extends BaseScraper {
 
     try {
       // Wait for page to load after submit
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.humanDelay();
 
       // Check for email verification step before checking for confirmation
@@ -2116,7 +2116,7 @@ export class GreenhouseScraper extends BaseScraper {
         }
       }
 
-      return { success: true, message: 'Submission completed (no errors detected)' };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
     } catch (error) {
       return {
         success: false,
@@ -2253,7 +2253,7 @@ export class GreenhouseScraper extends BaseScraper {
       }
 
       // Wait for response
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.humanDelay();
 
       // Check if we got through to a confirmation/thank-you page
@@ -2348,25 +2348,59 @@ export class GreenhouseScraper extends BaseScraper {
     if (!this.page) throw new Error('Page not initialized');
 
     // Extract job title - try multiple selectors
+    // boards.greenhouse.io uses h1.app-title; job-boards.greenhouse.io uses h1 inside main content
     let title = await this.extractText('h1.app-title, h1[class*="job-title"], .job-title h1');
+    if (!title) {
+      title = await this.extractText('.app-title, [data-mapped="true"] h1');
+    }
     if (!title) {
       // Fallback: get any h1 on the page
       title = await this.extractText('h1');
     }
 
     // Extract company name (usually in the page or URL)
-    let company = await this.extractText('.company-name, [class*="company"]');
+    let company = await this.extractText('.company-name, [class*="company-name"]');
     if (!company) {
-      // Try to extract from URL (boards.greenhouse.io/companyname)
-      const urlMatch = url.match(/boards\.greenhouse\.io\/([^/]+)/);
+      // Try to extract from URL: boards.greenhouse.io/companyname or job-boards.greenhouse.io/companyname
+      const urlMatch = url.match(/(?:boards|job-boards)\.greenhouse\.io\/([^/]+)/);
       company = urlMatch ? urlMatch[1].replace(/-/g, ' ') : 'Unknown Company';
     }
 
-    // Extract job description
-    const description = await this.extractText('#content, .content, [class*="job-description"]');
+    // Extract job description — try platform-specific selectors first, then broader ones
+    // job-boards.greenhouse.io wraps content in sections/divs with varied classes
+    let description = await this.extractText('#content, .content, [class*="job-description"]');
+    if (!description || description.trim().length < 50) {
+      // Try broader extraction for job-boards.greenhouse.io
+      const sections = await this.extractAllText(
+        'section, .section, [class*="section"], .body, .job__description, ' +
+        '[data-mapped="true"], .posting-page, article'
+      );
+      const joined = sections.join('\n\n').trim();
+      if (joined.length > (description?.trim().length ?? 0)) {
+        description = joined;
+      }
+    }
+    if (!description || description.trim().length < 50) {
+      // Final fallback: get all text from main content area
+      description = await this.page.evaluate(() => {
+        // Exclude form elements, nav, header, footer from extraction
+        const excludeSelectors = 'form, nav, header, footer, [class*="application"], script, style';
+        const mainContent = document.querySelector('main, #app_body, .app-body, [role="main"]') || document.body;
+        const clone = mainContent.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll(excludeSelectors).forEach(el => el.remove());
+        return clone.textContent?.trim() ?? '';
+      });
+    }
 
     // Extract location
-    const location = await this.extractText('.location, [class*="location"]');
+    let location = await this.extractText('.location, [class*="location"]');
+    if (!location) {
+      // job-boards.greenhouse.io may store location in meta or different elements
+      location = await this.page.evaluate(() => {
+        const meta = document.querySelector('meta[property="og:description"]');
+        return meta?.getAttribute('content') ?? '';
+      });
+    }
 
     // Extract form fields
     const formFields = await this.extractFormFields();
@@ -2466,7 +2500,7 @@ export class GreenhouseScraper extends BaseScraper {
   private resolveGreenhouseUrl(url: string): string {
     try {
       const parsed = new URL(url);
-      // Already a greenhouse.io URL
+      // Already a greenhouse.io URL (boards.greenhouse.io or job-boards.greenhouse.io)
       if (parsed.hostname.includes('greenhouse.io')) return url;
 
       const ghJid = parsed.searchParams.get('gh_jid');

@@ -1,6 +1,6 @@
 import type { Profile, JobData, Application, GeneratedDocuments } from '../types';
 import { parseJobUrl } from '../utils/url-parser';
-import { scrapeJob, createScraper } from '../scrapers';
+import { scrapeJob, createScraper, BaseScraper } from '../scrapers';
 import { createAIProvider } from '../ai/provider';
 import { tailorResume } from '../ai/resume';
 import { generateCoverLetter, answerAllQuestions } from '../ai/cover-letter';
@@ -229,38 +229,75 @@ export class ApplicationOrchestrator {
       const maxRetries = Math.max(1, config.application.retryAttempts ?? 3);
       let lastError = '';
       let lastScreenshotPath: string | undefined;
+      // Create scraper once for reuse in retries
+      const scraper = createScraper(application.platform);
+      scraper.keepAlive = true;
 
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        logger.debug(`Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`);
-        spinner.start(attempt === 1 ? 'Submitting application...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
-        // Stop spinner so interactive prompts for unfillable fields can display on stdin
-        if (!autoMode) {
-          spinner.info(attempt === 1 ? 'Filling application form...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
-        }
+      try {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          logger.debug(`Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`);
+          spinner.start(attempt === 1 ? 'Submitting application...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
+          // Stop spinner so interactive prompts for unfillable fields can display on stdin
+          if (!autoMode) {
+            spinner.info(attempt === 1 ? 'Filling application form...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
+          }
 
-        try {
-          const submissionResult = await this.submitApplication(
-            application,
-            jobData,
-            profile,
-            documents,
-            autoMode,
-            resumePath,
-            coverLetterPath
-          );
-          lastScreenshotPath = submissionResult.screenshotPath;
+          try {
+            const submissionResult = await this.submitApplication(
+              application,
+              jobData,
+              profile,
+              documents,
+              autoMode,
+              resumePath,
+              coverLetterPath,
+              scraper
+            );
+            lastScreenshotPath = submissionResult.screenshotPath;
 
-          // Verify submission with AI screenshot analysis
-          if (submissionResult.screenshotPath) {
-            spinner.start('Verifying submission...');
+            // Verify submission with AI screenshot analysis
+            if (submissionResult.screenshotPath) {
+              spinner.start('Verifying submission...');
 
-            // Brief pause to let confirmation page fully render before verification
-            await new Promise((r) => setTimeout(r, 2000));
+              // Brief pause to let confirmation page fully render before verification
+              await new Promise((r) => setTimeout(r, 2000));
 
-            const verification = await verifySubmissionScreenshot(submissionResult.screenshotPath);
+              const verification = await verifySubmissionScreenshot(submissionResult.screenshotPath);
 
-            if (verification.submitted) {
-              logger.debug(`Submission verified with ${verification.confidence} confidence: ${verification.reason}`);
+              if (verification.submitted) {
+                logger.debug(`Submission verified with ${verification.confidence} confidence: ${verification.reason}`);
+                applicationRepository.update(application.id!, {
+                  status: 'submitted',
+                  applied_at: new Date().toISOString(),
+                });
+                spinner.succeed('Application submitted!');
+                return { success: true, application, documents, fitResult };
+              }
+
+              // Screenshot verification disagreed — but if scraper's DOM check confirmed success,
+              // trust the scraper (screenshot AI can misread pages)
+              if (verification.confidence === 'low') {
+                logger.debug(`Screenshot verification uncertain (${verification.confidence}): ${verification.reason} — trusting scraper result`);
+                applicationRepository.update(application.id!, {
+                  status: 'submitted',
+                  applied_at: new Date().toISOString(),
+                });
+                spinner.succeed('Application submitted!');
+                return { success: true, application, documents, fitResult };
+              }
+
+              // Not confirmed - prepare for retry
+              lastError = verification.errors?.length
+                ? `${verification.reason}: ${verification.errors.join(', ')}`
+                : verification.reason;
+              spinner.warn(`Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`);
+
+              if (attempt < maxRetries) {
+                logger.info('Retrying submission...');
+                await new Promise((r) => setTimeout(r, 2000)); // Wait before retry
+              }
+            } else {
+              // No screenshot to verify - trust scraper result
               applicationRepository.update(application.id!, {
                 status: 'submitted',
                 applied_at: new Date().toISOString(),
@@ -268,46 +305,18 @@ export class ApplicationOrchestrator {
               spinner.succeed('Application submitted!');
               return { success: true, application, documents, fitResult };
             }
-
-            // Screenshot verification disagreed — but if scraper's DOM check confirmed success,
-            // trust the scraper (screenshot AI can misread pages)
-            if (verification.confidence === 'low') {
-              logger.debug(`Screenshot verification uncertain (${verification.confidence}): ${verification.reason} — trusting scraper result`);
-              applicationRepository.update(application.id!, {
-                status: 'submitted',
-                applied_at: new Date().toISOString(),
-              });
-              spinner.succeed('Application submitted!');
-              return { success: true, application, documents, fitResult };
-            }
-
-            // Not confirmed - prepare for retry
-            lastError = verification.errors?.length
-              ? `${verification.reason}: ${verification.errors.join(', ')}`
-              : verification.reason;
-            spinner.warn(`Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`);
+          } catch (error) {
+            lastError = error instanceof Error ? error.message : 'Unknown error';
+            spinner.warn(`Submission attempt ${attempt} failed: ${lastError}`);
 
             if (attempt < maxRetries) {
-              logger.info('Retrying submission...');
-              await new Promise((r) => setTimeout(r, 2000)); // Wait before retry
+              await new Promise((r) => setTimeout(r, 2000));
             }
-          } else {
-            // No screenshot to verify - trust scraper result
-            applicationRepository.update(application.id!, {
-              status: 'submitted',
-              applied_at: new Date().toISOString(),
-            });
-            spinner.succeed('Application submitted!');
-            return { success: true, application, documents, fitResult };
-          }
-        } catch (error) {
-          lastError = error instanceof Error ? error.message : 'Unknown error';
-          spinner.warn(`Submission attempt ${attempt} failed: ${lastError}`);
-
-          if (attempt < maxRetries) {
-            await new Promise((r) => setTimeout(r, 2000));
           }
         }
+      } finally {
+        // Explicitly close scraper after loop
+        await scraper.close();
       }
 
       // All retries exhausted
@@ -341,9 +350,10 @@ export class ApplicationOrchestrator {
     documents: GeneratedDocuments,
     autoMode = false,
     resumePathOverride?: string,
-    coverLetterPathOverride?: string
+    coverLetterPathOverride?: string,
+    scraperOverride?: BaseScraper
   ): Promise<{ screenshotPath?: string }> {
-    const config = configRepository.loadAppConfig();
+    const _config = configRepository.loadAppConfig();
 
     // Ensure directories exist
     ensureAutoplyDir();
@@ -371,8 +381,8 @@ export class ApplicationOrchestrator {
       await generateCoverLetterPdf(documents.coverLetter, coverLetterPdfPath, profile.name);
     }
 
-    // Create scraper for this platform
-    const scraper = createScraper(application.platform);
+    // Create scraper for this platform (if not provided)
+    const scraper = scraperOverride ?? createScraper(application.platform);
 
     // Prepare answered questions
     const answeredQuestions = jobData.custom_questions;

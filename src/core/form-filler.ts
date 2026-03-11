@@ -78,6 +78,7 @@ const NEUTRAL_OPTION_PATTERNS = [
   /decline to answer/i,
   /do not wish to answer/i,
   /rather not say/i,
+  /prefer not to respond/i,
   /choose not to answer/i,
   /not disclosed/i,
   /no answer/i,
@@ -740,6 +741,11 @@ export class FormFiller {
         case 'text': {
           const input = await container.$('input[type="text"], input:not([type])');
           if (input) {
+            // Don't overwrite fields that already contain a valid URL (e.g. LinkedIn, GitHub)
+            const currentValue = await input.inputValue().catch(() => '');
+            if (currentValue && /^https?:\/\//i.test(currentValue)) {
+              return true; // Already filled with a URL, skip
+            }
             await input.fill(answer!);
             await this.humanDelay();
             return true;
@@ -776,10 +782,10 @@ export class FormFiller {
             const radios = await container.$$('input[type="radio"]');
             for (const radio of radios) {
               const radioValue = await radio.getAttribute('value');
-            const radioLabel = await this.root.evaluate((el) => {
-              const label = el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
-              return label?.textContent?.trim() || '';
-            }, radio);
+              const radioLabel = await this.root.evaluate((el) => {
+                const label = el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
+                return label?.textContent?.trim() || '';
+              }, radio);
 
               if (
                 radioValue === matchedOption ||
@@ -840,7 +846,7 @@ export class FormFiller {
     ];
 
     for (const selector of selectors) {
-    const containers = await this.root.$$(selector);
+      const containers = await this.root.$$(selector);
       for (const container of containers) {
         const text = await container.textContent();
         if (text?.toLowerCase().includes(normalizedQuestion)) {

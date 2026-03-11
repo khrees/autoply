@@ -9,7 +9,7 @@ export class SmartRecruitersScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('.job-sections, .job-ad-container', {
       timeout: 10000,
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // ============ SmartRecruiters Form Submission ============
@@ -22,7 +22,7 @@ export class SmartRecruitersScraper extends BaseScraper {
       if (!this.page) throw new Error('Browser not initialized');
 
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -72,7 +72,7 @@ export class SmartRecruitersScraper extends BaseScraper {
       if (button) {
         await this.humanDelay(true);
         await button.click();
-        await this.page.waitForLoadState('networkidle');
+        await this.page.waitForLoadState('domcontentloaded');
         return;
       }
     }
@@ -81,7 +81,7 @@ export class SmartRecruitersScraper extends BaseScraper {
   protected override async waitForApplicationForm(): Promise<void> {
     if (!this.page) return;
 
-    await this.page.waitForSelector('form, .application-form', { timeout: 10000 }).catch(() => {});
+    await this.page.waitForSelector('form, .application-form', { timeout: 10000 }).catch(() => { });
     await this.humanDelay(true);
   }
 
@@ -174,7 +174,7 @@ export class SmartRecruitersScraper extends BaseScraper {
         return { success: true, message: 'SmartRecruiters application submitted' };
       }
 
-      return { success: true, message: 'Submission completed' };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
     } catch {
       return { success: false, message: 'Confirmation check failed' };
     }

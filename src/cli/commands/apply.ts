@@ -12,7 +12,9 @@ import { applicationRepository } from '../../db/repositories/application';
 import { configRepository } from '../../db/repositories/config';
 import { logger, chalk } from '../../utils/logger';
 import { applicationQueue } from '../../core/queue';
+import { getAutoplyDir } from '../../db';
 import { existsSync } from 'fs';
+import { join } from 'path';
 import { extractTextFromFile } from '../../utils/document-extractor';
 import { createAIProvider } from '../../ai/provider';
 import { extractProfileFromResume } from '../../ai/profile-extractor';
@@ -32,12 +34,12 @@ export const applyCommand = new Command('apply')
     let profile = profileRepository.findFirst();
     if (!profile) {
       logger.error('No profile found.');
-      
+
       if (options.auto) {
         logger.error('Cannot use --auto without a profile. Run "autoply init" first.');
         process.exit(1);
       }
-      
+
       const createNow = await confirm({ message: 'Would you like to create one now?', default: true });
       if (createNow) {
         const resumePath = await input({
@@ -49,14 +51,14 @@ export const applyCommand = new Command('apply')
             return true;
           },
         });
-        
+
         const cleanedPath = resumePath.trim().replace(/^['"]|['"]$/g, '');
         const result = await extractTextFromFile(cleanedPath);
         if (!result.success) {
           logger.error(`Failed to extract resume: ${result.error}`);
           process.exit(1);
         }
-        
+
         logger.info('Extracting profile from resume...');
         const provider = createAIProvider();
         const isAvailable = await provider.isAvailable();
@@ -65,14 +67,18 @@ export const applyCommand = new Command('apply')
           logger.info('Fix: Run "ollama serve" for local AI, or set OPENAI_API_KEY / ANTHROPIC_API_KEY for cloud.');
           process.exit(1);
         }
-        
+
         const profileData = await extractProfileFromResume(provider, result.content!);
         profile = profileRepository.create(profileData);
-        configRepository.saveAppConfig(DEFAULT_CONFIG);
+        // Only initialize config if no config file exists yet
+        const configPath = join(getAutoplyDir(), 'config.json');
+        if (!existsSync(configPath)) {
+          configRepository.saveAppConfig(DEFAULT_CONFIG);
+        }
         logger.success(`Profile created for ${profile.name}`);
         logger.newline();
       }
-      
+
       if (!profile) {
         process.exit(1);
       }

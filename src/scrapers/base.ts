@@ -2,6 +2,7 @@ import type { Browser, Page, BrowserContext } from 'playwright';
 import { existsSync } from 'fs';
 import type { JobData, FormField, CustomQuestion, Platform, Profile, GeneratedDocuments, AIProvider } from '../types';
 import { configRepository } from '../db/repositories/config';
+import { logger } from '../utils/logger';
 import { FormFiller, type FormFillerOptions, type FillResult } from '../core/form-filler';
 import { extractJobDataWithAI, mergeJobData } from '../ai/job-extractor';
 
@@ -33,8 +34,11 @@ export abstract class BaseScraper {
   protected browser: Browser | null = null;
   protected context: BrowserContext | null = null;
   protected page: Page | null = null;
+  public keepAlive: boolean = false;
 
   async initialize(): Promise<void> {
+    if (this.browser && this.context && this.page) return;
+
     const config = configRepository.loadAppConfig();
     const { chromium } = await import('playwright');
     this.browser = await chromium.launch({
@@ -113,6 +117,8 @@ export abstract class BaseScraper {
   }
 
   async cleanup(): Promise<void> {
+    if (this.keepAlive) return;
+
     if (this.context) {
       await this.context.close();
       this.context = null;
@@ -124,6 +130,13 @@ export abstract class BaseScraper {
     this.page = null;
   }
 
+  async close(): Promise<void> {
+    const wasKeepAlive = this.keepAlive;
+    this.keepAlive = false;
+    await this.cleanup();
+    this.keepAlive = wasKeepAlive;
+  }
+
   async scrape(url: string, aiProvider?: AIProvider): Promise<JobData> {
     try {
       await this.initialize();
@@ -132,7 +145,7 @@ export abstract class BaseScraper {
       // Random delay before navigation
       await this.humanDelay();
 
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
 
       // Simulate human behavior: mouse movement and scrolling
       await this.humanDelay(true);
@@ -379,7 +392,7 @@ export abstract class BaseScraper {
 
       // Navigate to job posting
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -491,7 +504,7 @@ export abstract class BaseScraper {
         if (button) {
           await this.humanDelay(true);
           await button.click();
-          await this.page.waitForLoadState('networkidle');
+          await this.page.waitForLoadState('domcontentloaded', { timeout: 60000 });
           return;
         }
       } catch {
@@ -594,13 +607,14 @@ export abstract class BaseScraper {
 
     for (const selector of submitSelectors) {
       try {
-        const button = await this.page.$(selector);
-        if (button) {
+        const buttons = await this.page.$$(selector);
+        for (const button of buttons) {
           const isVisible = await button.isVisible();
           const isEnabled = await button.isEnabled();
 
           if (isVisible && isEnabled) {
             await this.humanDelay(true);
+            await button.scrollIntoViewIfNeeded();
             await button.click();
             return true;
           }
@@ -611,6 +625,60 @@ export abstract class BaseScraper {
     }
 
     return false;
+  }
+
+  /**
+   * Check for a Captcha challenge and wait for the user to solve it manually.
+   * Logs a message to the console if a captcha is detected.
+   */
+  protected async waitForCaptchaSolved(): Promise<boolean> {
+    if (!this.page) return false;
+
+    try {
+      // Look for common captcha iframes
+      const captchaSelectors = [
+        'iframe[src*="hcaptcha.com"]',
+        'iframe[title*="hCaptcha"]',
+        'iframe[src*="recaptcha"]',
+        'iframe[title*="recaptcha" i]',
+        'iframe[src*="challenges.cloudflare.com"]',
+      ];
+
+      for (const selector of captchaSelectors) {
+        const iframes = await this.page.$$(selector);
+
+        if (iframes.length > 0) {
+          logger.debug(`Found ${iframes.length} iframes matching ${selector}`);
+        }
+
+        for (let i = 0; i < iframes.length; i++) {
+          const captchaIframe = iframes[i];
+          const isVisible = await captchaIframe.isVisible();
+          logger.debug(`Iframe ${i} isVisible: ${isVisible}`);
+
+          if (isVisible) {
+            logger.info('CAPTCHA detected! Please solve it manually in the browser window.');
+
+            // Wait for the captcha to be solved (the iframe will typically become hidden or be removed)
+            try {
+              // Wait for up to 2 minutes for the user to solve it
+              await captchaIframe.waitForElementState('hidden', { timeout: 120000 });
+              logger.success('CAPTCHA appears to be solved! Continuing submission...');
+              await this.humanDelay(true); // Wait a bit after solving
+              return true;
+            } catch (waitError) {
+              logger.warning('Timed out waiting for CAPTCHA to be solved manually. Continuing anyway...');
+              return false;
+            }
+          }
+        }
+      }
+
+      return false; // No captcha detected
+    } catch (error) {
+      logger.debug(`Error checking for captcha: ${error}`);
+      return false;
+    }
   }
 
   /**
@@ -641,7 +709,7 @@ export abstract class BaseScraper {
       ];
 
       // Wait for page to stabilize after submit
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.humanDelay();
 
       // Check for success indicators
@@ -688,8 +756,8 @@ export abstract class BaseScraper {
         return { success: true, message: 'Application submitted (URL indicates success)' };
       }
 
-      // No clear indicator - assume success if no errors
-      return { success: true, message: 'Submission completed (no errors detected)' };
+      // No clear indicator found
+      return { success: false, message: 'Could not confirm submission status (no clear success or error indicators found)' };
     } catch (error) {
       return {
         success: false,
@@ -742,7 +810,7 @@ export abstract class BaseScraper {
       if (nextButton) {
         await this.humanDelay(true);
         await nextButton.click();
-        await this.page.waitForLoadState('networkidle').catch(() => {});
+        await this.page.waitForLoadState('domcontentloaded').catch(() => { });
         await this.humanDelay(true);
       } else {
         hasNextButton = false;
@@ -857,5 +925,5 @@ export abstract class BaseScraper {
 }
 
 export interface ScraperConstructor {
-  new (): BaseScraper;
+  new(): BaseScraper;
 }

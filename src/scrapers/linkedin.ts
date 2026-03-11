@@ -9,7 +9,7 @@ export class LinkedInScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('.job-view-layout, .jobs-unified-top-card', {
       timeout: 15000,
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // ============ LinkedIn Easy Apply Form Submission ============
@@ -27,7 +27,7 @@ export class LinkedInScraper extends BaseScraper {
 
       // Navigate to job posting
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -305,7 +305,7 @@ export class LinkedInScraper extends BaseScraper {
     if (countryCodeSelect) {
       const countryCode = this.deriveCountryCodeFromLocation(profile.location);
       if (countryCode) {
-        await countryCodeSelect.selectOption({ value: countryCode }).catch(() => {});
+        await countryCodeSelect.selectOption({ value: countryCode }).catch(() => { });
       }
     }
   }
@@ -408,7 +408,7 @@ export class LinkedInScraper extends BaseScraper {
         await this.page.waitForTimeout(1000);
         const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child');
         if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => {});
+          await autocompleteOption.click().catch(() => { });
         }
       }
     }
@@ -429,7 +429,7 @@ export class LinkedInScraper extends BaseScraper {
         await this.page.waitForTimeout(1000);
         const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child');
         if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => {});
+          await autocompleteOption.click().catch(() => { });
         }
       }
     }
@@ -439,7 +439,7 @@ export class LinkedInScraper extends BaseScraper {
     if (degreeInput) {
       const tagName = await degreeInput.evaluate((el) => el.tagName.toLowerCase());
       if (tagName === 'select') {
-        await degreeInput.selectOption({ label: latestEducation.degree }).catch(() => {});
+        await degreeInput.selectOption({ label: latestEducation.degree }).catch(() => { });
       } else {
         const currentValue = await degreeInput.inputValue();
         if (!currentValue) {
@@ -488,9 +488,9 @@ export class LinkedInScraper extends BaseScraper {
       const noRadio = await group.$('input[value*="No"], input[value="false"], label:has-text("No") input');
 
       if (selectYes && yesRadio) {
-        await yesRadio.check().catch(() => {});
+        await yesRadio.check().catch(() => { });
       } else if (!selectYes && noRadio) {
-        await noRadio.check().catch(() => {});
+        await noRadio.check().catch(() => { });
       }
     }
   }
@@ -636,8 +636,8 @@ export class LinkedInScraper extends BaseScraper {
       }
 
       return {
-        success: true,
-        message: 'Submission completed (no errors detected)',
+        success: false,
+        message: 'Could not confirm submission status (no clear success indicator found)',
         errors: [],
       };
     } catch (error) {

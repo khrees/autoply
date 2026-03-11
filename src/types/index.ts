@@ -15,7 +15,7 @@ export type Platform =
   | 'generic';
 
 export const SUPPORTED_PLATFORMS: Record<Platform, RegExp> = {
-  greenhouse: /boards\.greenhouse\.io|[?&]gh_jid=|greenhouse\.io\/embed/,
+  greenhouse: /(?:job-)?boards\.greenhouse\.io|[?&]gh_jid=|greenhouse\.io\/embed/,
   linkedin: /linkedin\.com\/jobs/,
   lever: /jobs\.lever\.co/,
   jobvite: /jobs\.jobvite\.com/,

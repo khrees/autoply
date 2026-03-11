@@ -77,7 +77,7 @@ describe('ApplicationQueue', () => {
     beforeEach(() => {
       const item1 = queue.add('https://example.com/job1');
       const item2 = queue.add('https://example.com/job2');
-      const item3 = queue.add('https://example.com/job3');
+      const _item3 = queue.add('https://example.com/job3');
 
       queue.updateStatus(item1.id, 'completed');
       queue.updateStatus(item2.id, 'failed', 'Network error');

@@ -77,7 +77,7 @@ configCommand
   .command('providers')
   .description('List available AI providers')
   .action(() => {
-    const providers = getAvailableProviders();
+    getAvailableProviders();
 
     logger.header('Available AI Providers');
 

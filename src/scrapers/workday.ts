@@ -9,7 +9,7 @@ export class WorkdayScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('[data-automation-id="jobPostingHeader"], .css-1q2dra3, [data-automation-id="jobPostingDescription"]', {
       timeout: 15000,
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // ============ Workday Form Submission ============
@@ -22,7 +22,7 @@ export class WorkdayScraper extends BaseScraper {
       if (!this.page) throw new Error('Browser not initialized');
 
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -78,7 +78,7 @@ export class WorkdayScraper extends BaseScraper {
       if (button) {
         await this.humanDelay(true);
         await button.click();
-        await this.page.waitForLoadState('networkidle');
+        await this.page.waitForLoadState('domcontentloaded');
         return;
       }
     }
@@ -89,7 +89,7 @@ export class WorkdayScraper extends BaseScraper {
 
     await this.page.waitForSelector('[data-automation-id="applicationForm"], [data-automation-id*="input"]', {
       timeout: 15000,
-    }).catch(() => {});
+    }).catch(() => { });
     await this.humanDelay(true);
   }
 
@@ -215,7 +215,7 @@ export class WorkdayScraper extends BaseScraper {
         return { success: true, message: 'Workday application submitted', errors: [] };
       }
 
-      return { success: true, message: 'Submission completed', errors: [] };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)', errors: [] };
     } catch {
       return { success: false, message: 'Confirmation check failed', errors: [] };
     }

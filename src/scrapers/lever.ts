@@ -9,7 +9,7 @@ export class LeverScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('.posting-headline, .content', {
       timeout: 10000,
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // ============ Lever-specific Form Submission ============
@@ -35,7 +35,7 @@ export class LeverScraper extends BaseScraper {
           if (isVisible) {
             await this.humanDelay(true);
             await button.click();
-            await this.page.waitForLoadState('networkidle');
+            await this.page.waitForLoadState('domcontentloaded', { timeout: 60000 });
             return;
           }
         }
@@ -75,7 +75,8 @@ export class LeverScraper extends BaseScraper {
 
       // Navigate to job posting
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await this.waitForContent();
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -143,6 +144,12 @@ export class LeverScraper extends BaseScraper {
           errors,
         };
       }
+
+      // Give the system a moment to show captcha if it exists
+      await this.page.waitForTimeout(2000);
+
+      // Handle captcha if it appears
+      await this.waitForCaptchaSolved();
 
       // Wait for confirmation
       const confirmation = await this.waitForLeverConfirmation();
@@ -377,13 +384,14 @@ export class LeverScraper extends BaseScraper {
 
     for (const selector of submitSelectors) {
       try {
-        const button = await this.page.$(selector);
-        if (button) {
+        const buttons = await this.page.$$(selector);
+        for (const button of buttons) {
           const isVisible = await button.isVisible();
           const isEnabled = await button.isEnabled();
 
           if (isVisible && isEnabled) {
             await this.humanDelay(true);
+            await button.scrollIntoViewIfNeeded();
             await button.click();
             return true;
           }
@@ -400,7 +408,7 @@ export class LeverScraper extends BaseScraper {
     if (!this.page) return { success: false, message: 'Page not initialized' };
 
     try {
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded', { timeout: 60000 }).catch(() => { });
       await this.humanDelay();
 
       // Check for confirmation
@@ -450,7 +458,7 @@ export class LeverScraper extends BaseScraper {
         }
       }
 
-      return { success: true, message: 'Submission completed (no errors detected)' };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
     } catch (error) {
       return {
         success: false,
@@ -463,10 +471,17 @@ export class LeverScraper extends BaseScraper {
     if (!this.page) throw new Error('Page not initialized');
 
     // Extract job title
-    const title = await this.extractText('.posting-headline h2, h1.posting-title');
+    const title = await this.extractText('.posting-header h2, .posting-headline h2, h1.posting-title');
 
     // Extract company name
-    let company = await this.extractText('.posting-headline .company, .main-header-content h1');
+    let company = await this.extractText('.posting-header .company, .posting-headline .company, .main-header-content h1');
+    if (!company) {
+      // Try to get from logo alt text
+      const logoAlt = await this.page.$eval('.main-header-logo img', (img) => (img as HTMLImageElement).alt).catch(() => '');
+      if (logoAlt) {
+        company = logoAlt.replace(/logo/i, '').trim();
+      }
+    }
     if (!company) {
       // Extract from URL: jobs.lever.co/companyname
       const urlMatch = url.match(/jobs\.lever\.co\/([^/]+)/);
@@ -504,6 +519,23 @@ export class LeverScraper extends BaseScraper {
     };
   }
 
+  // URL-like fields that are already handled by fillLeverUrls — skip them as custom questions
+  private static readonly URL_FIELD_PATTERNS = [
+    /linkedin/i,
+    /github/i,
+    /twitter/i,
+    /portfolio/i,
+    /website/i,
+    /google\s*scholar/i,
+    /design\s*portfolio/i,
+    /personal\s*site/i,
+    /blog\s*url/i,
+  ];
+
+  private isUrlField(label: string): boolean {
+    return LeverScraper.URL_FIELD_PATTERNS.some((pattern) => pattern.test(label));
+  }
+
   private async extractCustomQuestions(): Promise<CustomQuestion[]> {
     if (!this.page) return [];
 
@@ -511,18 +543,21 @@ export class LeverScraper extends BaseScraper {
 
     // Look for custom question containers
     const questionContainers = await this.page.$$(
-      '.custom-question, .application-question, [class*="custom-field"]'
+      '.custom-question, .application-question, li.application-question, [class*="custom-field"]'
     );
 
     for (let i = 0; i < questionContainers.length; i++) {
       const container = questionContainers[i];
 
       const questionText = await container.$eval(
-        'label, .question-label',
+        'label, .question-label, .application-label .text, .application-label',
         (el) => el.textContent?.trim() ?? ''
       ).catch(() => '');
 
       if (!questionText) continue;
+
+      // Skip URL fields — they're already handled by fillLeverUrls
+      if (this.isUrlField(questionText)) continue;
 
       const hasTextarea = (await container.$('textarea')) !== null;
       const hasSelect = (await container.$('select')) !== null;

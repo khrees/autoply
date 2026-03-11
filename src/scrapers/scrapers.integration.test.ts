@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { chromium } from 'playwright';
 import { GreenhouseScraper } from './greenhouse';
 import { LeverScraper } from './lever';
