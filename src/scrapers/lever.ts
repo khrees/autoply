@@ -135,6 +135,25 @@ export class LeverScraper extends BaseScraper {
         errors.push(...validation.errors);
       }
 
+      // If fillOnly mode, skip submission — leave browser open for user
+      if (options.fillOnly) {
+        const { configRepository } = await import('../db/repositories/config');
+        const config = configRepository.loadAppConfig();
+        let screenshotPath: string | undefined;
+        if (config.application.saveScreenshots) {
+          const { getAutoplyDir } = await import('../db');
+          const { join } = await import('path');
+          screenshotPath = join(getAutoplyDir(), 'screenshots', `lever_filled_${Date.now()}.png`);
+          await this.takeScreenshot(screenshotPath);
+        }
+        return {
+          success: true,
+          message: 'Form filled successfully. Review and submit manually in the browser.',
+          screenshotPath,
+          errors,
+        };
+      }
+
       // Submit
       const submitted = await this.clickLeverSubmit();
       if (!submitted) {

@@ -45,15 +45,16 @@ export class WorkdayScraper extends BaseScraper {
       errors.push(...result.errors);
 
       // Screenshot
+      const { takeScreenshotIfEnabled } = await import('./helpers');
       const { configRepository } = await import('../db/repositories/config');
-      const config = configRepository.loadAppConfig();
-      let screenshotPath: string | undefined;
-      if (config.application.saveScreenshots) {
-        const { getAutoplyDir } = await import('../db');
-        const { join } = await import('path');
-        screenshotPath = join(getAutoplyDir(), 'screenshots', `workday_${Date.now()}.png`);
-        await this.takeScreenshot(screenshotPath);
-      }
+      const { getAutoplyDir } = await import('../db');
+      
+      const screenshotPath = await takeScreenshotIfEnabled(
+        this.page, 
+        `workday_${Date.now()}`, 
+        configRepository.loadAppConfig, 
+        getAutoplyDir
+      );
 
       return { success: result.success, message: result.message, screenshotPath, errors };
     } catch (error) {

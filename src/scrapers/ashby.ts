@@ -242,30 +242,7 @@ export class AshbyScraper extends BaseScraper {
 
     const containers = await context.$$('.ashby-application-form-field, [data-testid*="application"], [data-testid*="field"]');
 
-    const getOptionLabel = async (el: import('playwright').ElementHandle): Promise<string> => {
-      return (await el.evaluate((node) => {
-        const element = node as HTMLElement;
-        const text = element.textContent?.trim();
-        if (text) return text;
-
-        if (element instanceof HTMLInputElement && element.type === 'radio') {
-          const id = element.id;
-          if (id) {
-            const label = document.querySelector(`label[for="${id}"]`);
-            if (label?.textContent?.trim()) return label.textContent.trim();
-          }
-          const parentLabel = element.closest('label');
-          if (parentLabel?.textContent?.trim()) return parentLabel.textContent.trim();
-          const ariaLabel = element.getAttribute('aria-label');
-          if (ariaLabel?.trim()) return ariaLabel.trim();
-        }
-
-        const ariaLabel = element.getAttribute('aria-label');
-        if (ariaLabel?.trim()) return ariaLabel.trim();
-
-        return '';
-      })) as string;
-    };
+    const { getOptionLabel } = await import('./helpers');
 
     for (const container of containers) {
       try {
@@ -485,29 +462,6 @@ export class AshbyScraper extends BaseScraper {
     }
   }
 
-  private async getAIAnswer(
-    profile: SubmissionOptions['profile'],
-    jobData: SubmissionOptions['jobData'],
-    label: string,
-    options?: { type?: CustomQuestion['type']; choices?: string[] }
-  ): Promise<string | null> {
-    try {
-      const { createAIProvider } = await import('../ai/provider');
-      const { answerApplicationQuestion } = await import('../ai/cover-letter');
-      const provider = createAIProvider();
-      const answer = await answerApplicationQuestion(
-        provider,
-        profile,
-        jobData,
-        label,
-        options
-      );
-      return answer?.trim() || null;
-    } catch {
-      return null;
-    }
-  }
-
   private async clickAshbySubmit(context: import('playwright').Page | import('playwright').Frame): Promise<boolean> {
     if (!this.page) return false;
 
@@ -607,59 +561,7 @@ export class AshbyScraper extends BaseScraper {
     errors: string[],
     filler: FormFiller
   ): Promise<void> {
-    const normalize = (text: string): string =>
-      text.toLowerCase().replace(/\s+/g, ' ').replace(/\*+$/, '').trim();
-
-    const getOptionLabel = async (el: import('playwright').ElementHandle): Promise<string> => {
-      return (await el.evaluate((node) => {
-        const element = node as HTMLElement;
-        const text = element.textContent?.trim();
-        if (text) return text;
-
-        if (element instanceof HTMLInputElement && element.type === 'radio') {
-          const id = element.id;
-          if (id) {
-            const label = document.querySelector(`label[for="${id}"]`);
-            if (label?.textContent?.trim()) return label.textContent.trim();
-          }
-          const parentLabel = element.closest('label');
-          if (parentLabel?.textContent?.trim()) return parentLabel.textContent.trim();
-          const ariaLabel = element.getAttribute('aria-label');
-          if (ariaLabel?.trim()) return ariaLabel.trim();
-        }
-
-        const ariaLabel = element.getAttribute('aria-label');
-        if (ariaLabel?.trim()) return ariaLabel.trim();
-
-        return '';
-      })) as string;
-    };
-
-    const getAccessibleName = async (el: import('playwright').ElementHandle): Promise<string> => {
-      return (await el.evaluate((node) => {
-        const element = node as HTMLElement;
-        const ariaLabel = element.getAttribute('aria-label');
-        if (ariaLabel?.trim()) return ariaLabel.trim();
-
-        const labelledBy = element.getAttribute('aria-labelledby');
-        if (labelledBy) {
-          const ids = labelledBy.split(/\s+/);
-          const labelText = ids
-            .map((id) => document.getElementById(id)?.textContent?.trim() || '')
-            .filter(Boolean)
-            .join(' ');
-          if (labelText) return labelText;
-        }
-
-        const parentLabel = element.closest('label');
-        if (parentLabel?.textContent?.trim()) return parentLabel.textContent.trim();
-
-        const prev = element.previousElementSibling as HTMLElement | null;
-        if (prev?.textContent?.trim()) return prev.textContent.trim();
-
-        return element.textContent?.trim() || '';
-      })) as string;
-    };
+    const { normalizeLabel: normalize, getOptionLabel, getAccessibleName, clickMatchingOption } = await import('./helpers');
 
     const pickBestOption = (label: string, optionsList: string[]): string | null => {
       const candidates: string[] = [];
@@ -696,15 +598,10 @@ export class AshbyScraper extends BaseScraper {
         return true;
       }
       if (!target) return false;
-      for (const opt of optionElements) {
-        const t = await opt.textContent();
-        if (t?.trim().toLowerCase() === target.toLowerCase()) {
-          await opt.click().catch(() => { });
-          await this.humanDelay(true);
-          return true;
-        }
-      }
-      return false;
+      
+      const clicked = await clickMatchingOption(optionElements, target, false, async (el) => (await el.textContent())?.trim() ?? '');
+      if (clicked) await this.humanDelay(true);
+      return clicked;
     };
 
     const findComboboxByLabel = async (label: string): Promise<import('playwright').ElementHandle | null> => {
@@ -763,13 +660,19 @@ export class AshbyScraper extends BaseScraper {
 
       const optionLabels = optionData.map((o) => o.label);
       const target = pickBestOption(label, optionLabels);
+      
+      const getLabelFn = async (el: import('playwright').ElementHandle) => optionData.find(o => o.el === el)?.label ?? '';
+      
       if (target) {
-        for (const opt of optionData) {
-          if (opt.label.toLowerCase() === target.toLowerCase()) {
-            await opt.el.click().catch(() => { });
-            await this.humanDelay(true);
-            return true;
-          }
+        const clicked = await clickMatchingOption(
+          optionData.map(o => o.el),
+          target,
+          false,
+          getLabelFn
+        );
+        if (clicked) {
+          await this.humanDelay(true);
+          return true;
         }
       }
 
@@ -789,16 +692,18 @@ export class AshbyScraper extends BaseScraper {
         });
         if (userAnswer) {
           const targetAnswer = filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
-          for (const opt of optionData) {
-            if (opt.label.toLowerCase() === targetAnswer.toLowerCase()) {
-              await opt.el.click().catch(() => { });
-              await this.humanDelay(true);
-              return true;
-            }
+          const clicked = await clickMatchingOption(
+            optionData.map(o => o.el),
+            targetAnswer,
+            false,
+            getLabelFn
+          );
+          if (clicked) {
+            await this.humanDelay(true);
+            return true;
           }
         }
       }
-
       return false;
     };
 

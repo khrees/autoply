@@ -13,6 +13,15 @@ export interface SubmissionResult {
   errors: string[];
 }
 
+export interface FillApplicationResult {
+  success: boolean;
+  message: string;
+  screenshotPath?: string;
+  filledFields: string[];
+  skippedFields: string[];
+  errors: string[];
+}
+
 export interface SubmissionOptions {
   profile: Profile;
   jobData: JobData;
@@ -21,6 +30,8 @@ export interface SubmissionOptions {
   coverLetterPath?: string;
   answeredQuestions?: CustomQuestion[];
   autoMode?: boolean;
+  /** When true, fill the form but do not click submit — leave the browser open for the user */
+  fillOnly?: boolean;
 }
 
 // Random delay to mimic human behavior
@@ -376,6 +387,35 @@ export abstract class BaseScraper {
     }
   }
 
+  // ============ AI Field Answering ============
+
+  /**
+   * Use AI to answer a form question based on user profile and job data.
+   * Can be used by subclasses when standard form-filling fails.
+   */
+  protected async getAIAnswer(
+    profile: Profile,
+    jobData: JobData,
+    label: string,
+    options?: { type?: CustomQuestion['type']; choices?: string[] }
+  ): Promise<string | null> {
+    try {
+      const { createAIProvider } = await import('../ai/provider');
+      const { answerApplicationQuestion } = await import('../ai/cover-letter');
+      const provider = createAIProvider();
+      const answer = await answerApplicationQuestion(
+        provider,
+        profile,
+        jobData,
+        label,
+        options
+      );
+      return answer?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
   // ============ Form Submission Methods ============
 
   /**
@@ -418,6 +458,19 @@ export abstract class BaseScraper {
         errors.push(...formResult.errors);
       }
 
+      // Upload resume
+      if (options.resumePath) {
+        const uploaded = await this.uploadFile(options.resumePath, 'resume');
+        if (!uploaded) {
+          errors.push('Failed to upload resume');
+        }
+      }
+
+      // Upload cover letter
+      if (options.coverLetterPath) {
+        await this.uploadFile(options.coverLetterPath, 'cover_letter');
+      }
+
       // Fill custom questions
       if (options.answeredQuestions && options.answeredQuestions.length > 0) {
         const questionsResult = await filler.fillCustomQuestions(options.answeredQuestions);
@@ -426,6 +479,12 @@ export abstract class BaseScraper {
         }
       }
 
+      // Perform any platform-specific custom form filling
+      await this.postFormFill(options, filler, errors);
+
+      // Perform any pre-submit actions (e.g., handling specific validations or captchas)
+      await this.preSubmitActions(options, errors);
+
       // Platform-specific pre-submit validation
       const validationResult = await this.validateBeforeSubmit();
       if (!validationResult.valid) {
@@ -433,6 +492,21 @@ export abstract class BaseScraper {
         return {
           success: false,
           message: 'Form validation failed',
+          errors,
+        };
+      }
+
+      // If fillOnly mode, skip submission — leave browser open for user
+      if (options.fillOnly) {
+        // Take screenshot for records
+        const { takeScreenshotIfEnabled } = await import('./helpers');
+        const { getAutoplyDir } = await import('../db');
+        const screenshotPath = await takeScreenshotIfEnabled(this.page, `filled_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
+
+        return {
+          success: true,
+          message: 'Form filled successfully. Review and submit manually in the browser.',
+          screenshotPath,
           errors,
         };
       }
@@ -451,14 +525,9 @@ export abstract class BaseScraper {
       const confirmationResult = await this.waitForSubmissionConfirmation();
 
       // Take screenshot for records
-      const config = configRepository.loadAppConfig();
-      let screenshotPath: string | undefined;
-      if (config.application.saveScreenshots) {
-        const { getAutoplyDir } = await import('../db');
-        const { join } = await import('path');
-        screenshotPath = join(getAutoplyDir(), 'screenshots', `submission_${Date.now()}.png`);
-        await this.takeScreenshot(screenshotPath);
-      }
+      const { takeScreenshotIfEnabled } = await import('./helpers');
+      const { getAutoplyDir } = await import('../db');
+      const screenshotPath = await takeScreenshotIfEnabled(this.page, `submission_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
 
       return {
         success: confirmationResult.success,
@@ -476,6 +545,111 @@ export abstract class BaseScraper {
     } finally {
       await this.cleanup();
     }
+  }
+
+  /**
+   * Fill an application form without submitting it.
+   * Navigates to the job page, fills all form fields,
+   * then keeps the browser open for the user to review and submit manually.
+   */
+  async fillApplication(url: string, options: SubmissionOptions): Promise<FillApplicationResult> {
+    const errors: string[] = [];
+    const filledFields: string[] = [];
+    const skippedFields: string[] = [];
+
+    try {
+      await this.initialize();
+      if (!this.page) throw new Error('Browser not initialized');
+
+      // Navigate to job posting
+      await this.humanDelay();
+      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await this.humanDelay(true);
+      await this.humanScroll();
+
+      // Navigate to application form (platform-specific)
+      await this.navigateToApplicationForm();
+      await this.waitForApplicationForm();
+
+      // Create form filler
+      const fillerOptions: FormFillerOptions = {
+        resumePath: options.resumePath,
+        coverLetterPath: options.coverLetterPath,
+        answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
+      };
+
+      const filler = new FormFiller(this.page, options.profile, options.jobData, fillerOptions);
+
+      // Extract form fields from the live form, fall back to pre-scraped data
+      const liveFormFields = await this.extractFormFields();
+      const formFields = liveFormFields.length > 0 ? liveFormFields : options.jobData.form_fields;
+      const formResult = await filler.fillForm(formFields);
+      filledFields.push(...formResult.filledFields);
+      skippedFields.push(...formResult.skippedFields);
+      if (formResult.errors.length > 0) {
+        errors.push(...formResult.errors);
+      }
+
+      // Upload resume
+      if (options.resumePath) {
+        await this.uploadFile(options.resumePath, 'resume');
+      }
+
+      // Upload cover letter
+      if (options.coverLetterPath) {
+        await this.uploadFile(options.coverLetterPath, 'cover_letter');
+      }
+
+      // Fill custom questions
+      if (options.answeredQuestions && options.answeredQuestions.length > 0) {
+        const questionsResult = await filler.fillCustomQuestions(options.answeredQuestions);
+        filledFields.push(...questionsResult.filledFields);
+        skippedFields.push(...questionsResult.skippedFields);
+        if (questionsResult.errors.length > 0) {
+          errors.push(...questionsResult.errors);
+        }
+      }
+
+      // Perform any platform-specific custom form filling
+      await this.postFormFill(options, filler, errors);
+
+      // Perform any pre-submit actions (e.g., handling specific validations or captchas)
+      await this.preSubmitActions(options, errors);
+
+      // Platform-specific pre-submit validation
+      const validationResult = await this.validateBeforeSubmit();
+      if (!validationResult.valid) {
+        errors.push(...validationResult.errors);
+      }
+
+      // Take screenshot for records
+      const { takeScreenshotIfEnabled } = await import('./helpers');
+      const { getAutoplyDir } = await import('../db');
+      const screenshotPath = await takeScreenshotIfEnabled(this.page, `filled_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
+
+      // Do NOT submit — leave browser open for user to review
+      // Do NOT call cleanup — keep the browser alive
+
+      return {
+        success: true,
+        message: 'Form filled successfully. Review and submit manually in the browser.',
+        screenshotPath,
+        filledFields,
+        skippedFields,
+        errors,
+      };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'Unknown error');
+      return {
+        success: false,
+        message: 'Form filling failed with error',
+        filledFields,
+        skippedFields,
+        errors,
+      };
+    }
+    // Note: no finally/cleanup — browser stays open for user to submit manually
   }
 
   /**
@@ -921,6 +1095,24 @@ export abstract class BaseScraper {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Hook for platform-specific post-form-fill actions (e.g., custom dropdowns).
+   * Override in subclass.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async postFormFill(options: SubmissionOptions, filler: FormFiller, errors: string[]): Promise<void> {
+    // Override in platform-specific scrapers
+  }
+
+  /**
+   * Hook for pre-submit validations and final touches (e.g., waiting for specific validations or captchas).
+   * Override in subclass.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async preSubmitActions(options: SubmissionOptions, errors: string[]): Promise<void> {
+    // Override in platform-specific scrapers
   }
 }
 

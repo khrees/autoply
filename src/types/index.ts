@@ -81,7 +81,7 @@ export type Education = z.infer<typeof EducationSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
 
 // ============ Application Types ============
-export type ApplicationStatus = 'pending' | 'submitted' | 'failed';
+export type ApplicationStatus = 'pending' | 'filled' | 'submitted' | 'failed';
 
 export interface Application {
   id?: number;
