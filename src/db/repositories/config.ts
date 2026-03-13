@@ -1,12 +1,32 @@
 import { getDb, getAutoplyDir } from '../index';
-import { join } from 'path';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { dirname, join } from 'path';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import type { AppConfig } from '../../types';
 import { DEFAULT_CONFIG } from '../../types';
 
-const CONFIG_FILE = join(getAutoplyDir(), 'config.json');
+function mergeAppConfig(config: Partial<AppConfig> | null | undefined): AppConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    ...config,
+    ai: {
+      ...DEFAULT_CONFIG.ai,
+      ...config?.ai,
+    },
+    browser: {
+      ...DEFAULT_CONFIG.browser,
+      ...config?.browser,
+    },
+    application: {
+      ...DEFAULT_CONFIG.application,
+      ...config?.application,
+    },
+    cachedAnswers: config?.cachedAnswers ?? DEFAULT_CONFIG.cachedAnswers,
+  };
+}
 
 export class ConfigRepository {
+  constructor(private readonly configPath = join(getAutoplyDir(), 'config.json')) {}
+
   // Database-based config (for key-value pairs)
   get(key: string): string | null {
     const db = getDb();
@@ -40,19 +60,20 @@ export class ConfigRepository {
 
   // File-based config (for AppConfig object)
   loadAppConfig(): AppConfig {
-    if (existsSync(CONFIG_FILE)) {
+    if (existsSync(this.configPath)) {
       try {
-        const content = readFileSync(CONFIG_FILE, 'utf-8');
-        return { ...DEFAULT_CONFIG, ...JSON.parse(content) };
+        const content = readFileSync(this.configPath, 'utf-8');
+        return mergeAppConfig(JSON.parse(content) as Partial<AppConfig>);
       } catch {
-        return DEFAULT_CONFIG;
+        return mergeAppConfig(undefined);
       }
     }
-    return DEFAULT_CONFIG;
+    return mergeAppConfig(undefined);
   }
 
   saveAppConfig(config: AppConfig): void {
-    writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    mkdirSync(dirname(this.configPath), { recursive: true });
+    writeFileSync(this.configPath, JSON.stringify(config, null, 2));
   }
 
   updateAppConfig(updates: Partial<AppConfig>): AppConfig {

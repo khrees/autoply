@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import type { Profile } from '../types';
+import {
+  getDeterministicFieldValue,
+  getExpectedIdentityValue,
+  getIdentityAssertionKey,
+  matchesIdentityFieldValue,
+  normalizeLocationInput,
+  requiresHumanAnswer,
+  shouldAllowAIAnswer,
+} from './form-filler';
 
 // Import the FIELD_PATTERNS by recreating them for testing
 // (since they're not exported from form-filler.ts)
@@ -316,67 +325,16 @@ describe('FormFiller Value Extraction Logic', () => {
   };
 
   // Helper to test value extraction logic
-  // Note: Order matters! More specific patterns should be checked first
   function getValueForField(
     label: string,
     name: string,
     profile: Profile
   ): string | null {
-    const combined = `${label.toLowerCase()} ${name.toLowerCase()}`;
-
-    // Check more specific patterns first
-    if (FIELD_PATTERNS.firstName.test(combined)) {
-      return profile.name.split(' ')[0] || null;
-    }
-    if (FIELD_PATTERNS.lastName.test(combined)) {
-      const parts = profile.name.split(' ');
-      return parts.length > 1 ? parts.slice(1).join(' ') : null;
-    }
-    if (FIELD_PATTERNS.fullName.test(combined)) {
-      return profile.name;
-    }
-    if (FIELD_PATTERNS.email.test(combined)) {
-      return profile.email;
-    }
-    if (FIELD_PATTERNS.phone.test(combined)) {
-      return profile.phone || null;
-    }
-    // Check relocation BEFORE location (relocation is more specific)
-    if (FIELD_PATTERNS.relocation.test(combined)) {
-      return profile.preferences?.remote_only ? 'No' : 'Yes';
-    }
-    if (FIELD_PATTERNS.location.test(combined)) {
-      return profile.location || null;
-    }
-    if (FIELD_PATTERNS.linkedin.test(combined)) {
-      return profile.linkedin_url || null;
-    }
-    if (FIELD_PATTERNS.github.test(combined)) {
-      return profile.github_url || null;
-    }
-    if (FIELD_PATTERNS.portfolio.test(combined)) {
-      return profile.portfolio_url || null;
-    }
-    if (FIELD_PATTERNS.workAuthorization.test(combined)) {
-      return 'Yes';
-    }
-    if (FIELD_PATTERNS.sponsorship.test(combined)) {
-      return 'No';
-    }
-    if (FIELD_PATTERNS.currentCompany.test(combined)) {
-      return profile.experience[0]?.company || null;
-    }
-    if (FIELD_PATTERNS.currentTitle.test(combined)) {
-      return profile.experience[0]?.title || null;
-    }
-    if (FIELD_PATTERNS.startDate.test(combined) || FIELD_PATTERNS.noticePeriod.test(combined)) {
-      return '2 weeks';
-    }
-    if (FIELD_PATTERNS.referral.test(combined)) {
-      return 'Online Job Board';
-    }
-
-    return null;
+    return getDeterministicFieldValue(profile, {
+      label,
+      name,
+      type: 'text',
+    });
   }
 
   test('extracts first name from profile', () => {
@@ -427,14 +385,14 @@ describe('FormFiller Value Extraction Logic', () => {
     expect(getValueForField('Website', 'website', mockProfile)).toBe('https://johndoe.dev');
   });
 
-  test('returns Yes for work authorization', () => {
-    expect(getValueForField('Authorized to work', 'work_auth', mockProfile)).toBe('Yes');
-    expect(getValueForField('Legally authorized', 'legally_authorized', mockProfile)).toBe('Yes');
+  test('does not guess work authorization', () => {
+    expect(getValueForField('Authorized to work', 'work_auth', mockProfile)).toBe(null);
+    expect(getValueForField('Legally authorized', 'legally_authorized', mockProfile)).toBe(null);
   });
 
-  test('returns No for sponsorship by default', () => {
-    expect(getValueForField('Require sponsorship', 'sponsorship', mockProfile)).toBe('No');
-    expect(getValueForField('Visa sponsor', 'visa_sponsor', mockProfile)).toBe('No');
+  test('does not guess sponsorship answers', () => {
+    expect(getValueForField('Require sponsorship', 'sponsorship', mockProfile)).toBe(null);
+    expect(getValueForField('Visa sponsor', 'visa_sponsor', mockProfile)).toBe(null);
   });
 
   test('extracts current company from experience', () => {
@@ -457,24 +415,9 @@ describe('FormFiller Value Extraction Logic', () => {
     expect(getValueForField('Source', 'source', mockProfile)).toBe('Online Job Board');
   });
 
-  test('returns Yes for relocation when not remote only', () => {
-    // Note: 'Willing to relocate' contains 'to' which would need careful ordering
-    // The actual form-filler checks patterns in order, so use specific patterns
-    expect(getValueForField('', 'willingToRelocate', mockProfile)).toBe('Yes');
-    expect(getValueForField('Open to relocate', '', mockProfile)).toBe('Yes');
-  });
-
-  test('returns No for relocation when remote only', () => {
-    const remoteProfile: Profile = {
-      ...mockProfile,
-      preferences: {
-        remote_only: true,
-        preferred_locations: mockProfile.preferences?.preferred_locations ?? [],
-        excluded_companies: mockProfile.preferences?.excluded_companies ?? [],
-        job_types: mockProfile.preferences?.job_types ?? [],
-      },
-    };
-    expect(getValueForField('', 'willingToRelocate', remoteProfile)).toBe('No');
+  test('does not guess relocation answers', () => {
+    expect(getValueForField('', 'willingToRelocate', mockProfile)).toBe(null);
+    expect(getValueForField('Open to relocate', '', mockProfile)).toBe(null);
   });
 
   test('returns null for unrecognized fields', () => {
@@ -640,5 +583,88 @@ describe('Years of Experience Calculation', () => {
     ];
     // 18 months rounds to 2 years
     expect(calculateYearsExperience(experience)).toBe('2');
+  });
+});
+
+describe('requiresHumanAnswer', () => {
+  test('flags work authorization and sponsorship questions', () => {
+    expect(requiresHumanAnswer('Are you based in the US or Canada?')).toBe(true);
+    expect(requiresHumanAnswer('Will you now or in the future require a visa sponsorship or transfer?')).toBe(true);
+    expect(requiresHumanAnswer('Are you legally authorized to work in the United States?')).toBe(true);
+  });
+
+  test('flags hybrid and onsite attendance questions', () => {
+    expect(
+      requiresHumanAnswer(
+        'Are you willing and able to come onsite to our Brisbane, CA location Tues-Thurs on a weekly basis?'
+      )
+    ).toBe(true);
+    expect(requiresHumanAnswer('This is a hybrid role. Can you work onsite three days per week?')).toBe(true);
+  });
+
+  test('allows normal role-fit questions', () => {
+    expect(requiresHumanAnswer('In a few words, what makes you the ideal candidate for this position?')).toBe(
+      false
+    );
+    expect(requiresHumanAnswer('Describe your experience supporting API integrations.')).toBe(false);
+  });
+});
+
+describe('normalizeLocationInput', () => {
+  test('removes administrative suffixes for autocomplete fields', () => {
+    expect(normalizeLocationInput('Lagos State, Nigeria')).toBe('Lagos, Nigeria');
+    expect(normalizeLocationInput('Ontario Province, Canada')).toBe('Ontario, Canada');
+  });
+
+  test('preserves already clean locations', () => {
+    expect(normalizeLocationInput('San Francisco, CA')).toBe('San Francisco, CA');
+    expect(normalizeLocationInput('Berlin, Germany')).toBe('Berlin, Germany');
+  });
+});
+
+describe('field guardrails', () => {
+  const profile: Profile = {
+    name: 'Christian Ndu',
+    email: 'christiannduh@gmail.com',
+    phone: '+234 812 927 0350',
+    location: 'Lagos State, Nigeria',
+    linkedin_url: 'https://linkedin.com/in/ndu-christian',
+    github_url: 'https://github.com/khrees/2412',
+    portfolio_url: 'https://example.com',
+    skills: ['Go', 'TypeScript'],
+    experience: [
+      {
+        company: 'Mono',
+        title: 'Technical Product Specialist',
+        start_date: '2024-12-01',
+        highlights: ['Debugged issues'],
+      },
+    ],
+    education: [],
+  };
+
+  test('blocks AI for identity, compliance, and demographic fields', () => {
+    expect(shouldAllowAIAnswer({ label: 'Email address', type: 'text' })).toBe(false);
+    expect(shouldAllowAIAnswer({ label: 'Will you now or in the future require visa sponsorship?', type: 'select' })).toBe(false);
+    expect(shouldAllowAIAnswer({ label: 'Gender', type: 'select' })).toBe(false);
+    expect(shouldAllowAIAnswer({ label: 'Why are you interested in this role?', type: 'textarea' })).toBe(true);
+  });
+
+  test('does not guess compliance answers deterministically', () => {
+    expect(
+      getDeterministicFieldValue(profile, { label: 'Are you legally authorized to work in the United States?', type: 'select' })
+    ).toBeNull();
+    expect(
+      getDeterministicFieldValue(profile, { label: 'Will you require visa sponsorship?', type: 'select' })
+    ).toBeNull();
+  });
+
+  test('derives identity assertions from labels and matches expected values', () => {
+    expect(getIdentityAssertionKey({ label: 'Full name', type: 'text' })).toBe('fullName');
+    expect(getIdentityAssertionKey({ label: 'Current location', type: 'text' })).toBe('location');
+    expect(getExpectedIdentityValue(profile, 'email')).toBe('christiannduh@gmail.com');
+    expect(matchesIdentityFieldValue('phone', '+2348129270350', '+234 812 927 0350')).toBe(true);
+    expect(matchesIdentityFieldValue('location', 'Lagos State, Nigeria', 'Lagos, Nigeria')).toBe(true);
+    expect(matchesIdentityFieldValue('fullName', 'Christian Ndu', 'Christina Diaz')).toBe(false);
   });
 });

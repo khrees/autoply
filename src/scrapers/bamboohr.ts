@@ -86,7 +86,7 @@ ${pageText.slice(0, 6000)}`,
 
     try {
       const _profile = options.profile; // Unused for now
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Navigate to job posting

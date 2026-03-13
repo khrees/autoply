@@ -85,6 +85,8 @@ Determine if the application was SUCCESSFULLY SUBMITTED or NOT.
 Look for:
 - SUCCESS indicators: "Thank you", "Application submitted", "We received your application", confirmation messages, success banners, green checkmarks
 - FAILURE indicators: Form still visible with empty fields, error messages, validation errors (red text, "required", "please fill"), the submit button still visible and clickable
+- Focus on confirmation state only. Do NOT infer or invent the applicant's name, email, phone number, or other personal details.
+- If personal details are not clearly legible in the screenshot, omit them from your reasoning.
 
 Respond in JSON format:
 {

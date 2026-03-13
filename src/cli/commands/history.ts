@@ -3,17 +3,19 @@ import { applicationRepository } from '../../db/repositories/application';
 import { logger, chalk } from '../../utils/logger';
 import type { ApplicationStatus } from '../../types';
 
+const VALID_STATUSES: ApplicationStatus[] = ['pending', 'filled', 'submitted', 'failed'];
+
 export const historyCommand = new Command('history')
   .description('View application history')
-  .option('-s, --status <status>', 'Filter by status (pending, submitted, failed)')
+  .option('-s, --status <status>', 'Filter by status (pending, filled, submitted, failed)')
   .option('-c, --company <name>', 'Filter by company name')
   .option('-l, --limit <number>', 'Limit number of results', '20')
   .action((options: { status?: string; company?: string; limit: string }) => {
     const filters: { status?: ApplicationStatus; company?: string } = {};
 
     if (options.status) {
-      if (!['pending', 'submitted', 'failed'].includes(options.status)) {
-        logger.error('Invalid status. Use: pending, submitted, or failed');
+      if (!VALID_STATUSES.includes(options.status as ApplicationStatus)) {
+        logger.error(`Invalid status. Use: ${VALID_STATUSES.join(', ')}`);
         process.exit(1);
       }
       filters.status = options.status as ApplicationStatus;
@@ -43,6 +45,8 @@ export const historyCommand = new Command('history')
           ? chalk.green
           : app.status === 'failed'
           ? chalk.red
+          : app.status === 'filled'
+          ? chalk.cyan
           : chalk.yellow;
 
       console.log(
@@ -69,6 +73,7 @@ export const historyCommand = new Command('history')
       total: applications.length,
       submitted: applications.filter((a) => a.status === 'submitted').length,
       pending: applications.filter((a) => a.status === 'pending').length,
+      filled: applications.filter((a) => a.status === 'filled').length,
       failed: applications.filter((a) => a.status === 'failed').length,
     };
 
@@ -77,6 +82,7 @@ export const historyCommand = new Command('history')
     logger.keyValue('  Total', stats.total.toString());
     logger.keyValue('  Submitted', chalk.green(stats.submitted.toString()));
     logger.keyValue('  Pending', chalk.yellow(stats.pending.toString()));
+    logger.keyValue('  Filled', chalk.cyan(stats.filled.toString()));
     logger.keyValue('  Failed', chalk.red(stats.failed.toString()));
   });
 
@@ -86,6 +92,11 @@ historyCommand
   .option('-s, --status <status>', 'Only clear applications with specific status')
   .action(async (options: { status?: string }) => {
     const { confirm } = await import('@inquirer/prompts');
+
+    if (options.status && !VALID_STATUSES.includes(options.status as ApplicationStatus)) {
+      logger.error(`Invalid status. Use: ${VALID_STATUSES.join(', ')}`);
+      process.exit(1);
+    }
 
     const applications = applicationRepository.findAll(
       options.status ? { status: options.status as ApplicationStatus } : undefined

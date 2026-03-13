@@ -3,8 +3,8 @@ import { applicationOrchestrator } from '../../core/application';
 import { parseJobUrl, getSupportedPlatforms } from '../../utils/url-parser';
 import { profileRepository } from '../../db/repositories/profile';
 import { logger } from '../../utils/logger';
-import { existsSync, mkdirSync } from 'fs';
-import { resolve } from 'path';
+import { copyFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
+import { dirname, resolve } from 'path';
 
 export const generateCommand = new Command('generate')
   .description('Generate documents without applying');
@@ -84,7 +84,7 @@ async function generateDocument(
   }
 
   const resolvedPath = resolve(outputPath);
-  const outputDir = resolvedPath.substring(0, resolvedPath.lastIndexOf('/')) || '.';
+  const outputDir = dirname(resolvedPath);
 
   if (!existsSync(outputDir)) {
     mkdirSync(outputDir, { recursive: true });
@@ -96,10 +96,14 @@ async function generateDocument(
     logger.newline();
     logger.success('Document generated successfully!');
 
-    if (type === 'resume' && result.resumePath) {
-      logger.keyValue('Output', result.resumePath);
-    } else if (type === 'cover-letter' && result.coverLetterPath) {
-      logger.keyValue('Output', result.coverLetterPath);
+    const generatedPath = type === 'resume' ? result.resumePath : result.coverLetterPath;
+    if (generatedPath && generatedPath !== resolvedPath) {
+      copyFileSync(generatedPath, resolvedPath);
+      unlinkSync(generatedPath);
+    }
+
+    if (generatedPath) {
+      logger.keyValue('Output', resolvedPath);
     }
   } catch (error) {
     logger.error(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);

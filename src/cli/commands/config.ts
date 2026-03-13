@@ -46,12 +46,26 @@ configCommand
 
     logger.newline();
     console.log(chalk.bold('Browser Settings:'));
+    logger.keyValue('  Engine', config.browser.engine);
     logger.keyValue('  Headless', config.browser.headless ? 'Yes' : 'No');
     logger.keyValue('  Timeout', `${config.browser.timeout}ms`);
+    logger.keyValue('  Reuse Sessions', config.browser.reuseSessions ? 'Yes' : 'No');
+    logger.keyValue('  Max Pages / Browser', config.browser.maxOpenPagesPerBrowser.toString());
+    logger.keyValue('  Retire After Pages', config.browser.retireBrowserAfterPageCount.toString());
+    logger.keyValue('  Idle Close', `${config.browser.closeInactiveBrowserAfterMillis}ms`);
+    logger.keyValue(
+      '  Patchright Hosts',
+      config.browser.patchrightHosts.length > 0 ? config.browser.patchrightHosts.join(', ') : 'None'
+    );
+    logger.keyValue(
+      '  Patchright Platforms',
+      config.browser.patchrightPlatforms.length > 0 ? config.browser.patchrightPlatforms.join(', ') : 'None'
+    );
 
     logger.newline();
     console.log(chalk.bold('Application Settings:'));
     logger.keyValue('  Auto Submit', config.application.autoSubmit ? 'Yes' : 'No');
+    logger.keyValue('  Fill Optional Fields', config.application.fillOptionalFields ? 'Yes' : 'No');
     logger.keyValue('  Save Screenshots', config.application.saveScreenshots ? 'Yes' : 'No');
     logger.keyValue('  Retry Attempts', config.application.retryAttempts.toString());
   });

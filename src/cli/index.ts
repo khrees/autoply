@@ -11,6 +11,7 @@ import { statusCommand } from './commands/status';
 import { importCommand } from './commands/import';
 import { closeDb } from '../db';
 import { setVerbose } from '../utils/logger';
+import { browserManager } from '../core/browser-manager';
 
 const program = new Command();
 
@@ -40,15 +41,18 @@ program.addCommand(importCommand);
 
 // Cleanup on exit
 process.on('exit', () => {
+  void browserManager.closeAll();
   closeDb();
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
+  await browserManager.closeAll();
   closeDb();
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
+  await browserManager.closeAll();
   closeDb();
   process.exit(0);
 });

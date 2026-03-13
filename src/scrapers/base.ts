@@ -1,10 +1,19 @@
 import type { Browser, Page, BrowserContext } from 'playwright';
-import { existsSync } from 'fs';
 import type { JobData, FormField, CustomQuestion, Platform, Profile, GeneratedDocuments, AIProvider } from '../types';
 import { configRepository } from '../db/repositories/config';
 import { logger } from '../utils/logger';
-import { FormFiller, type FormFillerOptions, type FillResult } from '../core/form-filler';
+import {
+  FormFiller,
+  type IdentityAssertionKey,
+  type FormFillerOptions,
+  type FillResult,
+  getExpectedIdentityValue,
+  getIdentityAssertionKey,
+  matchesIdentityFieldValue,
+  shouldAllowAIAnswer,
+} from '../core/form-filler';
 import { extractJobDataWithAI, mergeJobData } from '../ai/job-extractor';
+import { browserManager, type BrowserSession } from '../core/browser-manager';
 
 export interface SubmissionResult {
   success: boolean;
@@ -45,64 +54,22 @@ export abstract class BaseScraper {
   protected browser: Browser | null = null;
   protected context: BrowserContext | null = null;
   protected page: Page | null = null;
+  protected browserSession: BrowserSession | null = null;
+  protected browserSelectionUrl: string | null = null;
   public keepAlive: boolean = false;
+  protected isScraping = false;
 
-  async initialize(): Promise<void> {
+  async initialize(url?: string): Promise<void> {
     if (this.browser && this.context && this.page) return;
 
     const config = configRepository.loadAppConfig();
-    const { chromium } = await import('playwright');
-    this.browser = await chromium.launch({
-      headless: config.browser.headless,
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--disable-features=IsolateOrigins,site-per-process',
-      ],
-    });
-    this.context = await this.browser.newContext({
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      storageState: config.browser.storageState && existsSync(config.browser.storageState)
-        ? config.browser.storageState
-        : undefined,
-      viewport: { width: 1920, height: 1080 },
-      locale: Intl.DateTimeFormat().resolvedOptions().locale || 'en-US',
-      timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-    });
-
-    // Mask automation indicators
-    await this.context.addInitScript(() => {
-      // Remove webdriver flag
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-      // Mock plugins (real browsers have these)
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => [
-          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-          { name: 'Native Client', filename: 'internal-nacl-plugin' },
-        ],
-      });
-
-      // Mock languages
-      Object.defineProperty(navigator, 'languages', {
-        get: () => navigator.language ? [navigator.language, 'en'] : ['en'],
-      });
-
-      // Hide automation-related Chrome properties
-      const originalQuery = window.navigator.permissions.query;
-      window.navigator.permissions.query = (parameters: PermissionDescriptor) => {
-        if (parameters.name === 'notifications') {
-          return Promise.resolve({ state: 'prompt', onchange: null } as PermissionStatus);
-        }
-        return originalQuery(parameters);
-      };
-
-      // Mask Chrome property
-      (window as unknown as { chrome: unknown }).chrome = { runtime: {} };
-    });
-
-    this.page = await this.context.newPage();
+    this.browserSession = await browserManager.createSession(
+      this.platform,
+      this.browserSelectionUrl ?? url
+    );
+    this.browser = this.browserSession.browser;
+    this.context = this.browserSession.context;
+    this.page = this.browserSession.page;
     this.page.setDefaultTimeout(config.browser.timeout);
   }
 
@@ -130,14 +97,13 @@ export abstract class BaseScraper {
   async cleanup(): Promise<void> {
     if (this.keepAlive) return;
 
-    if (this.context) {
-      await this.context.close();
-      this.context = null;
+    if (this.browserSession) {
+      await this.browserSession.release();
+      this.browserSession = null;
     }
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-    }
+
+    this.context = null;
+    this.browser = null;
     this.page = null;
   }
 
@@ -148,9 +114,15 @@ export abstract class BaseScraper {
     this.keepAlive = wasKeepAlive;
   }
 
+  async waitForBrowserClose(): Promise<void> {
+    if (!this.browserSession) return;
+    await this.browserSession.waitForClose();
+  }
+
   async scrape(url: string, aiProvider?: AIProvider): Promise<JobData> {
+    this.isScraping = true;
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Random delay before navigation
@@ -183,7 +155,10 @@ export abstract class BaseScraper {
 
       return jobData;
     } finally {
-      await this.cleanup();
+      this.isScraping = false;
+      if (!this.keepAlive) {
+        await this.cleanup();
+      }
     }
   }
 
@@ -237,9 +212,10 @@ export abstract class BaseScraper {
       const type = ((await input.getAttribute('type')) ?? 'text') as FormField['type'];
       const label = await this.findLabelForInput(input);
       const required = (await input.getAttribute('required')) !== null;
+      const value = await input.inputValue().catch(() => '');
 
       if (name || label) {
-        fields.push({ name, type, label, required });
+        fields.push({ name, type, label, required, value: value || undefined });
       }
     }
 
@@ -249,9 +225,10 @@ export abstract class BaseScraper {
       const name = (await textarea.getAttribute('name')) ?? '';
       const label = await this.findLabelForInput(textarea);
       const required = (await textarea.getAttribute('required')) !== null;
+      const value = await textarea.inputValue().catch(() => '');
 
       if (name || label) {
-        fields.push({ name, type: 'textarea', label, required });
+        fields.push({ name, type: 'textarea', label, required, value: value || undefined });
       }
     }
 
@@ -264,9 +241,10 @@ export abstract class BaseScraper {
       const options = await select.$$eval('option', (opts) =>
         opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
       );
+      const value = await select.inputValue().catch(() => '');
 
       if (name || label) {
-        fields.push({ name, type: 'select', label, required, options });
+        fields.push({ name, type: 'select', label, required, options, value: value || undefined });
       }
     }
 
@@ -399,6 +377,10 @@ export abstract class BaseScraper {
     label: string,
     options?: { type?: CustomQuestion['type']; choices?: string[] }
   ): Promise<string | null> {
+    if (!shouldAllowAIAnswer({ label, type: options?.type, options: options?.choices })) {
+      return null;
+    }
+
     try {
       const { createAIProvider } = await import('../ai/provider');
       const { answerApplicationQuestion } = await import('../ai/cover-letter');
@@ -427,7 +409,7 @@ export abstract class BaseScraper {
     const errors: string[] = [];
 
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Navigate to job posting
@@ -435,6 +417,7 @@ export abstract class BaseScraper {
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await this.humanDelay(true);
       await this.humanScroll();
+      await this.waitForContent();
 
       // Navigate to application form (platform-specific)
       await this.navigateToApplicationForm();
@@ -484,6 +467,16 @@ export abstract class BaseScraper {
 
       // Perform any pre-submit actions (e.g., handling specific validations or captchas)
       await this.preSubmitActions(options, errors);
+
+      const integrityResult = await this.validateProfileIntegrity(options.profile);
+      if (!integrityResult.valid) {
+        errors.push(...integrityResult.errors);
+        return {
+          success: false,
+          message: 'Profile integrity validation failed',
+          errors,
+        };
+      }
 
       // Platform-specific pre-submit validation
       const validationResult = await this.validateBeforeSubmit();
@@ -558,7 +551,7 @@ export abstract class BaseScraper {
     const skippedFields: string[] = [];
 
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Navigate to job posting
@@ -566,6 +559,7 @@ export abstract class BaseScraper {
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await this.humanDelay(true);
       await this.humanScroll();
+      await this.waitForContent();
 
       // Navigate to application form (platform-specific)
       await this.navigateToApplicationForm();
@@ -616,6 +610,11 @@ export abstract class BaseScraper {
 
       // Perform any pre-submit actions (e.g., handling specific validations or captchas)
       await this.preSubmitActions(options, errors);
+
+      const integrityResult = await this.validateProfileIntegrity(options.profile);
+      if (!integrityResult.valid) {
+        errors.push(...integrityResult.errors);
+      }
 
       // Platform-specific pre-submit validation
       const validationResult = await this.validateBeforeSubmit();
@@ -753,6 +752,40 @@ export abstract class BaseScraper {
         if (label) {
           errors.push(`Required field "${label}" is empty`);
         }
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  protected async validateProfileIntegrity(profile: Profile): Promise<{ valid: boolean; errors: string[] }> {
+    const liveFormFields = await this.extractFormFields();
+    const candidateFields = new Map<IdentityAssertionKey, FormField>();
+
+    for (const field of liveFormFields) {
+      const key = getIdentityAssertionKey(field);
+      if (!key) continue;
+
+      const existing = candidateFields.get(key);
+      const currentValueLength = (field.value ?? '').trim().length;
+      const existingValueLength = (existing?.value ?? '').trim().length;
+
+      if (!existing || currentValueLength > existingValueLength) {
+        candidateFields.set(key, field);
+      }
+    }
+
+    const errors: string[] = [];
+    for (const [key, field] of candidateFields) {
+      const actualValue = field.value?.trim();
+      if (!actualValue) continue;
+
+      const expectedValue = getExpectedIdentityValue(profile, key);
+      if (!expectedValue) continue;
+
+      if (!matchesIdentityFieldValue(key, expectedValue, actualValue)) {
+        const label = field.label || field.name || key;
+        errors.push(`Identity field "${label}" does not match the saved profile`);
       }
     }
 

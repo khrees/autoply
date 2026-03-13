@@ -18,7 +18,7 @@ export class WorkdayScraper extends BaseScraper {
     const errors: string[] = [];
 
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       await this.humanDelay();

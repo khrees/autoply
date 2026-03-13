@@ -65,6 +65,12 @@ const HUMAN_ONLY_PATTERNS = [
   /country[\s_-]?of[\s_-]?residence/i,
   /citizenship/i,
   /nationality/i,
+  /based[\s_-]?in[\s_-]?(?:the[\s_-]?)?(?:us|u\.s\.|united[\s_-]?states|canada)/i,
+  /(?:us|u\.s\.|united[\s_-]?states|canada)[\s_-]?.*based/i,
+  /work[\s_-]?auth|authorized[\s_-]?to[\s_-]?work|legally[\s_-]?authorized|right[\s_-]?to[\s_-]?work/i,
+  /visa[\s_-]?(?:sponsor|sponsorship|transfer)|require.*visa|require.*sponsor/i,
+  /hybrid|onsite|on[\s_-]?site|come[\s_-]?onsite|weekly[\s_-]?basis/i,
+  /relocation|willing[\s_-]?to[\s_-]?relocate|willing[\s_-]?and[\s_-]?able.*onsite/i,
   /\bssn\b|social[\s_-]?security/i,
   /\botp\b|verification[\s_-]?code|one[\s_-]?time[\s_-]?password/i,
   /date[\s_-]?of[\s_-]?birth|\bdob\b|birth[\s_-]?date/i,
@@ -97,6 +103,8 @@ export interface FormFillerOptions {
   resumePath?: string;
   coverLetterPath?: string;
   answeredQuestions?: CustomQuestion[];
+  /** When true, fill non-required fields instead of leaving them blank */
+  fillOptionalFields?: boolean;
   /** When true, prompt user for unfillable fields. Reads from config if not set. */
   interactivePrompts?: boolean;
   /** When true, skip all interactive prompts (e.g. --auto mode) */
@@ -108,6 +116,295 @@ export interface FillResult {
   filledFields: string[];
   skippedFields: string[];
   errors: string[];
+}
+
+export function requiresHumanAnswer(questionText: string): boolean {
+  return HUMAN_ONLY_PATTERNS.some((pattern) => pattern.test(questionText));
+}
+
+export type IdentityAssertionKey =
+  | 'firstName'
+  | 'lastName'
+  | 'fullName'
+  | 'email'
+  | 'phone'
+  | 'location';
+
+type FieldLike = {
+  label?: string;
+  name?: string;
+  type?: FormField['type'] | CustomQuestion['type'];
+  options?: string[];
+  value?: string;
+};
+
+function getFieldContext(field: FieldLike | string): string {
+  if (typeof field === 'string') return field.toLowerCase();
+  return `${field.label || ''} ${field.name || ''}`.toLowerCase();
+}
+
+function calculateYearsExperienceForProfile(profile: Profile): string {
+  if (profile.experience.length === 0) {
+    return '0';
+  }
+
+  let totalMonths = 0;
+  for (const exp of profile.experience) {
+    const start = new Date(exp.start_date);
+    const end = exp.end_date ? new Date(exp.end_date) : new Date();
+    const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    totalMonths += Math.max(0, months);
+  }
+
+  const years = Math.round(totalMonths / 12);
+  return years.toString();
+}
+
+function getProfileText(profile: Profile): string {
+  const experienceText = profile.experience
+    .map((exp) => [exp.title, exp.description, ...(exp.highlights || [])].join(' '))
+    .join(' ');
+  return `${profile.skills.join(' ')} ${experienceText}`.toLowerCase();
+}
+
+export function isSensitiveQuestionLabel(label: string): boolean {
+  return SENSITIVE_QUESTION_PATTERNS.some((pattern) => pattern.test(label));
+}
+
+export function isIdentityField(field: FieldLike | string): boolean {
+  const context = getFieldContext(field);
+  return (
+    FIELD_PATTERNS.firstName.test(context) ||
+    FIELD_PATTERNS.lastName.test(context) ||
+    FIELD_PATTERNS.fullName.test(context) ||
+    FIELD_PATTERNS.email.test(context) ||
+    FIELD_PATTERNS.phone.test(context) ||
+    FIELD_PATTERNS.location.test(context)
+  );
+}
+
+export function isComplianceField(field: FieldLike | string): boolean {
+  const context = getFieldContext(field);
+  return (
+    FIELD_PATTERNS.workAuthorization.test(context) ||
+    FIELD_PATTERNS.sponsorship.test(context) ||
+    FIELD_PATTERNS.country.test(context) ||
+    FIELD_PATTERNS.ageVerification.test(context) ||
+    FIELD_PATTERNS.relocation.test(context) ||
+    requiresHumanAnswer(context)
+  );
+}
+
+export function shouldAllowAIAnswer(field: FieldLike | string): boolean {
+  const label = typeof field === 'string' ? field : field.label || field.name || '';
+  if (!label) return false;
+
+  return !(
+    isIdentityField(field) ||
+    isComplianceField(field) ||
+    isSensitiveQuestionLabel(label)
+  );
+}
+
+export function getIdentityAssertionKey(field: FieldLike | string): IdentityAssertionKey | null {
+  const context = getFieldContext(field);
+
+  if (FIELD_PATTERNS.firstName.test(context)) return 'firstName';
+  if (FIELD_PATTERNS.lastName.test(context)) return 'lastName';
+  if (FIELD_PATTERNS.fullName.test(context)) return 'fullName';
+  if (FIELD_PATTERNS.email.test(context)) return 'email';
+  if (FIELD_PATTERNS.phone.test(context)) return 'phone';
+  if (FIELD_PATTERNS.location.test(context)) return 'location';
+
+  return null;
+}
+
+export function getExpectedIdentityValue(profile: Profile, key: IdentityAssertionKey): string | null {
+  switch (key) {
+    case 'firstName':
+      return profile.name.split(' ')[0] || null;
+    case 'lastName': {
+      const parts = profile.name.split(' ');
+      return parts.length > 1 ? parts.slice(1).join(' ') : null;
+    }
+    case 'fullName':
+      return profile.name;
+    case 'email':
+      return profile.email;
+    case 'phone':
+      return profile.phone || null;
+    case 'location':
+      return profile.location || null;
+    default:
+      return null;
+  }
+}
+
+function normalizeComparableText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function normalizeComparablePhone(value: string): string {
+  return value.replace(/\D+/g, '');
+}
+
+function normalizeComparableLocation(value: string): string {
+  return normalizeLocationInput(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function matchesIdentityFieldValue(
+  key: IdentityAssertionKey,
+  expected: string,
+  actual: string
+): boolean {
+  switch (key) {
+    case 'email':
+      return normalizeComparableText(expected) === normalizeComparableText(actual);
+    case 'phone':
+      return normalizeComparablePhone(expected) === normalizeComparablePhone(actual);
+    case 'location': {
+      const normalizedExpected = normalizeComparableLocation(expected);
+      const normalizedActual = normalizeComparableLocation(actual);
+      return (
+        normalizedExpected === normalizedActual ||
+        normalizedExpected.includes(normalizedActual) ||
+        normalizedActual.includes(normalizedExpected)
+      );
+    }
+    default:
+      return normalizeComparableText(expected) === normalizeComparableText(actual);
+  }
+}
+
+export function getDeterministicFieldValue(
+  profile: Profile,
+  field: FieldLike,
+  allowAssumptions = true
+): string | null {
+  const combined = getFieldContext(field);
+  const isChoiceField = field.type === 'radio' || field.type === 'select' || field.type === 'checkbox';
+
+  if (FIELD_PATTERNS.firstName.test(combined)) {
+    return profile.name.split(' ')[0] || null;
+  }
+
+  if (FIELD_PATTERNS.lastName.test(combined)) {
+    const parts = profile.name.split(' ');
+    return parts.length > 1 ? parts.slice(1).join(' ') : null;
+  }
+
+  if (FIELD_PATTERNS.fullName.test(combined)) {
+    return profile.name;
+  }
+
+  if (FIELD_PATTERNS.email.test(combined)) {
+    return profile.email;
+  }
+
+  if (FIELD_PATTERNS.phone.test(combined)) {
+    return profile.phone || null;
+  }
+
+  if (FIELD_PATTERNS.location.test(combined)) {
+    return profile.location || null;
+  }
+
+  if (FIELD_PATTERNS.linkedin.test(combined)) {
+    return profile.linkedin_url || null;
+  }
+
+  if (FIELD_PATTERNS.github.test(combined)) {
+    return profile.github_url || null;
+  }
+
+  if (FIELD_PATTERNS.portfolio.test(combined)) {
+    return profile.portfolio_url || null;
+  }
+
+  if (FIELD_PATTERNS.yearsExperience.test(combined)) {
+    return calculateYearsExperienceForProfile(profile);
+  }
+
+  if (isChoiceField) {
+    const yearsThresholdMatch = combined.match(/(\d+)\s*(?:\+|plus|or\s+more|or\s+greater|or\s+above)/i);
+    if (yearsThresholdMatch) {
+      const threshold = Number.parseInt(yearsThresholdMatch[1], 10);
+      const years = Number.parseInt(calculateYearsExperienceForProfile(profile), 10);
+      if (!Number.isNaN(threshold) && !Number.isNaN(years)) {
+        return years >= threshold ? 'Yes' : 'No';
+      }
+    }
+  }
+
+  if (
+    isChoiceField &&
+    /front[\s-]?end.*back[\s-]?end|back[\s-]?end.*front[\s-]?end|full[\s-]?stack/i.test(combined)
+  ) {
+    const profileText = getProfileText(profile);
+    const hasFrontend = /(frontend|front-end|react|vue|angular|svelte|html|css)\b/i.test(profileText);
+    const hasBackend =
+      /(backend|back-end|api|server|node|golang|go|python|java|c#|ruby|postgres|mysql|redis)\b/i.test(
+        profileText
+      );
+    return hasFrontend && hasBackend ? 'Yes' : 'No';
+  }
+
+  if (isChoiceField && /(0[\s-]?1|zero[\s-]?to[\s-]?one|from\s*0\s*to\s*1)/i.test(combined)) {
+    const profileText = getProfileText(profile);
+    const hasLeadership = /(led|lead|owned|owner|launched|built|end-to-end|end to end|from scratch|0-1)/i.test(
+      profileText
+    );
+    return hasLeadership ? 'Yes' : 'No';
+  }
+
+  if (FIELD_PATTERNS.currentCompany.test(combined)) {
+    const latestExp = profile.experience[0];
+    return latestExp?.company || null;
+  }
+
+  if (FIELD_PATTERNS.currentTitle.test(combined)) {
+    const latestExp = profile.experience[0];
+    return latestExp?.title || null;
+  }
+
+  if (allowAssumptions) {
+    if (FIELD_PATTERNS.startDate.test(combined) || FIELD_PATTERNS.noticePeriod.test(combined)) {
+      return '2 weeks';
+    }
+
+    if (FIELD_PATTERNS.referral.test(combined)) {
+      return 'Online Job Board';
+    }
+  }
+
+  if (field.value) {
+    return field.value;
+  }
+
+  return null;
+}
+
+export function normalizeLocationInput(location: string): string {
+  const cleaned = location
+    .replace(/\b(state|province|region|county)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+,/g, ',')
+    .trim();
+
+  const parts = cleaned
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    return `${parts[0]}, ${parts[parts.length - 1]}`;
+  }
+
+  return cleaned;
 }
 
 export class FormFiller {
@@ -142,6 +439,11 @@ export class FormFiller {
     for (const field of formFields) {
       try {
         const fieldLabel = field.label || field.name;
+        if (!field.required && field.type !== 'file' && !this.shouldFillOptionalFields()) {
+          if (fieldLabel) result.skippedFields.push(fieldLabel);
+          continue;
+        }
+
         const filled = await this.fillField(field, field.required);
         if (filled) {
           if (fieldLabel) result.filledFields.push(fieldLabel);
@@ -159,8 +461,8 @@ export class FormFiller {
             }
           }
 
-          // For text/textarea fields that AI can handle, try AI first
-          if ((field.type === 'text' || field.type === 'textarea') && fieldLabel && !this.needsHumanInput(fieldLabel)) {
+          // For fields that are safe to answer, try AI as a fallback
+          if ((field.type === 'text' || field.type === 'textarea') && fieldLabel && shouldAllowAIAnswer(field)) {
             const aiAnswer = await this.tryAIAnswerForField(fieldLabel);
             if (aiAnswer) {
               aiAnswerUsed = true;
@@ -177,7 +479,7 @@ export class FormFiller {
           if (
             (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') &&
             fieldLabel &&
-            !this.needsHumanInput(fieldLabel)
+            shouldAllowAIAnswer(field)
           ) {
             const aiAnswer = await this.tryAIAnswerForField(fieldLabel, field.type, field.options);
             if (aiAnswer) {
@@ -210,7 +512,7 @@ export class FormFiller {
           }
         } else {
           let optionalFilled = false;
-          if (fieldLabel) {
+          if (fieldLabel && this.shouldFillOptionalFields()) {
             const neutral = this.getNeutralAnswerForField(field);
             if (neutral) {
               field.value = neutral;
@@ -244,17 +546,44 @@ export class FormFiller {
 
     for (const question of questions) {
       try {
+        if (!question.required && !this.shouldFillOptionalFields()) {
+          result.skippedFields.push(question.question.slice(0, 50));
+          continue;
+        }
+
         if (!question.answer) {
           const cached = this.getCachedAnswer(question.question);
           if (cached) {
             question.answer = cached;
-          } else if (question.required && !this.needsHumanInput(question.question)) {
+          } else {
+            const deterministic = getDeterministicFieldValue(
+              this.profile,
+              {
+                label: question.question,
+                name: question.id,
+                type: question.type,
+                options: question.options,
+                value: question.answer,
+              },
+              false
+            );
+            if (deterministic) {
+              question.answer = deterministic;
+            }
+          }
+
+          if (!question.answer && question.required && shouldAllowAIAnswer({
+            label: question.question,
+            name: question.id,
+            type: question.type,
+            options: question.options,
+          })) {
             // AI-answerable required question — get AI answer
             const aiAnswer = await this.tryAIAnswer(question);
             if (aiAnswer) {
               question.answer = aiAnswer;
             }
-          } else if (!question.required) {
+          } else if (!question.answer && !question.required) {
             const neutral = this.getNeutralAnswerForQuestion(question);
             if (neutral) {
               question.answer = neutral;
@@ -328,148 +657,11 @@ export class FormFiller {
   }
 
   private getValueForField(field: FormField, allowAssumptions = true): string | null {
-    const label = (field.label || '').toLowerCase();
-    const name = (field.name || '').toLowerCase();
-    const combined = `${label} ${name}`;
-    const isChoiceField = field.type === 'radio' || field.type === 'select' || field.type === 'checkbox';
-
-    // First Name
-    if (FIELD_PATTERNS.firstName.test(combined)) {
-      return this.profile.name.split(' ')[0] || null;
+    const resolved = getDeterministicFieldValue(this.profile, field, allowAssumptions);
+    if (resolved) {
+      return resolved;
     }
 
-    // Last Name
-    if (FIELD_PATTERNS.lastName.test(combined)) {
-      const parts = this.profile.name.split(' ');
-      return parts.length > 1 ? parts.slice(1).join(' ') : null;
-    }
-
-    // Full Name
-    if (FIELD_PATTERNS.fullName.test(combined)) {
-      return this.profile.name;
-    }
-
-    // Email
-    if (FIELD_PATTERNS.email.test(combined)) {
-      return this.profile.email;
-    }
-
-    // Phone
-    if (FIELD_PATTERNS.phone.test(combined)) {
-      return this.profile.phone || null;
-    }
-
-    // Location
-    if (FIELD_PATTERNS.location.test(combined)) {
-      return this.profile.location || null;
-    }
-
-    // LinkedIn
-    if (FIELD_PATTERNS.linkedin.test(combined)) {
-      return this.profile.linkedin_url || null;
-    }
-
-    // GitHub
-    if (FIELD_PATTERNS.github.test(combined)) {
-      return this.profile.github_url || null;
-    }
-
-    // Portfolio
-    if (FIELD_PATTERNS.portfolio.test(combined)) {
-      return this.profile.portfolio_url || null;
-    }
-
-    if (allowAssumptions) {
-      // Work Authorization - typically "Yes" for most applicants
-      if (FIELD_PATTERNS.workAuthorization.test(combined)) {
-        return 'Yes';
-      }
-
-      // Sponsorship - default to No (can be customized)
-      if (FIELD_PATTERNS.sponsorship.test(combined)) {
-        return 'No';
-      }
-    }
-
-    // Years of experience
-    if (FIELD_PATTERNS.yearsExperience.test(combined)) {
-      return this.calculateYearsExperience();
-    }
-
-    // Yes/No questions derived from experience thresholds
-    if (isChoiceField) {
-      const yearsThresholdMatch = combined.match(/(\d+)\s*(?:\+|plus|or\s+more|or\s+greater|or\s+above)/i);
-      if (yearsThresholdMatch) {
-        const threshold = Number.parseInt(yearsThresholdMatch[1], 10);
-        const years = Number.parseInt(this.calculateYearsExperience(), 10);
-        if (!Number.isNaN(threshold) && !Number.isNaN(years)) {
-          return years >= threshold ? 'Yes' : 'No';
-        }
-      }
-    }
-
-    // Frontend + backend experience (yes/no)
-    if (isChoiceField && /front[\s-]?end.*back[\s-]?end|back[\s-]?end.*front[\s-]?end|full[\s-]?stack/i.test(combined)) {
-      const profileText = this.getProfileText();
-      const hasFrontend = /(frontend|front-end|react|vue|angular|svelte|html|css)\b/i.test(profileText);
-      const hasBackend = /(backend|back-end|api|server|node|golang|go|python|java|c#|ruby|postgres|mysql|redis)\b/i.test(profileText);
-      return hasFrontend && hasBackend ? 'Yes' : 'No';
-    }
-
-    // 0-1 project leadership (yes/no)
-    if (isChoiceField && /(0[\s-]?1|zero[\s-]?to[\s-]?one|from\s*0\s*to\s*1)/i.test(combined)) {
-      const profileText = this.getProfileText();
-      const hasLeadership = /(led|lead|owned|owner|launched|built|end-to-end|end to end|from scratch|0-1)/i.test(profileText);
-      return hasLeadership ? 'Yes' : 'No';
-    }
-
-    // Current company
-    if (FIELD_PATTERNS.currentCompany.test(combined)) {
-      const latestExp = this.profile.experience[0];
-      return latestExp?.company || null;
-    }
-
-    // Current title
-    if (FIELD_PATTERNS.currentTitle.test(combined)) {
-      const latestExp = this.profile.experience[0];
-      return latestExp?.title || null;
-    }
-
-    if (allowAssumptions) {
-      // Start date / availability
-      if (FIELD_PATTERNS.startDate.test(combined) || FIELD_PATTERNS.noticePeriod.test(combined)) {
-        return '2 weeks';
-      }
-
-      // Referral / How did you hear
-      if (FIELD_PATTERNS.referral.test(combined)) {
-        return 'Online Job Board';
-      }
-
-      // Relocation
-      if (FIELD_PATTERNS.relocation.test(combined)) {
-        return this.profile.preferences?.remote_only ? 'No' : 'Yes';
-      }
-    }
-
-    // Country / Nationality — use location from profile as hint, but will likely need interactive prompt
-    if (FIELD_PATTERNS.country.test(combined)) {
-      return this.profile.location || null;
-    }
-
-    if (allowAssumptions) {
-      // Age verification — default Yes
-      if (FIELD_PATTERNS.ageVerification.test(combined)) {
-        return 'Yes';
-      }
-    }
-
-    // If we have a pre-filled value from scraping
-    if (field.value) {
-      return field.value;
-    }
-
-    // Check cached answers from previous user input
     const fieldLabel = field.label || field.name;
     if (fieldLabel) {
       const cached = this.getCachedAnswer(fieldLabel);
@@ -477,30 +669,6 @@ export class FormFiller {
     }
 
     return null;
-  }
-
-  private calculateYearsExperience(): string {
-    if (this.profile.experience.length === 0) {
-      return '0';
-    }
-
-    let totalMonths = 0;
-    for (const exp of this.profile.experience) {
-      const start = new Date(exp.start_date);
-      const end = exp.end_date ? new Date(exp.end_date) : new Date();
-      const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-      totalMonths += Math.max(0, months);
-    }
-
-    const years = Math.round(totalMonths / 12);
-    return years.toString();
-  }
-
-  private getProfileText(): string {
-    const experienceText = this.profile.experience
-      .map((exp) => [exp.title, exp.description, ...(exp.highlights || [])].join(' '))
-      .join(' ');
-    return `${this.profile.skills.join(' ')} ${experienceText}`.toLowerCase();
   }
 
   private buildSelector(field: FormField): string {
@@ -537,9 +705,60 @@ export class FormFiller {
         return false;
       }
 
+      const fieldContext = `${field.label || ''} ${field.name || ''}`.toLowerCase();
+      const role = (await element.getAttribute('role'))?.toLowerCase() ?? '';
+      const ariaAutocomplete = (await element.getAttribute('aria-autocomplete'))?.toLowerCase() ?? '';
+      const isLocationField = FIELD_PATTERNS.location.test(fieldContext);
+      const isAutocompleteField =
+        isLocationField ||
+        role === 'combobox' ||
+        ariaAutocomplete === 'list' ||
+        ariaAutocomplete === 'both';
+
+      if (isAutocompleteField) {
+        const inputValue = isLocationField ? normalizeLocationInput(value) : value;
+
+        await element.click();
+        await element.fill('');
+        await element.type(inputValue, { delay: 40 });
+        await this.page.waitForTimeout(800);
+
+        const optionSelectors = [
+          '[role="listbox"] [role="option"]',
+          '[role="option"]',
+          '[class*="autocomplete"] li',
+          '[class*="typeahead"] li',
+          '[class*="suggestion"]',
+        ];
+
+        for (const optionSelector of optionSelectors) {
+          const option = await this.page.$(optionSelector);
+          if (!option) continue;
+
+          const isVisible = await option.isVisible().catch(() => false);
+          if (!isVisible) continue;
+
+          await option.click().catch(() => { });
+          await this.humanDelay();
+
+          const finalValue = await element.inputValue().catch(() => '');
+          if (finalValue.trim()) {
+            return true;
+          }
+        }
+
+        await element.press('ArrowDown').catch(() => { });
+        await element.press('Enter').catch(() => { });
+        await element.press('Tab').catch(() => { });
+        await this.humanDelay();
+
+        const finalValue = await element.inputValue().catch(() => '');
+        return finalValue.trim().length > 0;
+      }
+
       // Clear existing value and type new one
       await element.click();
-      await this.page.keyboard.press('Control+a');
+      await this.page.keyboard.press('Control+a').catch(() => { });
       await element.fill(value);
       await this.humanDelay();
 
@@ -990,11 +1209,6 @@ export class FormFiller {
     return null;
   }
 
-  /** Check if a question/field requires human input (AI can't reliably answer) */
-  private needsHumanInput(questionText: string): boolean {
-    return HUMAN_ONLY_PATTERNS.some((pattern) => pattern.test(questionText));
-  }
-
   /** Try to get an AI-generated answer for a custom question */
   private async tryAIAnswer(question: CustomQuestion): Promise<string | null> {
     try {
@@ -1042,6 +1256,17 @@ export class FormFiller {
       return config.application.interactivePrompts ?? true;
     } catch {
       return true;
+    }
+  }
+
+  /** Check if optional form fields and questions should be filled at all */
+  public shouldFillOptionalFields(): boolean {
+    if (this.options.fillOptionalFields !== undefined) return this.options.fillOptionalFields;
+    try {
+      const config = configRepository.loadAppConfig();
+      return config.application.fillOptionalFields ?? false;
+    } catch {
+      return false;
     }
   }
 

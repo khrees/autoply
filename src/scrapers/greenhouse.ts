@@ -1,8 +1,24 @@
 import { BaseScraper, type SubmissionOptions, type SubmissionResult } from './base';
-import type { JobData, CustomQuestion, Platform, Profile } from '../types';
+import type { AIProvider, JobData, CustomQuestion, Platform, Profile } from '../types';
 import { FormFiller } from '../core/form-filler';
 import { analyzeAndFillFormFields } from '../ai/form-analyzer';
 import { createAIProvider } from '../ai/provider';
+
+export function normalizeGreenhouseCompanyName(company: string): string {
+  const trimmed = company.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return 'Unknown Company';
+
+  const strippedLeadingAt = trimmed.match(/^at\s+([^\s].*)$/i)?.[1] ?? trimmed;
+
+  return strippedLeadingAt
+    .split(' ')
+    .map((word) => {
+      if (!word) return word;
+      if (word === word.toUpperCase()) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
 
 export class GreenhouseScraper extends BaseScraper {
   platform: Platform = 'greenhouse';
@@ -13,7 +29,9 @@ export class GreenhouseScraper extends BaseScraper {
 
     // Check if we need to navigate into an iframe for embedded Greenhouse forms
     const currentUrl = this.page.url();
-    if (!currentUrl.includes('greenhouse.io')) {
+    // During scraping, we want to stay on the host page to get better metadata (company, title, description)
+    // We only redirect to the actual Greenhouse form URL during filling/submission
+    if (!this.isScraping && !currentUrl.includes('greenhouse.io')) {
       const ghFrame = this.page.frames().find((f) => f.url().includes('greenhouse.io'));
       if (ghFrame) {
         await this.page.goto(ghFrame.url(), { waitUntil: 'domcontentloaded' });
@@ -28,10 +46,35 @@ export class GreenhouseScraper extends BaseScraper {
     await this.page.waitForTimeout(2000);
   }
 
+  override async scrape(url: string, aiProvider?: AIProvider): Promise<JobData> {
+    this.browserSelectionUrl = url;
+    try {
+      return await super.scrape(this.resolveGreenhouseUrl(url), aiProvider);
+    } finally {
+      this.browserSelectionUrl = null;
+    }
+  }
+
   override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
-    const resolvedUrl = this.resolveGreenhouseUrl(url);
-    this.autoMode = !!options.autoMode;
-    return super.submitApplication(resolvedUrl, options);
+    this.browserSelectionUrl = url;
+    try {
+      const resolvedUrl = this.resolveGreenhouseUrl(url);
+      this.autoMode = !!options.autoMode;
+      return await super.submitApplication(resolvedUrl, options);
+    } finally {
+      this.browserSelectionUrl = null;
+    }
+  }
+
+  override async fillApplication(url: string, options: SubmissionOptions): Promise<import('./base').FillApplicationResult> {
+    this.browserSelectionUrl = url;
+    try {
+      const resolvedUrl = this.resolveGreenhouseUrl(url);
+      this.autoMode = !!options.autoMode;
+      return await super.fillApplication(resolvedUrl, options);
+    } finally {
+      this.browserSelectionUrl = null;
+    }
   }
 
   // ============ Greenhouse-specific Form Submission ============
@@ -436,8 +479,13 @@ export class GreenhouseScraper extends BaseScraper {
         // For searchable selects (like Country, Location), type the answer
         const input = await control.$('input');
         if (input) {
-          await input.fill(answerToSelect);
-          await this.page.waitForTimeout(500);
+          // Use type instead of fill to better trigger search results
+          const value = answerToSelect;
+          for (const char of value) {
+            await input.type(char, { delay: 50 });
+          }
+          // Wait longer for search results
+          await this.page.waitForTimeout(1500);
         }
 
         // Find and click matching option
@@ -1036,22 +1084,43 @@ export class GreenhouseScraper extends BaseScraper {
 
           if (value) {
             if (!info.required && isFallback) continue;
-            await input.click();
-            await input.fill(value);
-            await this.humanDelay(true);
-
             // Handle autocomplete dropdowns (location fields)
             if (combined.includes('location') || combined.includes('city')) {
               try {
-                await this.page!.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"]', { timeout: 2000 });
-                const firstOption = await this.page!.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child');
+                // For location autocomplete, using type instead of fill helps trigger suggestions
+                await input.click();
+                await input.focus();
+                
+                // Clear existing text if any
+                const existingValue = await input.evaluate((el: HTMLInputElement) => el.value);
+                if (existingValue) {
+                  await input.click({ clickCount: 3 });
+                  await input.press('Backspace');
+                }
+
+                // Type slowly to trigger suggestions
+                for (const char of value) {
+                  await input.type(char, { delay: 50 });
+                }
+                
+                // Wait for suggestions to appear
+                await this.page!.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"], .select__option', { timeout: 4000 });
+                
+                const firstOption = await this.page!.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child, .select__option:first-child');
+                
                 if (firstOption) {
                   await firstOption.click();
                   await this.humanDelay(true);
+                } else {
+                  await input.press('Enter');
                 }
               } catch {
                 await input.press('Tab');
               }
+            } else {
+              await input.click();
+              await input.fill(value);
+              await this.humanDelay(true);
             }
           }
         } catch {
@@ -1725,21 +1794,45 @@ export class GreenhouseScraper extends BaseScraper {
     // Extract job title - try multiple selectors
     // boards.greenhouse.io uses h1.app-title; job-boards.greenhouse.io uses h1 inside main content
     let title = await this.extractText('h1.app-title, h1[class*="job-title"], .job-title h1');
-    if (!title) {
-      title = await this.extractText('.app-title, [data-mapped="true"] h1');
+    if (!title || title.toLowerCase().includes('open positions')) {
+      title = await this.extractText('.app-title, [data-mapped="true"] h1') || title;
     }
+    
+    // Fallback: If title is generic or missing, look into any Greenhouse iframe
+    if (!title || title.toLowerCase().includes('open positions')) {
+      const ghFrame = this.page.frames().find(f => f.url().includes('greenhouse.io'));
+      if (ghFrame) {
+        const frameTitle = await (await ghFrame.$('h1.app-title, h1[class*="job-title"], .job-title h1, h1'))?.textContent();
+        if (frameTitle) title = frameTitle.trim();
+      }
+    }
+
     if (!title) {
-      // Fallback: get any h1 on the page
+      // Final fallback: get any h1 on the page
       title = await this.extractText('h1');
     }
 
     // Extract company name (usually in the page or URL)
     let company = await this.extractText('.company-name, [class*="company-name"]');
-    if (!company) {
+    if (!company || company === 'Unknown Company') {
       // Try to extract from URL: boards.greenhouse.io/companyname or job-boards.greenhouse.io/companyname
       const urlMatch = url.match(/(?:boards|job-boards)\.greenhouse\.io\/([^/]+)/);
-      company = urlMatch ? urlMatch[1].replace(/-/g, ' ') : 'Unknown Company';
+      if (urlMatch) {
+        company = urlMatch[1].replace(/-/g, ' ');
+      } else {
+        // Fallback for embedded forms: use hostname
+        try {
+          const domain = new URL(url).hostname;
+          if (!domain.includes('greenhouse.io')) {
+            company = domain.replace(/^(www\.)?([^.]+)\..*$/, '$2');
+          }
+        } catch {
+          // Keep the scraped company fallback if URL parsing fails.
+        }
+      }
     }
+    
+    company = normalizeGreenhouseCompanyName(company);
 
     // Extract job description — try platform-specific selectors first, then broader ones
     // job-boards.greenhouse.io wraps content in sections/divs with varied classes
@@ -1943,11 +2036,14 @@ export class GreenhouseScraper extends BaseScraper {
   private deriveCityFromProfile(profile: Profile): string | null {
     const location = profile.location?.trim();
     if (!location) return null;
+    
+    // If it's just a country, use it
+    if (this.matchCountryName(location)) return location;
+
     const parts = location.split(',').map((p) => p.trim()).filter(Boolean);
     if (parts.length === 0) return null;
-    if (parts.length === 1 && this.matchCountryName(parts[0])) {
-      return null;
-    }
+    
+    // Return city if present, or just the first part
     return parts[0];
   }
 }

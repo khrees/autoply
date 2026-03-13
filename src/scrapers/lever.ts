@@ -1,6 +1,41 @@
 import { BaseScraper, type SubmissionOptions, type SubmissionResult } from './base';
 import type { JobData, CustomQuestion, Platform } from '../types';
-import { FormFiller } from '../core/form-filler';
+import { FormFiller, normalizeLocationInput } from '../core/form-filler';
+import { configRepository } from '../db/repositories/config';
+
+const LEVER_URL_FIELD_PATTERNS = [
+  /linkedin/i,
+  /github/i,
+  /twitter/i,
+  /portfolio/i,
+  /website/i,
+  /google\s*scholar/i,
+  /design\s*portfolio/i,
+  /personal\s*site/i,
+  /blog\s*url/i,
+];
+
+const LEVER_STANDARD_FIELD_PATTERNS = [
+  /resume|cv|cover[\s_-]?letter/i,
+  /full[\s_-]?name|preferred[\s_-]?name|candidate[\s_-]?name/i,
+  /e?[\s_-]?mail/i,
+  /phone|tel|mobile|contact[\s_-]?number/i,
+  /current[\s_-]?location|where.*based/i,
+  /current[\s_-]?company|current[\s_-]?employer/i,
+];
+
+const LEVER_SYSTEM_FIELD_NAME_PATTERNS = [
+  /^(?:resume|name|email|phone|location|org)$/i,
+  /^urls\[/i,
+];
+
+export function shouldSkipLeverCustomQuestion(questionText: string, fieldName = ''): boolean {
+  return (
+    LEVER_URL_FIELD_PATTERNS.some((pattern) => pattern.test(questionText)) ||
+    LEVER_STANDARD_FIELD_PATTERNS.some((pattern) => pattern.test(questionText)) ||
+    LEVER_SYSTEM_FIELD_NAME_PATTERNS.some((pattern) => pattern.test(fieldName))
+  );
+}
 
 export class LeverScraper extends BaseScraper {
   platform: Platform = 'lever';
@@ -70,7 +105,7 @@ export class LeverScraper extends BaseScraper {
     const errors: string[] = [];
 
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Navigate to job posting
@@ -102,6 +137,8 @@ export class LeverScraper extends BaseScraper {
         await this.fillLeverBasicFields(options);
       }
 
+      await this.fillLeverLocation(options);
+
       // Upload resume
       if (options.resumePath) {
         const resumeUploaded = await this.uploadLeverResume(options.resumePath);
@@ -128,6 +165,16 @@ export class LeverScraper extends BaseScraper {
 
       // Handle additional info textarea if present
       await this.fillLeverAdditionalInfo(options);
+
+      const integrityResult = await this.validateProfileIntegrity(options.profile);
+      if (!integrityResult.valid) {
+        errors.push(...integrityResult.errors);
+        return {
+          success: false,
+          message: 'Profile integrity validation failed',
+          errors,
+        };
+      }
 
       // Validate
       const validation = await this.validateBeforeSubmit();
@@ -227,13 +274,14 @@ export class LeverScraper extends BaseScraper {
       );
     }
 
-    // Current company
-    const latestExperience = profile.experience[0];
-    if (latestExperience) {
-      await this.fillInputBySelector(
-        'input[name="org"], input[name="company"], input[name*="current"]',
-        latestExperience.company
-      );
+    if (this.shouldFillOptionalFields()) {
+      const latestExperience = profile.experience[0];
+      if (latestExperience) {
+        await this.fillInputBySelector(
+          'input[name="org"], input[name="company"], input[name*="current"]',
+          latestExperience.company
+        );
+      }
     }
   }
 
@@ -334,7 +382,7 @@ export class LeverScraper extends BaseScraper {
   }
 
   private async fillLeverUrls(options: SubmissionOptions): Promise<void> {
-    if (!this.page) return;
+    if (!this.page || !this.shouldFillOptionalFields()) return;
 
     const { profile } = options;
 
@@ -364,7 +412,7 @@ export class LeverScraper extends BaseScraper {
   }
 
   private async fillLeverAdditionalInfo(options: SubmissionOptions): Promise<void> {
-    if (!this.page) return;
+    if (!this.page || !this.shouldFillOptionalFields()) return;
 
     // Lever often has an "Additional Information" textarea
     const additionalInfoSelectors = [
@@ -383,6 +431,58 @@ export class LeverScraper extends BaseScraper {
         // Put a brief note, not the full cover letter
         const note = `Please see my attached cover letter for more details about my interest in this position.`;
         await textarea.fill(note);
+        await this.humanDelay(true);
+        return;
+      }
+    }
+  }
+
+  private async fillLeverLocation(options: SubmissionOptions): Promise<void> {
+    if (!this.page || !options.profile.location) return;
+
+    const locationSelectors = [
+      'input[name="location"]',
+      'input[name*="location" i]',
+      'input[aria-label*="location" i]',
+      'input[placeholder*="location" i]',
+    ];
+
+    const normalizedLocation = normalizeLocationInput(options.profile.location);
+
+    for (const selector of locationSelectors) {
+      const inputs = await this.page.$$(selector);
+      for (const input of inputs) {
+        const isVisible = await input.isVisible().catch(() => false);
+        if (!isVisible) continue;
+
+        await input.click().catch(() => { });
+        await input.fill('').catch(() => { });
+        await input.type(normalizedLocation, { delay: 40 }).catch(() => { });
+        await this.page.waitForTimeout(800);
+
+        const optionSelectors = [
+          '[role="listbox"] [role="option"]',
+          '[role="option"]',
+          '[class*="autocomplete"] li',
+          '[class*="typeahead"] li',
+          '[class*="suggestion"]',
+        ];
+
+        for (const optionSelector of optionSelectors) {
+          const option = await this.page.$(optionSelector);
+          if (!option) continue;
+
+          const optionVisible = await option.isVisible().catch(() => false);
+          if (!optionVisible) continue;
+
+          await option.click().catch(() => { });
+          await this.humanDelay(true);
+          return;
+        }
+
+        await input.press('ArrowDown').catch(() => { });
+        await input.press('Enter').catch(() => { });
+        await input.press('Tab').catch(() => { });
         await this.humanDelay(true);
         return;
       }
@@ -538,23 +638,6 @@ export class LeverScraper extends BaseScraper {
     };
   }
 
-  // URL-like fields that are already handled by fillLeverUrls — skip them as custom questions
-  private static readonly URL_FIELD_PATTERNS = [
-    /linkedin/i,
-    /github/i,
-    /twitter/i,
-    /portfolio/i,
-    /website/i,
-    /google\s*scholar/i,
-    /design\s*portfolio/i,
-    /personal\s*site/i,
-    /blog\s*url/i,
-  ];
-
-  private isUrlField(label: string): boolean {
-    return LeverScraper.URL_FIELD_PATTERNS.some((pattern) => pattern.test(label));
-  }
-
   private async extractCustomQuestions(): Promise<CustomQuestion[]> {
     if (!this.page) return [];
 
@@ -575,8 +658,13 @@ export class LeverScraper extends BaseScraper {
 
       if (!questionText) continue;
 
-      // Skip URL fields — they're already handled by fillLeverUrls
-      if (this.isUrlField(questionText)) continue;
+      const fieldName = await container.$eval(
+        'input, textarea, select',
+        (el) => (el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).name ?? ''
+      ).catch(() => '');
+
+      // Skip standard profile fields — they are filled elsewhere and should not be AI-answered.
+      if (shouldSkipLeverCustomQuestion(questionText, fieldName)) continue;
 
       const hasTextarea = (await container.$('textarea')) !== null;
       const hasSelect = (await container.$('select')) !== null;
@@ -614,5 +702,9 @@ export class LeverScraper extends BaseScraper {
     }
 
     return questions;
+  }
+
+  private shouldFillOptionalFields(): boolean {
+    return configRepository.loadAppConfig().application.fillOptionalFields ?? false;
   }
 }

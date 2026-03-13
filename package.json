@@ -16,12 +16,12 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "build": "bun build ./src/cli/index.ts --compile --outfile dist/autoply --external playwright --external playwright-core",
+    "build": "bun build ./src/cli/index.ts --compile --outfile dist/autoply --external playwright --external playwright-core --external patchright --external patchright-core",
     "build:all": "bun run build:linux && bun run build:mac && bun run build:windows",
-    "build:linux": "bun build ./src/cli/index.ts --compile --target=bun-linux-x64 --outfile dist/autoply-linux-x64 --external playwright --external playwright-core",
-    "build:mac": "bun build ./src/cli/index.ts --compile --target=bun-darwin-arm64 --outfile dist/autoply-darwin-arm64 --external playwright --external playwright-core",
-    "build:mac-intel": "bun build ./src/cli/index.ts --compile --target=bun-darwin-x64 --outfile dist/autoply-darwin-x64 --external playwright --external playwright-core",
-    "build:windows": "bun build ./src/cli/index.ts --compile --target=bun-windows-x64 --outfile dist/autoply-windows-x64.exe --external playwright --external playwright-core"
+    "build:linux": "bun build ./src/cli/index.ts --compile --target=bun-linux-x64 --outfile dist/autoply-linux-x64 --external playwright --external playwright-core --external patchright --external patchright-core",
+    "build:mac": "bun build ./src/cli/index.ts --compile --target=bun-darwin-arm64 --outfile dist/autoply-darwin-arm64 --external playwright --external playwright-core --external patchright --external patchright-core",
+    "build:mac-intel": "bun build ./src/cli/index.ts --compile --target=bun-darwin-x64 --outfile dist/autoply-darwin-x64 --external playwright --external playwright-core --external patchright --external patchright-core",
+    "build:windows": "bun build ./src/cli/index.ts --compile --target=bun-windows-x64 --outfile dist/autoply-windows-x64.exe --external playwright --external playwright-core --external patchright --external patchright-core"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -44,6 +44,7 @@
     "commander": "^12.0.0",
     "marked": "^11.0.0",
     "ora": "^8.0.0",
+    "patchright": "^1.58.2",
     "pdf-lib": "^1.17.0",
     "pdf-parse": "1.1.1",
     "playwright": "^1.40.0",

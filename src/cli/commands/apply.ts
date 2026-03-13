@@ -211,8 +211,9 @@ export const applyCommand = new Command('apply')
       if (result.success) {
         applicationQueue.updateStatus(item.id, 'completed');
         applicationQueue.setResult(item.id, result.application);
+        const outcome = result.application?.status === 'filled' ? 'Prepared' : 'Completed';
         logger.success(
-          `Completed: ${result.application?.job_title} at ${result.application?.company}`
+          `${outcome}: ${result.application?.job_title} at ${result.application?.company}`
         );
       } else {
         applicationQueue.updateStatus(item.id, 'failed', result.error);
@@ -249,8 +250,10 @@ export const applyCommand = new Command('apply')
       logger.newline();
       console.log(chalk.bold('Processed:'));
       for (const result of successful) {
+        const label =
+          result.application?.status === 'filled' ? chalk.yellow('Prepared') : chalk.green('Completed');
         console.log(
-          `  ${chalk.green('✔')} ${result.application?.job_title} at ${result.application?.company}`
+          `  ${label} ${result.application?.job_title} at ${result.application?.company}`
         );
       }
     }

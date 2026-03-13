@@ -5,17 +5,19 @@ import { createAIProvider } from '../ai/provider';
 import { tailorResume } from '../ai/resume';
 import { generateCoverLetter, answerAllQuestions } from '../ai/cover-letter';
 import { evaluateJobFit, type JobFitResult } from '../ai/job-matcher';
-import { verifySubmissionScreenshot } from '../ai/screenshot-verifier';
+import { verifySubmissionScreenshot, type VerificationResult } from '../ai/screenshot-verifier';
 export type { JobFitResult } from '../ai/job-matcher';
 import { profileRepository } from '../db/repositories/profile';
 import { applicationRepository } from '../db/repositories/application';
 import { configRepository } from '../db/repositories/config';
 import { ApplicationQueue } from './queue';
+import { requiresHumanAnswer, shouldAllowAIAnswer } from './form-filler';
 import { generateResumePdf, generateCoverLetterPdf, generateDocumentFilename } from './document';
 import { logger, createSpinner } from '../utils/logger';
 import { join } from 'path';
 import { mkdir } from 'fs/promises';
 import { getAutoplyDir, ensureAutoplyDir } from '../db';
+import type { SubmissionResult } from '../scrapers/base';
 
 export interface ApplicationResult {
   success: boolean;
@@ -32,6 +34,24 @@ export interface ApplyOptions {
   autoMode?: boolean;
   resumePath?: string;
   coverLetterPath?: string;
+}
+
+export function summarizeSubmissionFailure(
+  submissionResult: SubmissionResult,
+  verification?: VerificationResult
+): string {
+  let message = submissionResult.errors.length > 0
+    ? `${submissionResult.message}: ${submissionResult.errors.join(', ')}`
+    : submissionResult.message;
+
+  if (verification) {
+    const screenshotDetail = verification.errors?.length
+      ? `${verification.reason}: ${verification.errors.join(', ')}`
+      : verification.reason;
+    message = `${message} | Screenshot check: ${screenshotDetail}`;
+  }
+
+  return message;
 }
 
 export class ApplicationOrchestrator {
@@ -169,6 +189,19 @@ export class ApplicationOrchestrator {
       spinner.start(`Answering ${jobData.custom_questions.length} custom questions...`);
       try {
         const provider = createAIProvider();
+        const config = configRepository.loadAppConfig();
+        const aiAnswerableQuestions = jobData.custom_questions.filter(
+          (question) =>
+            !question.answer &&
+            (question.required || config.application.fillOptionalFields) &&
+            !requiresHumanAnswer(question.question) &&
+            shouldAllowAIAnswer({
+              label: question.question,
+              name: question.id,
+              type: question.type,
+              options: question.options,
+            })
+        );
 
         // Get previous answers from DB for few-shot learning
         const previousApps = applicationRepository.findAll({
@@ -189,16 +222,18 @@ export class ApplicationOrchestrator {
           }
         }
 
-        const answers = await answerAllQuestions(
-          provider,
-          profile,
-          jobData,
-          jobData.custom_questions,
-          previousAnswers
-        );
-        for (const q of jobData.custom_questions) {
-          if (!q.answer) {
-            q.answer = answers.get(q.question);
+        if (aiAnswerableQuestions.length > 0) {
+          const answers = await answerAllQuestions(
+            provider,
+            profile,
+            jobData,
+            aiAnswerableQuestions,
+            previousAnswers
+          );
+          for (const q of aiAnswerableQuestions) {
+            if (!q.answer) {
+              q.answer = answers.get(q.question);
+            }
           }
         }
         spinner.succeed('Custom questions answered');
@@ -255,55 +290,35 @@ export class ApplicationOrchestrator {
             );
             lastScreenshotPath = submissionResult.screenshotPath;
 
-            // Verify submission with AI screenshot analysis
-            if (submissionResult.screenshotPath) {
-              spinner.start('Verifying submission...');
-
-              // Brief pause to let confirmation page fully render before verification
-              await new Promise((r) => setTimeout(r, 2000));
-
-              const verification = await verifySubmissionScreenshot(submissionResult.screenshotPath);
-
-              if (verification.submitted) {
-                logger.debug(`Submission verified with ${verification.confidence} confidence: ${verification.reason}`);
-                applicationRepository.update(application.id!, {
-                  status: 'submitted',
-                  applied_at: new Date().toISOString(),
-                });
-                spinner.succeed('Application submitted!');
-                return { success: true, application, documents, fitResult };
-              }
-
-              // Screenshot verification disagreed — but if scraper's DOM check confirmed success,
-              // trust the scraper (screenshot AI can misread pages)
-              if (verification.confidence === 'low') {
-                logger.debug(`Screenshot verification uncertain (${verification.confidence}): ${verification.reason} — trusting scraper result`);
-                applicationRepository.update(application.id!, {
-                  status: 'submitted',
-                  applied_at: new Date().toISOString(),
-                });
-                spinner.succeed('Application submitted!');
-                return { success: true, application, documents, fitResult };
-              }
-
-              // Not confirmed - prepare for retry
-              lastError = verification.errors?.length
-                ? `${verification.reason}: ${verification.errors.join(', ')}`
-                : verification.reason;
-              spinner.warn(`Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`);
-
-              if (attempt < maxRetries) {
-                logger.info('Retrying submission...');
-                await new Promise((r) => setTimeout(r, 2000)); // Wait before retry
-              }
-            } else {
-              // No screenshot to verify - trust scraper result
-              applicationRepository.update(application.id!, {
+            // Trust the scraper's DOM confirmation when it reports success.
+            if (submissionResult.success) {
+              const submittedApplication = applicationRepository.update(application.id!, {
                 status: 'submitted',
                 applied_at: new Date().toISOString(),
               });
               spinner.succeed('Application submitted!');
-              return { success: true, application, documents, fitResult };
+              return { success: true, application: submittedApplication ?? application, documents, fitResult };
+            }
+
+            let verification: VerificationResult | undefined;
+            if (submissionResult.screenshotPath) {
+              spinner.start('Collecting submission diagnostics...');
+
+              // Brief pause to let confirmation page fully render before verification
+              await new Promise((r) => setTimeout(r, 2000));
+
+              verification = await verifySubmissionScreenshot(submissionResult.screenshotPath);
+              logger.debug(
+                `Screenshot diagnostic (${verification.confidence}): ${verification.reason}`
+              );
+            }
+
+            lastError = summarizeSubmissionFailure(submissionResult, verification);
+            spinner.warn(`Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`);
+
+            if (attempt < maxRetries) {
+              logger.info('Retrying submission...');
+              await new Promise((r) => setTimeout(r, 2000)); // Wait before retry
             }
           } catch (error) {
             lastError = error instanceof Error ? error.message : 'Unknown error';
@@ -320,7 +335,7 @@ export class ApplicationOrchestrator {
       }
 
       // All retries exhausted
-      applicationRepository.update(application.id!, {
+      const failedApplication = applicationRepository.update(application.id!, {
         status: 'failed',
         error_message: lastError,
       });
@@ -330,14 +345,99 @@ export class ApplicationOrchestrator {
       }
       return {
         success: false,
-        application,
+        application: failedApplication ?? application,
         error: `[${parsedUrl.platform}] Submission failed after ${maxRetries} attempts: ${lastError}`,
         documents,
         fitResult,
       };
     } else {
-      logger.info('Auto-submit disabled. Application prepared but not submitted.');
-      logger.info('Set autoSubmit to true in config to enable automatic submission.');
+      logger.info('Auto-submit disabled. Filling application form...');
+
+      const scraper = createScraper(application.platform);
+
+      // Ensure directories exist
+      ensureAutoplyDir();
+      const docsDir = join(getAutoplyDir(), 'documents');
+      await mkdir(docsDir, { recursive: true });
+
+      const resumePdfPath = resumePath ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
+      const coverLetterPdfPath = coverLetterPath ?? join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
+
+      // Generate PDFs for uploading if they don't exist
+      if (!resumePath) {
+        await generateResumePdf(documents.resume, resumePdfPath, profile.name);
+      }
+      if (!coverLetterPath) {
+        await generateCoverLetterPdf(documents.coverLetter, coverLetterPdfPath, profile.name);
+      }
+
+      scraper.keepAlive = true;
+      try {
+        const fillResult = await scraper.fillApplication(url, {
+          profile,
+          jobData,
+          documents,
+          resumePath: resumePdfPath,
+          coverLetterPath: coverLetterPdfPath,
+          answeredQuestions: jobData.custom_questions,
+          autoMode,
+          fillOnly: true,
+        });
+
+        if (fillResult.success) {
+          spinner.succeed('Application prepared for manual review.');
+          logger.info('Browser left open. You can review and submit manually.');
+          logger.info('Close the browser window when you are done.');
+
+          const updatedApplication = applicationRepository.update(application.id!, {
+            status: 'filled',
+          });
+
+          await scraper.waitForBrowserClose();
+          await scraper.close();
+
+          return {
+            success: true,
+            application: updatedApplication ?? application,
+            documents,
+            fitResult,
+          };
+        }
+
+        const errorMessage = fillResult.errors.length > 0
+          ? `${fillResult.message}: ${fillResult.errors.join(', ')}`
+          : fillResult.message;
+        spinner.fail('Failed to fill application form.');
+        logger.error(`Error: ${errorMessage}`);
+
+        applicationRepository.update(application.id!, {
+          status: 'failed',
+          error_message: errorMessage,
+        });
+        await scraper.close();
+        return {
+          success: false,
+          application,
+          error: `[${parsedUrl.platform}] ${errorMessage}`,
+          documents,
+          fitResult,
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        spinner.fail(`Failed during form filling: ${errorMessage}`);
+        applicationRepository.update(application.id!, {
+          status: 'failed',
+          error_message: errorMessage,
+        });
+        await scraper.close();
+        return {
+          success: false,
+          application,
+          error: `[${parsedUrl.platform}] Form filling failed: ${errorMessage}`,
+          documents,
+          fitResult,
+        };
+      }
     }
 
     return { success: true, application, documents, fitResult };
@@ -352,7 +452,7 @@ export class ApplicationOrchestrator {
     resumePathOverride?: string,
     coverLetterPathOverride?: string,
     scraperOverride?: BaseScraper
-  ): Promise<{ screenshotPath?: string }> {
+  ): Promise<SubmissionResult> {
     const _config = configRepository.loadAppConfig();
 
     // Ensure directories exist
@@ -398,14 +498,7 @@ export class ApplicationOrchestrator {
       autoMode,
     });
 
-    if (!result.success) {
-      const errorMsg = result.errors.length > 0
-        ? `${result.message}: ${result.errors.join(', ')}`
-        : result.message;
-      throw new Error(errorMsg);
-    }
-
-    return { screenshotPath: result.screenshotPath };
+    return result;
   }
 
   async applyToMultipleJobs(urls: string[], options: ApplyOptions = {}): Promise<ApplicationResult[]> {
