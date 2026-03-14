@@ -1,13 +1,12 @@
-import { BaseScraper, type SubmissionOptions, type SubmissionResult } from './base';
+import { BaseScraper } from './base';
 import type { JobData, CustomQuestion, Platform } from '../types';
-import { FormFiller } from '../core/form-filler';
 
 export class GenericScraper extends BaseScraper {
   platform: Platform = 'generic';
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   protected async extractJobData(url: string): Promise<JobData> {
@@ -74,80 +73,7 @@ ${pageText.slice(0, 6000)}`,
     };
   }
 
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
-    const errors: string[] = [];
-
-    try {
-      await this.initialize();
-      if (!this.page) throw new Error('Browser not initialized');
-
-      await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
-      await this.humanDelay(true);
-      await this.humanScroll();
-
-      // Try to find and click apply button
-      await this.findAndClickApplyButton();
-      await this.waitForApplicationForm();
-
-      // Fill form
-      const { profile } = options;
-      const filler = new FormFiller(this.page, profile, options.jobData, {
-        resumePath: options.resumePath,
-        coverLetterPath: options.coverLetterPath,
-        answeredQuestions: options.answeredQuestions,
-      });
-
-      const formResult = await filler.fillForm(options.jobData.form_fields);
-      errors.push(...formResult.errors);
-
-      // Upload resume
-      if (options.resumePath) {
-        const fileInput = await this.page.$('input[type="file"]');
-        if (fileInput) {
-          await fileInput.setInputFiles(options.resumePath);
-          await this.page.waitForTimeout(2000);
-        }
-      }
-
-      // Custom questions
-      if (options.answeredQuestions) {
-        const result = await filler.fillCustomQuestions(options.answeredQuestions);
-        errors.push(...result.errors);
-      }
-
-      await this.humanDelay(true);
-
-      // Submit
-      const submitted = await this.clickSubmitButton();
-      if (!submitted) {
-        return { success: false, message: 'Could not find submit button', errors };
-      }
-
-      await this.page.waitForTimeout(3000);
-
-      // Screenshot
-      const { configRepository } = await import('../db/repositories/config');
-      const config = configRepository.loadAppConfig();
-      let screenshotPath: string | undefined;
-      if (config.application.saveScreenshots) {
-        const { getAutoplyDir } = await import('../db');
-        const { join } = await import('path');
-        screenshotPath = join(getAutoplyDir(), 'screenshots', `generic_${Date.now()}.png`);
-        await this.takeScreenshot(screenshotPath);
-      }
-
-      const confirmation = await this.waitForSubmissionConfirmation();
-      return { success: confirmation.success, message: confirmation.message, screenshotPath, errors };
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : 'Unknown error');
-      return { success: false, message: 'Generic submission failed', errors };
-    } finally {
-      await this.cleanup();
-    }
-  }
-
-  private async findAndClickApplyButton(): Promise<void> {
+  protected override async navigateToApplicationForm(): Promise<void> {
     if (!this.page) return;
 
     const selectors = [
@@ -165,7 +91,7 @@ ${pageText.slice(0, 6000)}`,
         if (el && await el.isVisible()) {
           await this.humanDelay(true);
           await el.click();
-          await this.page.waitForLoadState('networkidle');
+          await this.page.waitForLoadState('domcontentloaded');
           return;
         }
       } catch {
@@ -187,48 +113,9 @@ ${pageText.slice(0, 6000)}`,
   private async extractCustomQuestions(): Promise<CustomQuestion[]> {
     if (!this.page) return [];
 
-    const questions: CustomQuestion[] = [];
+    const { extractCustomQuestionsFromContainers } = await import('./helpers');
     const questionContainers = await this.page.$$('[class*="question"], [class*="custom-field"], .field-group');
-
-    for (let i = 0; i < questionContainers.length; i++) {
-      const container = questionContainers[i];
-
-      const questionText = await container.$eval(
-        'label, .question-text, [class*="label"]',
-        (el) => el.textContent?.trim() ?? ''
-      ).catch(() => '');
-
-      if (!questionText) continue;
-
-      const hasTextarea = (await container.$('textarea')) !== null;
-      const hasSelect = (await container.$('select')) !== null;
-      const hasRadio = (await container.$('input[type="radio"]')) !== null;
-
-      let type: CustomQuestion['type'] = 'text';
-      let options: string[] | undefined;
-
-      if (hasTextarea) {
-        type = 'textarea';
-      } else if (hasSelect) {
-        type = 'select';
-        options = await container.$$eval('select option', (opts) =>
-          opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
-        );
-      } else if (hasRadio) {
-        type = 'radio';
-      }
-
-      const required = (await container.$('[required]')) !== null;
-
-      questions.push({
-        id: `generic_q_${i}`,
-        question: questionText,
-        type,
-        required,
-        options,
-      });
-    }
-
-    return questions;
+    
+    return extractCustomQuestionsFromContainers(this.page, questionContainers, 'generic');
   }
 }

@@ -9,7 +9,7 @@ export class WorkdayScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('[data-automation-id="jobPostingHeader"], .css-1q2dra3, [data-automation-id="jobPostingDescription"]', {
       timeout: 15000,
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // ============ Workday Form Submission ============
@@ -18,11 +18,11 @@ export class WorkdayScraper extends BaseScraper {
     const errors: string[] = [];
 
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -45,15 +45,16 @@ export class WorkdayScraper extends BaseScraper {
       errors.push(...result.errors);
 
       // Screenshot
+      const { takeScreenshotIfEnabled } = await import('./helpers');
       const { configRepository } = await import('../db/repositories/config');
-      const config = configRepository.loadAppConfig();
-      let screenshotPath: string | undefined;
-      if (config.application.saveScreenshots) {
-        const { getAutoplyDir } = await import('../db');
-        const { join } = await import('path');
-        screenshotPath = join(getAutoplyDir(), 'screenshots', `workday_${Date.now()}.png`);
-        await this.takeScreenshot(screenshotPath);
-      }
+      const { getAutoplyDir } = await import('../db');
+      
+      const screenshotPath = await takeScreenshotIfEnabled(
+        this.page, 
+        `workday_${Date.now()}`, 
+        configRepository.loadAppConfig, 
+        getAutoplyDir
+      );
 
       return { success: result.success, message: result.message, screenshotPath, errors };
     } catch (error) {
@@ -78,7 +79,7 @@ export class WorkdayScraper extends BaseScraper {
       if (button) {
         await this.humanDelay(true);
         await button.click();
-        await this.page.waitForLoadState('networkidle');
+        await this.page.waitForLoadState('domcontentloaded');
         return;
       }
     }
@@ -89,7 +90,7 @@ export class WorkdayScraper extends BaseScraper {
 
     await this.page.waitForSelector('[data-automation-id="applicationForm"], [data-automation-id*="input"]', {
       timeout: 15000,
-    }).catch(() => {});
+    }).catch(() => { });
     await this.humanDelay(true);
   }
 
@@ -148,13 +149,27 @@ export class WorkdayScraper extends BaseScraper {
 
     const { profile } = options;
 
-    // Name fields
-    await this.fillWorkdayInput('[data-automation-id="legalNameSection_firstName"]', profile.name.split(' ')[0]);
-    await this.fillWorkdayInput('[data-automation-id="legalNameSection_lastName"]', profile.name.split(' ').slice(1).join(' '));
-    await this.fillWorkdayInput('[data-automation-id="email"]', profile.email);
+    // Fill all detected form fields via FormFiller (handles prompts for unfillable required fields)
+    const filler = new FormFiller(this.page, profile, options.jobData, {
+      resumePath: options.resumePath,
+      answeredQuestions: options.answeredQuestions,
+      autoMode: options.autoMode,
+    });
 
-    if (profile.phone) {
-      await this.fillWorkdayInput('[data-automation-id="phone-number"]', profile.phone);
+    // Extract form fields from the live application form and fill via FormFiller
+    const liveFormFields = await this.extractFormFields();
+    if (liveFormFields.length > 0) {
+      const formResult = await filler.fillForm(liveFormFields);
+      errors.push(...formResult.errors);
+    } else {
+      // Fallback: fill basic fields manually if extraction found nothing
+      await this.fillWorkdayInput('[data-automation-id="legalNameSection_firstName"]', profile.name.split(' ')[0]);
+      await this.fillWorkdayInput('[data-automation-id="legalNameSection_lastName"]', profile.name.split(' ').slice(1).join(' '));
+      await this.fillWorkdayInput('[data-automation-id="email"]', profile.email);
+
+      if (profile.phone) {
+        await this.fillWorkdayInput('[data-automation-id="phone-number"]', profile.phone);
+      }
     }
 
     // Resume upload
@@ -168,7 +183,6 @@ export class WorkdayScraper extends BaseScraper {
 
     // Custom questions
     if (options.answeredQuestions) {
-      const filler = new FormFiller(this.page, profile, options.jobData, { answeredQuestions: options.answeredQuestions });
       const result = await filler.fillCustomQuestions(options.answeredQuestions);
       errors.push(...result.errors);
     }
@@ -202,7 +216,7 @@ export class WorkdayScraper extends BaseScraper {
         return { success: true, message: 'Workday application submitted', errors: [] };
       }
 
-      return { success: true, message: 'Submission completed', errors: [] };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)', errors: [] };
     } catch {
       return { success: false, message: 'Confirmation check failed', errors: [] };
     }

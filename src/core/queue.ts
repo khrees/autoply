@@ -11,8 +11,8 @@ export class ApplicationQueue {
   private processing = false;
   private persistPath: string;
 
-  constructor() {
-    this.persistPath = join(getAutoplyDir(), QUEUE_FILE);
+  constructor(persistPath = join(getAutoplyDir(), QUEUE_FILE)) {
+    this.persistPath = persistPath;
   }
 
   add(url: string): QueueItem {
@@ -78,6 +78,7 @@ export class ApplicationQueue {
 
   clear(): void {
     this.items.clear();
+    this.processing = false;
     this.deletePersisted();
   }
 
@@ -146,6 +147,7 @@ export class ApplicationQueue {
       if (!data.items || !Array.isArray(data.items)) return false;
 
       this.items = new Map(data.items);
+      this.processing = false;
 
       // Reset any "processing" items to "pending" (interrupted)
       for (const item of this.items.values()) {

@@ -12,7 +12,9 @@ import { applicationRepository } from '../../db/repositories/application';
 import { configRepository } from '../../db/repositories/config';
 import { logger, chalk } from '../../utils/logger';
 import { applicationQueue } from '../../core/queue';
+import { getAutoplyDir } from '../../db';
 import { existsSync } from 'fs';
+import { join } from 'path';
 import { extractTextFromFile } from '../../utils/document-extractor';
 import { createAIProvider } from '../../ai/provider';
 import { extractProfileFromResume } from '../../ai/profile-extractor';
@@ -24,18 +26,20 @@ export const applyCommand = new Command('apply')
   .option('-f, --file <path>', 'Read URLs from file (one per line)')
   .option('-d, --dry-run', 'Generate documents without submitting')
   .option('-r, --resume', 'Resume interrupted bulk application')
+  .option('--resume-file <path>', 'Use a specific resume PDF for submission')
+  .option('--cover-letter-file <path>', 'Use a specific cover letter PDF for submission')
   .option('--auto', 'Skip confirmations and apply with smart defaults')
-  .action(async (urls: string[], options: { file?: string; dryRun?: boolean; resume?: boolean; auto?: boolean }) => {
+  .action(async (urls: string[], options: { file?: string; dryRun?: boolean; resume?: boolean; auto?: boolean; resumeFile?: string; coverLetterFile?: string }) => {
     // Check for profile
     let profile = profileRepository.findFirst();
     if (!profile) {
       logger.error('No profile found.');
-      
+
       if (options.auto) {
         logger.error('Cannot use --auto without a profile. Run "autoply init" first.');
         process.exit(1);
       }
-      
+
       const createNow = await confirm({ message: 'Would you like to create one now?', default: true });
       if (createNow) {
         const resumePath = await input({
@@ -47,14 +51,14 @@ export const applyCommand = new Command('apply')
             return true;
           },
         });
-        
+
         const cleanedPath = resumePath.trim().replace(/^['"]|['"]$/g, '');
         const result = await extractTextFromFile(cleanedPath);
         if (!result.success) {
           logger.error(`Failed to extract resume: ${result.error}`);
           process.exit(1);
         }
-        
+
         logger.info('Extracting profile from resume...');
         const provider = createAIProvider();
         const isAvailable = await provider.isAvailable();
@@ -63,17 +67,33 @@ export const applyCommand = new Command('apply')
           logger.info('Fix: Run "ollama serve" for local AI, or set OPENAI_API_KEY / ANTHROPIC_API_KEY for cloud.');
           process.exit(1);
         }
-        
+
         const profileData = await extractProfileFromResume(provider, result.content!);
         profile = profileRepository.create(profileData);
-        configRepository.saveAppConfig(DEFAULT_CONFIG);
+        // Only initialize config if no config file exists yet
+        const configPath = join(getAutoplyDir(), 'config.json');
+        if (!existsSync(configPath)) {
+          configRepository.saveAppConfig(DEFAULT_CONFIG);
+        }
         logger.success(`Profile created for ${profile.name}`);
         logger.newline();
       }
-      
+
       if (!profile) {
         process.exit(1);
       }
+    }
+
+    // Validate provided document paths (if any)
+    const resumeFilePath = options.resumeFile?.trim();
+    const coverLetterFilePath = options.coverLetterFile?.trim();
+    if (resumeFilePath && !existsSync(resumeFilePath)) {
+      logger.error(`Resume file not found: ${resumeFilePath}`);
+      process.exit(1);
+    }
+    if (coverLetterFilePath && !existsSync(coverLetterFilePath)) {
+      logger.error(`Cover letter file not found: ${coverLetterFilePath}`);
+      process.exit(1);
     }
 
     // Handle resume mode
@@ -182,6 +202,8 @@ export const applyCommand = new Command('apply')
         dryRun: options.dryRun,
         profile,
         autoMode: options.auto,
+        resumePath: resumeFilePath,
+        coverLetterPath: coverLetterFilePath,
       });
 
       results.push(result);
@@ -189,8 +211,9 @@ export const applyCommand = new Command('apply')
       if (result.success) {
         applicationQueue.updateStatus(item.id, 'completed');
         applicationQueue.setResult(item.id, result.application);
+        const outcome = result.application?.status === 'filled' ? 'Prepared' : 'Completed';
         logger.success(
-          `Completed: ${result.application?.job_title} at ${result.application?.company}`
+          `${outcome}: ${result.application?.job_title} at ${result.application?.company}`
         );
       } else {
         applicationQueue.updateStatus(item.id, 'failed', result.error);
@@ -227,8 +250,10 @@ export const applyCommand = new Command('apply')
       logger.newline();
       console.log(chalk.bold('Processed:'));
       for (const result of successful) {
+        const label =
+          result.application?.status === 'filled' ? chalk.yellow('Prepared') : chalk.green('Completed');
         console.log(
-          `  ${chalk.green('✔')} ${result.application?.job_title} at ${result.application?.company}`
+          `  ${label} ${result.application?.job_title} at ${result.application?.company}`
         );
       }
     }

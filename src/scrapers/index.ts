@@ -54,4 +54,4 @@ export {
   GenericScraper,
 };
 
-export type { SubmissionResult, SubmissionOptions } from './base';
+export type { SubmissionResult, SubmissionOptions, FillApplicationResult } from './base';

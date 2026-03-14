@@ -117,7 +117,7 @@ profileCommand
 profileCommand
   .command('import <file>')
   .description('Import profile from a resume file (PDF/text)')
-  .action(async (file: string) => {
+  .action(async (_file: string) => {
     logger.warning('Resume import feature is not yet implemented.');
     logger.info('Please use "autoply init" to create your profile manually.');
   });

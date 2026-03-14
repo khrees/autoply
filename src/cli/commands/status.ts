@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { applicationRepository } from '../../db/repositories/application';
-import { parseJobUrl } from '../../utils/url-parser';
+import { normalizeUrl, parseJobUrl } from '../../utils/url-parser';
 import { logger, chalk } from '../../utils/logger';
 
 /**
@@ -18,7 +18,15 @@ export const statusCommand = new Command('status')
     }
 
     // Look up existing applications for this URL
-    const applications = applicationRepository.findByUrl(url);
+    const normalizedUrl = normalizeUrl(url);
+    const applications = Array.from(
+      new Map(
+        [...applicationRepository.findByUrl(url), ...applicationRepository.findByUrl(normalizedUrl)].map((app) => [
+          app.id,
+          app,
+        ])
+      ).values()
+    );
 
     if (applications.length === 0) {
       logger.info('No application found for this URL.');
@@ -62,6 +70,8 @@ function formatStatus(status: string): string {
       return chalk.green('Submitted');
     case 'pending':
       return chalk.yellow('Pending');
+    case 'filled':
+      return chalk.cyan('Filled');
     case 'failed':
       return chalk.red('Failed');
     default:

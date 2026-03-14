@@ -56,7 +56,14 @@ mv dist/autoply /usr/local/bin/
 autoply apply https://boards.greenhouse.io/company/jobs/123456
 ```
 
-Autoply scrapes the posting, generates a tailored resume and cover letter, fills out the application form, and submits it.
+Autoply scrapes the posting, generates a tailored resume and cover letter, fills out the application form, and submits it. By default, Autoply will pause and ask for your confirmation before final submission.
+
+**Auto-Submit Mode**:
+To skip the confirmation prompt and have Autoply submit automatically when confident:
+```bash
+autoply apply --auto https://boards.greenhouse.io/company/jobs/123456
+```
+*(You can also set `application.autoSubmit` to `true` in your config to always use this behavior).*
 
 ### Apply in bulk
 
@@ -191,11 +198,33 @@ autoply config providers         # List AI providers
 | `ai.model` | varies | Model name |
 | `ai.baseUrl` | varies | API base URL (local providers) |
 | `ai.temperature` | `0.7` | Generation temperature |
+| `browser.engine` | `playwright` | Default browser engine |
 | `browser.headless` | `false` | Run browser without UI |
 | `browser.timeout` | `30000` | Browser timeout (ms) |
+| `browser.reuseSessions` | `true` | Reuse browser processes across jobs |
+| `browser.maxOpenPagesPerBrowser` | `2` | Max concurrent pages per browser process |
+| `browser.retireBrowserAfterPageCount` | `25` | Rotate a browser process after this many pages |
+| `browser.closeInactiveBrowserAfterMillis` | `30000` | Close idle pooled browsers after this delay |
+| `browser.patchrightHosts` | `[]` | Hosts that should use Patchright instead of Playwright |
+| `browser.patchrightPlatforms` | `[]` | Platforms that should use Patchright instead of Playwright |
 | `application.autoSubmit` | `false` | Auto-submit after form fill |
+| `application.fillOptionalFields` | `false` | Fill optional fields and questions instead of leaving them blank |
 | `application.saveScreenshots` | `true` | Save screenshots on submission |
 | `application.retryAttempts` | `3` | Retry count for failed operations |
+
+Example targeted stealth setup:
+
+```bash
+autoply config set browser.patchrightHosts '["hypr.com"]'
+autoply config set browser.patchrightPlatforms '["linkedin"]'
+```
+
+### Debugging
+
+Autoply supports debugging flags to help identify issues during form submission. Set these as environment variables:
+
+- `DEBUG=1` (or `true`) — Enables comprehensive debugging output.
+- `DEBUG_GREENHOUSE=1` — Specifically enables pre-submission debugging for Greenhouse forms (logs unfilled fields to the console and saves a snapshot).
 
 ---
 

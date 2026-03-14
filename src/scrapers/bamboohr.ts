@@ -10,7 +10,7 @@ export class BambooHRScraper extends BaseScraper {
     // BambooHR career pages are JS-rendered React apps
     await this.page.waitForSelector('[class*="JobDetails"], [class*="jobDetails"], h2, .fab-Page', {
       timeout: 15000,
-    }).catch(() => {});
+    }).catch(() => { });
     await this.page.waitForTimeout(2000);
   }
 
@@ -85,7 +85,8 @@ ${pageText.slice(0, 6000)}`,
     const errors: string[] = [];
 
     try {
-      await this.initialize();
+      const _profile = options.profile; // Unused for now
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Navigate to job posting
@@ -102,8 +103,23 @@ ${pageText.slice(0, 6000)}`,
       await this.waitForApplicationForm();
       await this.humanDelay(true);
 
-      // Fill basic fields
-      await this.fillBambooHRBasicFields(options);
+      // Fill all detected form fields via FormFiller (handles prompts for unfillable required fields)
+      const filler = new FormFiller(this.page, options.profile, options.jobData, {
+        resumePath: options.resumePath,
+        coverLetterPath: options.coverLetterPath,
+        answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
+      });
+
+      // Extract form fields from the live application form and fill via FormFiller
+      const liveFormFields = await this.extractFormFields();
+      if (liveFormFields.length > 0) {
+        const formResult = await filler.fillForm(liveFormFields);
+        errors.push(...formResult.errors);
+      } else {
+        // Fallback: fill basic fields manually if extraction found nothing
+        await this.fillBambooHRBasicFields(options);
+      }
 
       // Upload resume
       if (options.resumePath) {
@@ -120,11 +136,6 @@ ${pageText.slice(0, 6000)}`,
 
       // Fill custom questions using FormFiller
       if (options.answeredQuestions && options.answeredQuestions.length > 0) {
-        const filler = new FormFiller(this.page, options.profile, options.jobData, {
-          resumePath: options.resumePath,
-          coverLetterPath: options.coverLetterPath,
-          answeredQuestions: options.answeredQuestions,
-        });
         const questionsResult = await filler.fillCustomQuestions(options.answeredQuestions);
         if (questionsResult.errors.length > 0) {
           errors.push(...questionsResult.errors);
@@ -225,7 +236,7 @@ ${pageText.slice(0, 6000)}`,
         if (button && await button.isVisible()) {
           await this.humanDelay(true);
           await button.click();
-          await this.page.waitForLoadState('domcontentloaded').catch(() => {});
+          await this.page.waitForLoadState('domcontentloaded').catch(() => { });
           await this.page.waitForTimeout(2000);
           return;
         }
@@ -696,7 +707,7 @@ ${pageText.slice(0, 6000)}`,
     }
   }
 
-  private async fillRemainingFields(profile: Profile): Promise<void> {
+  private async fillRemainingFields(_profile: Profile): Promise<void> {
     if (!this.page) return;
 
     // Common BambooHR dropdown questions
@@ -926,10 +937,10 @@ ${pageText.slice(0, 6000)}`,
     }
   }
 
-  private async fillBambooHREducation(profile: Profile): Promise<void> {
+  private async fillBambooHREducation(_profile: Profile): Promise<void> {
     if (!this.page) return;
 
-    const education = profile.education?.[0];
+    const education = _profile.education?.[0];
     const institution = education?.institution || 'Ladoke Akintola University of Technology';
     const degree = education?.degree || 'B.Tech in Computer Science';
 
@@ -1101,7 +1112,7 @@ ${pageText.slice(0, 6000)}`,
     if (!this.page) return { success: false, message: 'Page not initialized' };
 
     try {
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.humanDelay();
 
       const successSelectors = [
@@ -1132,7 +1143,7 @@ ${pageText.slice(0, 6000)}`,
         return { success: true, message: 'Application submitted successfully' };
       }
 
-      return { success: true, message: 'Submission completed (no errors detected)' };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
     } catch (error) {
       return {
         success: false,

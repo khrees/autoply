@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { AIProvider, Profile, Experience, Education, Preferences } from '../types';
 
 const EXTRACTION_SYSTEM_PROMPT = `You extract structured profile data from resumes. Return ONLY valid JSON, no markdown fences or extra text.

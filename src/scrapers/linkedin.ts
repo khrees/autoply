@@ -9,7 +9,7 @@ export class LinkedInScraper extends BaseScraper {
     if (!this.page) return;
     await this.page.waitForSelector('.job-view-layout, .jobs-unified-top-card', {
       timeout: 15000,
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // ============ LinkedIn Easy Apply Form Submission ============
@@ -22,12 +22,12 @@ export class LinkedInScraper extends BaseScraper {
     const errors: string[] = [];
 
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Navigate to job posting
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       await this.humanDelay(true);
       await this.humanScroll();
 
@@ -234,8 +234,22 @@ export class LinkedInScraper extends BaseScraper {
 
     const { profile } = options;
 
-    // Fill contact info
-    await this.fillLinkedInContactInfo(profile);
+    // Fill all detected form fields via FormFiller (handles prompts for unfillable required fields)
+    const filler = new FormFiller(this.page, profile, options.jobData, {
+      resumePath: options.resumePath,
+      answeredQuestions: options.answeredQuestions,
+      autoMode: options.autoMode,
+    });
+
+    // Extract form fields from the live application form and fill via FormFiller
+    const liveFormFields = await this.extractFormFields();
+    if (liveFormFields.length > 0) {
+      const formResult = await filler.fillForm(liveFormFields);
+      errors.push(...formResult.errors);
+    } else {
+      // Fallback: fill contact info manually if extraction found nothing
+      await this.fillLinkedInContactInfo(profile);
+    }
 
     // Upload resume if on resume step
     if (options.resumePath) {
@@ -250,9 +264,6 @@ export class LinkedInScraper extends BaseScraper {
 
     // Answer custom questions
     if (options.answeredQuestions) {
-      const filler = new FormFiller(this.page, profile, options.jobData, {
-        answeredQuestions: options.answeredQuestions,
-      });
       const result = await filler.fillCustomQuestions(options.answeredQuestions);
       errors.push(...result.errors);
     }
@@ -292,10 +303,41 @@ export class LinkedInScraper extends BaseScraper {
     // Phone country code if separate
     const countryCodeSelect = await this.page.$('select[name*="country"], select[id*="phoneCountry"]');
     if (countryCodeSelect) {
-      // Default to Nigeria (+234) based on user's locale, or try to auto-detect
-      // This could be made configurable
-      await countryCodeSelect.selectOption({ value: 'NG' }).catch(() => {});
+      const countryCode = this.deriveCountryCodeFromLocation(profile.location);
+      if (countryCode) {
+        await countryCodeSelect.selectOption({ value: countryCode }).catch(() => { });
+      }
     }
+  }
+
+  private deriveCountryCodeFromLocation(location?: string): string | null {
+    if (!location) return null;
+    const normalized = location.toLowerCase();
+
+    if (normalized.includes('united states') || normalized.includes('usa') || normalized.includes('us') || normalized.includes('america')) {
+      return 'US';
+    }
+    if (normalized.includes('canada')) return 'CA';
+    if (normalized.includes('united kingdom') || normalized.includes('uk') || normalized.includes('england') || normalized.includes('scotland') || normalized.includes('wales') || normalized.includes('northern ireland')) {
+      return 'GB';
+    }
+    if (normalized.includes('australia')) return 'AU';
+    if (normalized.includes('india')) return 'IN';
+    if (normalized.includes('nigeria')) return 'NG';
+    if (normalized.includes('germany')) return 'DE';
+    if (normalized.includes('france')) return 'FR';
+    if (normalized.includes('spain')) return 'ES';
+    if (normalized.includes('italy')) return 'IT';
+    if (normalized.includes('netherlands') || normalized.includes('holland')) return 'NL';
+    if (normalized.includes('sweden')) return 'SE';
+    if (normalized.includes('norway')) return 'NO';
+    if (normalized.includes('denmark')) return 'DK';
+    if (normalized.includes('switzerland')) return 'CH';
+    if (normalized.includes('ireland')) return 'IE';
+    if (normalized.includes('singapore')) return 'SG';
+    if (normalized.includes('new zealand')) return 'NZ';
+
+    return null;
   }
 
   private async uploadLinkedInResume(resumePath: string): Promise<boolean> {
@@ -366,7 +408,7 @@ export class LinkedInScraper extends BaseScraper {
         await this.page.waitForTimeout(1000);
         const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child');
         if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => {});
+          await autocompleteOption.click().catch(() => { });
         }
       }
     }
@@ -387,7 +429,7 @@ export class LinkedInScraper extends BaseScraper {
         await this.page.waitForTimeout(1000);
         const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child');
         if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => {});
+          await autocompleteOption.click().catch(() => { });
         }
       }
     }
@@ -397,7 +439,7 @@ export class LinkedInScraper extends BaseScraper {
     if (degreeInput) {
       const tagName = await degreeInput.evaluate((el) => el.tagName.toLowerCase());
       if (tagName === 'select') {
-        await degreeInput.selectOption({ label: latestEducation.degree }).catch(() => {});
+        await degreeInput.selectOption({ label: latestEducation.degree }).catch(() => { });
       } else {
         const currentValue = await degreeInput.inputValue();
         if (!currentValue) {
@@ -446,9 +488,9 @@ export class LinkedInScraper extends BaseScraper {
       const noRadio = await group.$('input[value*="No"], input[value="false"], label:has-text("No") input');
 
       if (selectYes && yesRadio) {
-        await yesRadio.check().catch(() => {});
+        await yesRadio.check().catch(() => { });
       } else if (!selectYes && noRadio) {
-        await noRadio.check().catch(() => {});
+        await noRadio.check().catch(() => { });
       }
     }
   }
@@ -594,8 +636,8 @@ export class LinkedInScraper extends BaseScraper {
       }
 
       return {
-        success: true,
-        message: 'Submission completed (no errors detected)',
+        success: false,
+        message: 'Could not confirm submission status (no clear success indicator found)',
         errors: [],
       };
     } catch (error) {

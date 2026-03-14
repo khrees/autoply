@@ -1,12 +1,22 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
 import { ApplicationQueue } from './queue';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 describe('ApplicationQueue', () => {
   let queue: ApplicationQueue;
+  let tempDir: string;
 
   beforeEach(() => {
-    queue = new ApplicationQueue();
+    tempDir = mkdtempSync(join(tmpdir(), 'autoply-queue-'));
+    queue = new ApplicationQueue(join(tempDir, 'queue.json'));
     queue.clear();
+  });
+
+  afterEach(() => {
+    queue.clear();
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
   describe('add', () => {
@@ -77,7 +87,7 @@ describe('ApplicationQueue', () => {
     beforeEach(() => {
       const item1 = queue.add('https://example.com/job1');
       const item2 = queue.add('https://example.com/job2');
-      const item3 = queue.add('https://example.com/job3');
+      const _item3 = queue.add('https://example.com/job3');
 
       queue.updateStatus(item1.id, 'completed');
       queue.updateStatus(item2.id, 'failed', 'Network error');
@@ -235,16 +245,12 @@ describe('ApplicationQueue', () => {
   });
 
   describe('persistence', () => {
-    afterEach(() => {
-      queue.clear(); // also deletes persisted file
-    });
-
     test('persist and load roundtrips items', () => {
       queue.add('https://example.com/job1');
       queue.add('https://example.com/job2');
       queue.persist();
 
-      const newQueue = new ApplicationQueue();
+      const newQueue = new ApplicationQueue(join(tempDir, 'queue.json'));
       const loaded = newQueue.load();
 
       expect(loaded).toBe(true);
@@ -259,7 +265,7 @@ describe('ApplicationQueue', () => {
       queue.updateStatus(item.id, 'processing');
       queue.persist();
 
-      const newQueue = new ApplicationQueue();
+      const newQueue = new ApplicationQueue(join(tempDir, 'queue.json'));
       newQueue.load();
 
       const recovered = newQueue.get(item.id);
@@ -275,7 +281,7 @@ describe('ApplicationQueue', () => {
       queue.updateStatus(item2.id, 'failed', 'Network error');
       queue.persist();
 
-      const newQueue = new ApplicationQueue();
+      const newQueue = new ApplicationQueue(join(tempDir, 'queue.json'));
       newQueue.load();
 
       expect(newQueue.get(item1.id)?.status).toBe('completed');
@@ -286,7 +292,7 @@ describe('ApplicationQueue', () => {
     });
 
     test('load returns false when no persisted file', () => {
-      const freshQueue = new ApplicationQueue();
+      const freshQueue = new ApplicationQueue(join(tempDir, 'queue.json'));
       // ensure no file exists
       freshQueue.deletePersisted();
 
@@ -332,7 +338,7 @@ describe('ApplicationQueue', () => {
       queue.persist(); // initial persist
       queue.updateStatus(item.id, 'completed');
 
-      const newQueue = new ApplicationQueue();
+      const newQueue = new ApplicationQueue(join(tempDir, 'queue.json'));
       newQueue.load();
       expect(newQueue.get(item.id)?.status).toBe('completed');
 

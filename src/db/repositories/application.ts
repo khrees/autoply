@@ -83,13 +83,15 @@ export class ApplicationRepository {
     return rows.map(rowToApplication);
   }
 
-  existsByUrl(url: string): boolean {
+  existsByUrl(url: string, excludeFailedStatus = true): boolean {
     const db = getDb();
-    const row = db
-      .query<{ count: number }, [string]>(
-        'SELECT COUNT(*) as count FROM applications WHERE url = ?'
-      )
-      .get(url);
+    // Only consider successfully submitted applications as "existing"
+    // Failed applications should be retryable
+    const query = excludeFailedStatus
+      ? 'SELECT COUNT(*) as count FROM applications WHERE url = ? AND status = ?'
+      : 'SELECT COUNT(*) as count FROM applications WHERE url = ?';
+    const params = excludeFailedStatus ? [url, 'submitted'] : [url];
+    const row = db.query<{ count: number }, string[]>(query).get(...params);
     return (row?.count ?? 0) > 0;
   }
 

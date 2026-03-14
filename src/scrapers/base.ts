@@ -1,14 +1,33 @@
 import type { Browser, Page, BrowserContext } from 'playwright';
-import { existsSync } from 'fs';
 import type { JobData, FormField, CustomQuestion, Platform, Profile, GeneratedDocuments, AIProvider } from '../types';
 import { configRepository } from '../db/repositories/config';
-import { FormFiller, type FormFillerOptions, type FillResult } from '../core/form-filler';
+import { logger } from '../utils/logger';
+import {
+  FormFiller,
+  type IdentityAssertionKey,
+  type FormFillerOptions,
+  type FillResult,
+  getExpectedIdentityValue,
+  getIdentityAssertionKey,
+  matchesIdentityFieldValue,
+  shouldAllowAIAnswer,
+} from '../core/form-filler';
 import { extractJobDataWithAI, mergeJobData } from '../ai/job-extractor';
+import { browserManager, type BrowserSession } from '../core/browser-manager';
 
 export interface SubmissionResult {
   success: boolean;
   message: string;
   screenshotPath?: string;
+  errors: string[];
+}
+
+export interface FillApplicationResult {
+  success: boolean;
+  message: string;
+  screenshotPath?: string;
+  filledFields: string[];
+  skippedFields: string[];
   errors: string[];
 }
 
@@ -19,6 +38,9 @@ export interface SubmissionOptions {
   resumePath?: string;
   coverLetterPath?: string;
   answeredQuestions?: CustomQuestion[];
+  autoMode?: boolean;
+  /** When true, fill the form but do not click submit — leave the browser open for the user */
+  fillOnly?: boolean;
 }
 
 // Random delay to mimic human behavior
@@ -32,61 +54,22 @@ export abstract class BaseScraper {
   protected browser: Browser | null = null;
   protected context: BrowserContext | null = null;
   protected page: Page | null = null;
+  protected browserSession: BrowserSession | null = null;
+  protected browserSelectionUrl: string | null = null;
+  public keepAlive: boolean = false;
+  protected isScraping = false;
 
-  async initialize(): Promise<void> {
+  async initialize(url?: string): Promise<void> {
+    if (this.browser && this.context && this.page) return;
+
     const config = configRepository.loadAppConfig();
-    const { chromium } = await import('playwright');
-    this.browser = await chromium.launch({
-      headless: config.browser.headless,
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--disable-features=IsolateOrigins,site-per-process',
-      ],
-    });
-    this.context = await this.browser.newContext({
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      storageState: config.browser.storageState && existsSync(config.browser.storageState)
-        ? config.browser.storageState
-        : undefined,
-      viewport: { width: 1920, height: 1080 },
-      locale: Intl.DateTimeFormat().resolvedOptions().locale || 'en-US',
-      timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-    });
-
-    // Mask automation indicators
-    await this.context.addInitScript(() => {
-      // Remove webdriver flag
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-      // Mock plugins (real browsers have these)
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => [
-          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-          { name: 'Native Client', filename: 'internal-nacl-plugin' },
-        ],
-      });
-
-      // Mock languages
-      Object.defineProperty(navigator, 'languages', {
-        get: () => navigator.language ? [navigator.language, 'en'] : ['en'],
-      });
-
-      // Hide automation-related Chrome properties
-      const originalQuery = window.navigator.permissions.query;
-      window.navigator.permissions.query = (parameters: PermissionDescriptor) => {
-        if (parameters.name === 'notifications') {
-          return Promise.resolve({ state: 'prompt', onchange: null } as PermissionStatus);
-        }
-        return originalQuery(parameters);
-      };
-
-      // Mask Chrome property
-      (window as unknown as { chrome: unknown }).chrome = { runtime: {} };
-    });
-
-    this.page = await this.context.newPage();
+    this.browserSession = await browserManager.createSession(
+      this.platform,
+      this.browserSelectionUrl ?? url
+    );
+    this.browser = this.browserSession.browser;
+    this.context = this.browserSession.context;
+    this.page = this.browserSession.page;
     this.page.setDefaultTimeout(config.browser.timeout);
   }
 
@@ -112,26 +95,40 @@ export abstract class BaseScraper {
   }
 
   async cleanup(): Promise<void> {
-    if (this.context) {
-      await this.context.close();
-      this.context = null;
+    if (this.keepAlive) return;
+
+    if (this.browserSession) {
+      await this.browserSession.release();
+      this.browserSession = null;
     }
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-    }
+
+    this.context = null;
+    this.browser = null;
     this.page = null;
   }
 
+  async close(): Promise<void> {
+    const wasKeepAlive = this.keepAlive;
+    this.keepAlive = false;
+    await this.cleanup();
+    this.keepAlive = wasKeepAlive;
+  }
+
+  async waitForBrowserClose(): Promise<void> {
+    if (!this.browserSession) return;
+    await this.browserSession.waitForClose();
+  }
+
   async scrape(url: string, aiProvider?: AIProvider): Promise<JobData> {
+    this.isScraping = true;
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Random delay before navigation
       await this.humanDelay();
 
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded' });
 
       // Simulate human behavior: mouse movement and scrolling
       await this.humanDelay(true);
@@ -158,7 +155,10 @@ export abstract class BaseScraper {
 
       return jobData;
     } finally {
-      await this.cleanup();
+      this.isScraping = false;
+      if (!this.keepAlive) {
+        await this.cleanup();
+      }
     }
   }
 
@@ -212,9 +212,10 @@ export abstract class BaseScraper {
       const type = ((await input.getAttribute('type')) ?? 'text') as FormField['type'];
       const label = await this.findLabelForInput(input);
       const required = (await input.getAttribute('required')) !== null;
+      const value = await input.inputValue().catch(() => '');
 
       if (name || label) {
-        fields.push({ name, type, label, required });
+        fields.push({ name, type, label, required, value: value || undefined });
       }
     }
 
@@ -224,9 +225,10 @@ export abstract class BaseScraper {
       const name = (await textarea.getAttribute('name')) ?? '';
       const label = await this.findLabelForInput(textarea);
       const required = (await textarea.getAttribute('required')) !== null;
+      const value = await textarea.inputValue().catch(() => '');
 
       if (name || label) {
-        fields.push({ name, type: 'textarea', label, required });
+        fields.push({ name, type: 'textarea', label, required, value: value || undefined });
       }
     }
 
@@ -239,9 +241,10 @@ export abstract class BaseScraper {
       const options = await select.$$eval('option', (opts) =>
         opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
       );
+      const value = await select.inputValue().catch(() => '');
 
       if (name || label) {
-        fields.push({ name, type: 'select', label, required, options });
+        fields.push({ name, type: 'select', label, required, options, value: value || undefined });
       }
     }
 
@@ -362,6 +365,39 @@ export abstract class BaseScraper {
     }
   }
 
+  // ============ AI Field Answering ============
+
+  /**
+   * Use AI to answer a form question based on user profile and job data.
+   * Can be used by subclasses when standard form-filling fails.
+   */
+  protected async getAIAnswer(
+    profile: Profile,
+    jobData: JobData,
+    label: string,
+    options?: { type?: CustomQuestion['type']; choices?: string[] }
+  ): Promise<string | null> {
+    if (!shouldAllowAIAnswer({ label, type: options?.type, options: options?.choices })) {
+      return null;
+    }
+
+    try {
+      const { createAIProvider } = await import('../ai/provider');
+      const { answerApplicationQuestion } = await import('../ai/cover-letter');
+      const provider = createAIProvider();
+      const answer = await answerApplicationQuestion(
+        provider,
+        profile,
+        jobData,
+        label,
+        options
+      );
+      return answer?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
   // ============ Form Submission Methods ============
 
   /**
@@ -373,14 +409,15 @@ export abstract class BaseScraper {
     const errors: string[] = [];
 
     try {
-      await this.initialize();
+      await this.initialize(url);
       if (!this.page) throw new Error('Browser not initialized');
 
       // Navigate to job posting
       await this.humanDelay();
-      await this.page.goto(url, { waitUntil: 'networkidle' });
+      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await this.humanDelay(true);
       await this.humanScroll();
+      await this.waitForContent();
 
       // Navigate to application form (platform-specific)
       await this.navigateToApplicationForm();
@@ -391,14 +428,30 @@ export abstract class BaseScraper {
         resumePath: options.resumePath,
         coverLetterPath: options.coverLetterPath,
         answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
       };
 
       const filler = new FormFiller(this.page, options.profile, options.jobData, fillerOptions);
 
-      // Fill form fields
-      const formResult = await filler.fillForm(options.jobData.form_fields);
+      // Extract form fields from the live form, fall back to pre-scraped data
+      const liveFormFields = await this.extractFormFields();
+      const formFields = liveFormFields.length > 0 ? liveFormFields : options.jobData.form_fields;
+      const formResult = await filler.fillForm(formFields);
       if (formResult.errors.length > 0) {
         errors.push(...formResult.errors);
+      }
+
+      // Upload resume
+      if (options.resumePath) {
+        const uploaded = await this.uploadFile(options.resumePath, 'resume');
+        if (!uploaded) {
+          errors.push('Failed to upload resume');
+        }
+      }
+
+      // Upload cover letter
+      if (options.coverLetterPath) {
+        await this.uploadFile(options.coverLetterPath, 'cover_letter');
       }
 
       // Fill custom questions
@@ -409,6 +462,22 @@ export abstract class BaseScraper {
         }
       }
 
+      // Perform any platform-specific custom form filling
+      await this.postFormFill(options, filler, errors);
+
+      // Perform any pre-submit actions (e.g., handling specific validations or captchas)
+      await this.preSubmitActions(options, errors);
+
+      const integrityResult = await this.validateProfileIntegrity(options.profile);
+      if (!integrityResult.valid) {
+        errors.push(...integrityResult.errors);
+        return {
+          success: false,
+          message: 'Profile integrity validation failed',
+          errors,
+        };
+      }
+
       // Platform-specific pre-submit validation
       const validationResult = await this.validateBeforeSubmit();
       if (!validationResult.valid) {
@@ -416,6 +485,21 @@ export abstract class BaseScraper {
         return {
           success: false,
           message: 'Form validation failed',
+          errors,
+        };
+      }
+
+      // If fillOnly mode, skip submission — leave browser open for user
+      if (options.fillOnly) {
+        // Take screenshot for records
+        const { takeScreenshotIfEnabled } = await import('./helpers');
+        const { getAutoplyDir } = await import('../db');
+        const screenshotPath = await takeScreenshotIfEnabled(this.page, `filled_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
+
+        return {
+          success: true,
+          message: 'Form filled successfully. Review and submit manually in the browser.',
+          screenshotPath,
           errors,
         };
       }
@@ -434,14 +518,9 @@ export abstract class BaseScraper {
       const confirmationResult = await this.waitForSubmissionConfirmation();
 
       // Take screenshot for records
-      const config = configRepository.loadAppConfig();
-      let screenshotPath: string | undefined;
-      if (config.application.saveScreenshots) {
-        const { getAutoplyDir } = await import('../db');
-        const { join } = await import('path');
-        screenshotPath = join(getAutoplyDir(), 'screenshots', `submission_${Date.now()}.png`);
-        await this.takeScreenshot(screenshotPath);
-      }
+      const { takeScreenshotIfEnabled } = await import('./helpers');
+      const { getAutoplyDir } = await import('../db');
+      const screenshotPath = await takeScreenshotIfEnabled(this.page, `submission_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
 
       return {
         success: confirmationResult.success,
@@ -459,6 +538,117 @@ export abstract class BaseScraper {
     } finally {
       await this.cleanup();
     }
+  }
+
+  /**
+   * Fill an application form without submitting it.
+   * Navigates to the job page, fills all form fields,
+   * then keeps the browser open for the user to review and submit manually.
+   */
+  async fillApplication(url: string, options: SubmissionOptions): Promise<FillApplicationResult> {
+    const errors: string[] = [];
+    const filledFields: string[] = [];
+    const skippedFields: string[] = [];
+
+    try {
+      await this.initialize(url);
+      if (!this.page) throw new Error('Browser not initialized');
+
+      // Navigate to job posting
+      await this.humanDelay();
+      await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await this.humanDelay(true);
+      await this.humanScroll();
+      await this.waitForContent();
+
+      // Navigate to application form (platform-specific)
+      await this.navigateToApplicationForm();
+      await this.waitForApplicationForm();
+
+      // Create form filler
+      const fillerOptions: FormFillerOptions = {
+        resumePath: options.resumePath,
+        coverLetterPath: options.coverLetterPath,
+        answeredQuestions: options.answeredQuestions,
+        autoMode: options.autoMode,
+      };
+
+      const filler = new FormFiller(this.page, options.profile, options.jobData, fillerOptions);
+
+      // Extract form fields from the live form, fall back to pre-scraped data
+      const liveFormFields = await this.extractFormFields();
+      const formFields = liveFormFields.length > 0 ? liveFormFields : options.jobData.form_fields;
+      const formResult = await filler.fillForm(formFields);
+      filledFields.push(...formResult.filledFields);
+      skippedFields.push(...formResult.skippedFields);
+      if (formResult.errors.length > 0) {
+        errors.push(...formResult.errors);
+      }
+
+      // Upload resume
+      if (options.resumePath) {
+        await this.uploadFile(options.resumePath, 'resume');
+      }
+
+      // Upload cover letter
+      if (options.coverLetterPath) {
+        await this.uploadFile(options.coverLetterPath, 'cover_letter');
+      }
+
+      // Fill custom questions
+      if (options.answeredQuestions && options.answeredQuestions.length > 0) {
+        const questionsResult = await filler.fillCustomQuestions(options.answeredQuestions);
+        filledFields.push(...questionsResult.filledFields);
+        skippedFields.push(...questionsResult.skippedFields);
+        if (questionsResult.errors.length > 0) {
+          errors.push(...questionsResult.errors);
+        }
+      }
+
+      // Perform any platform-specific custom form filling
+      await this.postFormFill(options, filler, errors);
+
+      // Perform any pre-submit actions (e.g., handling specific validations or captchas)
+      await this.preSubmitActions(options, errors);
+
+      const integrityResult = await this.validateProfileIntegrity(options.profile);
+      if (!integrityResult.valid) {
+        errors.push(...integrityResult.errors);
+      }
+
+      // Platform-specific pre-submit validation
+      const validationResult = await this.validateBeforeSubmit();
+      if (!validationResult.valid) {
+        errors.push(...validationResult.errors);
+      }
+
+      // Take screenshot for records
+      const { takeScreenshotIfEnabled } = await import('./helpers');
+      const { getAutoplyDir } = await import('../db');
+      const screenshotPath = await takeScreenshotIfEnabled(this.page, `filled_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
+
+      // Do NOT submit — leave browser open for user to review
+      // Do NOT call cleanup — keep the browser alive
+
+      return {
+        success: true,
+        message: 'Form filled successfully. Review and submit manually in the browser.',
+        screenshotPath,
+        filledFields,
+        skippedFields,
+        errors,
+      };
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'Unknown error');
+      return {
+        success: false,
+        message: 'Form filling failed with error',
+        filledFields,
+        skippedFields,
+        errors,
+      };
+    }
+    // Note: no finally/cleanup — browser stays open for user to submit manually
   }
 
   /**
@@ -487,7 +677,7 @@ export abstract class BaseScraper {
         if (button) {
           await this.humanDelay(true);
           await button.click();
-          await this.page.waitForLoadState('networkidle');
+          await this.page.waitForLoadState('domcontentloaded', { timeout: 60000 });
           return;
         }
       } catch {
@@ -568,6 +758,40 @@ export abstract class BaseScraper {
     return { valid: errors.length === 0, errors };
   }
 
+  protected async validateProfileIntegrity(profile: Profile): Promise<{ valid: boolean; errors: string[] }> {
+    const liveFormFields = await this.extractFormFields();
+    const candidateFields = new Map<IdentityAssertionKey, FormField>();
+
+    for (const field of liveFormFields) {
+      const key = getIdentityAssertionKey(field);
+      if (!key) continue;
+
+      const existing = candidateFields.get(key);
+      const currentValueLength = (field.value ?? '').trim().length;
+      const existingValueLength = (existing?.value ?? '').trim().length;
+
+      if (!existing || currentValueLength > existingValueLength) {
+        candidateFields.set(key, field);
+      }
+    }
+
+    const errors: string[] = [];
+    for (const [key, field] of candidateFields) {
+      const actualValue = field.value?.trim();
+      if (!actualValue) continue;
+
+      const expectedValue = getExpectedIdentityValue(profile, key);
+      if (!expectedValue) continue;
+
+      if (!matchesIdentityFieldValue(key, expectedValue, actualValue)) {
+        const label = field.label || field.name || key;
+        errors.push(`Identity field "${label}" does not match the saved profile`);
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
   /**
    * Find and click the submit button.
    * Override in platform-specific scrapers for custom submit behavior.
@@ -590,13 +814,14 @@ export abstract class BaseScraper {
 
     for (const selector of submitSelectors) {
       try {
-        const button = await this.page.$(selector);
-        if (button) {
+        const buttons = await this.page.$$(selector);
+        for (const button of buttons) {
           const isVisible = await button.isVisible();
           const isEnabled = await button.isEnabled();
 
           if (isVisible && isEnabled) {
             await this.humanDelay(true);
+            await button.scrollIntoViewIfNeeded();
             await button.click();
             return true;
           }
@@ -607,6 +832,60 @@ export abstract class BaseScraper {
     }
 
     return false;
+  }
+
+  /**
+   * Check for a Captcha challenge and wait for the user to solve it manually.
+   * Logs a message to the console if a captcha is detected.
+   */
+  protected async waitForCaptchaSolved(): Promise<boolean> {
+    if (!this.page) return false;
+
+    try {
+      // Look for common captcha iframes
+      const captchaSelectors = [
+        'iframe[src*="hcaptcha.com"]',
+        'iframe[title*="hCaptcha"]',
+        'iframe[src*="recaptcha"]',
+        'iframe[title*="recaptcha" i]',
+        'iframe[src*="challenges.cloudflare.com"]',
+      ];
+
+      for (const selector of captchaSelectors) {
+        const iframes = await this.page.$$(selector);
+
+        if (iframes.length > 0) {
+          logger.debug(`Found ${iframes.length} iframes matching ${selector}`);
+        }
+
+        for (let i = 0; i < iframes.length; i++) {
+          const captchaIframe = iframes[i];
+          const isVisible = await captchaIframe.isVisible();
+          logger.debug(`Iframe ${i} isVisible: ${isVisible}`);
+
+          if (isVisible) {
+            logger.info('CAPTCHA detected! Please solve it manually in the browser window.');
+
+            // Wait for the captcha to be solved (the iframe will typically become hidden or be removed)
+            try {
+              // Wait for up to 2 minutes for the user to solve it
+              await captchaIframe.waitForElementState('hidden', { timeout: 120000 });
+              logger.success('CAPTCHA appears to be solved! Continuing submission...');
+              await this.humanDelay(true); // Wait a bit after solving
+              return true;
+            } catch (waitError) {
+              logger.warning('Timed out waiting for CAPTCHA to be solved manually. Continuing anyway...');
+              return false;
+            }
+          }
+        }
+      }
+
+      return false; // No captcha detected
+    } catch (error) {
+      logger.debug(`Error checking for captcha: ${error}`);
+      return false;
+    }
   }
 
   /**
@@ -637,7 +916,7 @@ export abstract class BaseScraper {
       ];
 
       // Wait for page to stabilize after submit
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.humanDelay();
 
       // Check for success indicators
@@ -684,8 +963,8 @@ export abstract class BaseScraper {
         return { success: true, message: 'Application submitted (URL indicates success)' };
       }
 
-      // No clear indicator - assume success if no errors
-      return { success: true, message: 'Submission completed (no errors detected)' };
+      // No clear indicator found
+      return { success: false, message: 'Could not confirm submission status (no clear success or error indicators found)' };
     } catch (error) {
       return {
         success: false,
@@ -738,7 +1017,7 @@ export abstract class BaseScraper {
       if (nextButton) {
         await this.humanDelay(true);
         await nextButton.click();
-        await this.page.waitForLoadState('networkidle').catch(() => {});
+        await this.page.waitForLoadState('domcontentloaded').catch(() => { });
         await this.humanDelay(true);
       } else {
         hasNextButton = false;
@@ -850,8 +1129,26 @@ export abstract class BaseScraper {
       return false;
     }
   }
+
+  /**
+   * Hook for platform-specific post-form-fill actions (e.g., custom dropdowns).
+   * Override in subclass.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async postFormFill(options: SubmissionOptions, filler: FormFiller, errors: string[]): Promise<void> {
+    // Override in platform-specific scrapers
+  }
+
+  /**
+   * Hook for pre-submit validations and final touches (e.g., waiting for specific validations or captchas).
+   * Override in subclass.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async preSubmitActions(options: SubmissionOptions, errors: string[]): Promise<void> {
+    // Override in platform-specific scrapers
+  }
 }
 
 export interface ScraperConstructor {
-  new (): BaseScraper;
+  new(): BaseScraper;
 }

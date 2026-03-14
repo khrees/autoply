@@ -3,7 +3,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { mkdirSync, existsSync } from 'fs';
 
-const AUTOPLY_DIR = join(homedir(), '.autoply');
+const AUTOPLY_DIR = process.env.AUTOPLY_HOME || join(homedir(), '.autoply');
 const DB_PATH = join(AUTOPLY_DIR, 'autoply.db');
 
 let db: Database | null = null;

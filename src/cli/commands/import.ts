@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { profileRepository } from '../../db/repositories/profile';
-import { logger, chalk } from '../../utils/logger';
+import { logger } from '../../utils/logger';
 import {
   extractTextFromFile,
   getSupportedFormatsDescription,

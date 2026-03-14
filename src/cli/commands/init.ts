@@ -5,7 +5,10 @@ import { configRepository } from '../../db/repositories/config';
 import { promptForProfile, promptForPreferences } from '../prompts/profile';
 import { logger } from '../../utils/logger';
 import { DEFAULT_CONFIG } from '../../types';
-import { getDb, ensureAutoplyDir, getAutoplyDir } from '../../db';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { getDb, ensureAutoplyDir, getAutoplyDir, getDbPath } from '../../db';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { extractTextFromFile } from '../../utils/document-extractor';
 import { extractProfileFromResume } from '../../ai/profile-extractor';
 import { createAIProvider } from '../../ai/provider';
@@ -88,7 +91,11 @@ export const initCommand = new Command('init')
               };
 
               const profile = profileRepository.create(profileData);
-              configRepository.saveAppConfig(DEFAULT_CONFIG);
+              // Only initialize config if no config file exists yet
+              const configPath = join(getAutoplyDir(), 'config.json');
+              if (!existsSync(configPath)) {
+                configRepository.saveAppConfig(DEFAULT_CONFIG);
+              }
 
               logger.newline();
               logger.success('Profile created successfully!');
@@ -120,8 +127,11 @@ export const initCommand = new Command('init')
       // Create profile
       const profile = profileRepository.create(profileData);
 
-      // Save default config
-      configRepository.saveAppConfig(DEFAULT_CONFIG);
+      // Only initialize config if no config file exists yet
+      const configPath = join(getAutoplyDir(), 'config.json');
+      if (!existsSync(configPath)) {
+        configRepository.saveAppConfig(DEFAULT_CONFIG);
+      }
 
       logger.newline();
       logger.success('Profile created successfully!');

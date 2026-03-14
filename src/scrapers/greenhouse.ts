@@ -1,23 +1,80 @@
 import { BaseScraper, type SubmissionOptions, type SubmissionResult } from './base';
-import type { JobData, CustomQuestion, Platform, Profile } from '../types';
+import type { AIProvider, JobData, CustomQuestion, Platform, Profile } from '../types';
 import { FormFiller } from '../core/form-filler';
 import { analyzeAndFillFormFields } from '../ai/form-analyzer';
 import { createAIProvider } from '../ai/provider';
 
+export function normalizeGreenhouseCompanyName(company: string): string {
+  const trimmed = company.trim().replace(/\s+/g, ' ');
+  if (!trimmed) return 'Unknown Company';
+
+  const strippedLeadingAt = trimmed.match(/^at\s+([^\s].*)$/i)?.[1] ?? trimmed;
+
+  return strippedLeadingAt
+    .split(' ')
+    .map((word) => {
+      if (!word) return word;
+      if (word === word.toUpperCase()) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
 export class GreenhouseScraper extends BaseScraper {
   platform: Platform = 'greenhouse';
+  private autoMode = false;
 
-  protected async waitForContent(): Promise<void> {
+  protected override async waitForContent(): Promise<void> {
     if (!this.page) return;
+
+    // Check if we need to navigate into an iframe for embedded Greenhouse forms
+    const currentUrl = this.page.url();
+    // During scraping, we want to stay on the host page to get better metadata (company, title, description)
+    // We only redirect to the actual Greenhouse form URL during filling/submission
+    if (!this.isScraping && !currentUrl.includes('greenhouse.io')) {
+      const ghFrame = this.page.frames().find((f) => f.url().includes('greenhouse.io'));
+      if (ghFrame) {
+        await this.page.goto(ghFrame.url(), { waitUntil: 'domcontentloaded' });
+        await this.humanDelay(true);
+      }
+    }
+
     await this.page.waitForSelector('#app_body, .app-body, [data-mapped="true"], h1', {
       timeout: 10000,
-    }).catch(() => {});
+    }).catch(() => { });
     // Extra wait for JS rendering
     await this.page.waitForTimeout(2000);
   }
 
-  override async scrape(url: string): Promise<JobData> {
-    return super.scrape(this.resolveGreenhouseUrl(url));
+  override async scrape(url: string, aiProvider?: AIProvider): Promise<JobData> {
+    this.browserSelectionUrl = url;
+    try {
+      return await super.scrape(this.resolveGreenhouseUrl(url), aiProvider);
+    } finally {
+      this.browserSelectionUrl = null;
+    }
+  }
+
+  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
+    this.browserSelectionUrl = url;
+    try {
+      const resolvedUrl = this.resolveGreenhouseUrl(url);
+      this.autoMode = !!options.autoMode;
+      return await super.submitApplication(resolvedUrl, options);
+    } finally {
+      this.browserSelectionUrl = null;
+    }
+  }
+
+  override async fillApplication(url: string, options: SubmissionOptions): Promise<import('./base').FillApplicationResult> {
+    this.browserSelectionUrl = url;
+    try {
+      const resolvedUrl = this.resolveGreenhouseUrl(url);
+      this.autoMode = !!options.autoMode;
+      return await super.fillApplication(resolvedUrl, options);
+    } finally {
+      this.browserSelectionUrl = null;
+    }
   }
 
   // ============ Greenhouse-specific Form Submission ============
@@ -88,96 +145,36 @@ export class GreenhouseScraper extends BaseScraper {
     }
   }
 
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
-    const errors: string[] = [];
+  protected override async postFormFill(options: SubmissionOptions, _filler: FormFiller, _errors: string[]): Promise<void> {
+    // Fill LinkedIn/Website fields
+    await this.fillGreenhouseUrls(options);
 
-    try {
-      await this.initialize();
-      if (!this.page) throw new Error('Browser not initialized');
+    // Handle education and work history sections if they exist
+    await this.fillGreenhouseEducation(options);
 
-      // Resolve embedded Greenhouse URLs (e.g. company sites with gh_jid param)
-      const resolvedUrl = this.resolveGreenhouseUrl(url);
+    // Handle any remaining required fields (select dropdowns, radio buttons)
+    await this.fillRemainingRequiredFields(options.profile);
 
-      // Navigate to job posting
-      await this.humanDelay();
-      await this.page.goto(resolvedUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await this.waitForContent();
-      await this.humanDelay(true);
-      await this.humanScroll();
+    // Fill checkboxes (Acknowledge, GDPR consent, "How did you hear")
+    await this.fillCheckboxFields();
 
-      // If we're on a non-Greenhouse domain, look for the Greenhouse iframe
-      if (!resolvedUrl.includes('greenhouse.io')) {
-        const ghFrame = this.page.frames().find(f => f.url().includes('greenhouse.io'));
-        if (ghFrame) {
-          // Navigate directly to the Greenhouse embed URL instead
-          await this.page.goto(ghFrame.url(), { waitUntil: 'networkidle' });
-          await this.humanDelay(true);
-        }
-      }
+    // Fill "Preferred First Name" if present
+    await this.fillPreferredFirstName(options.profile);
 
-      // Navigate to application form
-      await this.navigateToApplicationForm();
-      await this.waitForApplicationForm();
+    // Fill any remaining empty text inputs with smart defaults
+    await this.fillRemainingEmptyInputs(options.profile);
 
-      // Create form filler
-      const filler = new FormFiller(this.page, options.profile, options.jobData, {
-        resumePath: options.resumePath,
-        coverLetterPath: options.coverLetterPath,
-        answeredQuestions: options.answeredQuestions,
-      });
+    // Fill Gender dropdown specifically (often missed by generic handlers)
+    await this.fillGenderDropdown();
 
-      // Fill basic fields (name, email, phone, etc.)
-      await this.fillGreenhouseBasicFields(options);
+    // Use AI to analyze and fill any remaining unfilled fields
+    await this.fillUnfilledFieldsWithAI(options.profile);
 
-      // Upload resume
-      if (options.resumePath) {
-        const resumeUploaded = await this.uploadGreenhouseResume(options.resumePath);
-        if (!resumeUploaded) {
-          errors.push('Failed to upload resume');
-        }
-      }
+    // Try to solve reCAPTCHA checkbox
+    await this.handleRecaptcha();
 
-      // Upload cover letter if available
-      if (options.coverLetterPath) {
-        await this.uploadGreenhouseCoverLetter(options.coverLetterPath);
-      }
-
-      // Fill LinkedIn/Website fields
-      await this.fillGreenhouseUrls(options);
-
-      // Fill custom questions
-      if (options.answeredQuestions && options.answeredQuestions.length > 0) {
-        const questionsResult = await filler.fillCustomQuestions(options.answeredQuestions);
-        if (questionsResult.errors.length > 0) {
-          errors.push(...questionsResult.errors);
-        }
-      }
-
-      // Handle education and work history sections if they exist
-      await this.fillGreenhouseEducation(options);
-
-      // Handle any remaining required fields (select dropdowns, radio buttons)
-      await this.fillRemainingRequiredFields(options.profile);
-
-      // Fill checkboxes (Acknowledge, GDPR consent, "How did you hear")
-      await this.fillCheckboxFields();
-
-      // Fill "Preferred First Name" if present
-      await this.fillPreferredFirstName(options.profile);
-
-      // Fill any remaining empty text inputs with smart defaults
-      await this.fillRemainingEmptyInputs(options.profile);
-
-      // Fill Gender dropdown specifically (often missed by generic handlers)
-      await this.fillGenderDropdown();
-
-      // Use AI to analyze and fill any remaining unfilled fields
-      await this.fillUnfilledFieldsWithAI(options.profile);
-
-      // Try to solve reCAPTCHA checkbox
-      await this.handleRecaptcha();
-
-      // Scroll through the form to ensure all fields are visible
+    // Scroll through the form to ensure all fields are visible
+    if (this.page) {
       await this.page.evaluate(() => {
         const form = document.querySelector('#application_form, form');
         if (form) form.scrollIntoView({ behavior: 'instant', block: 'end' });
@@ -185,27 +182,21 @@ export class GreenhouseScraper extends BaseScraper {
       await this.humanDelay(true);
       await this.page.evaluate(() => window.scrollTo(0, 0));
       await this.humanDelay(true);
+    }
+  }
 
-      // Validate before submit
-      const validation = await this.validateBeforeSubmit();
-      if (!validation.valid) {
-        errors.push(...validation.errors);
-      }
+  protected override async preSubmitActions(_options: SubmissionOptions, _errors: string[]): Promise<void> {
+    if (!this.page) return;
 
-      // Don't fail on validation errors - try to submit anyway
-      // Some "errors" might be warnings
-
-      // Debug: take pre-submit screenshot and log empty required fields
-      {
+    if (process.env.DEBUG_GREENHOUSE || process.env.DEBUG) {
+      try {
         const { getAutoplyDir } = await import('../db');
         const { join } = await import('path');
         const preSubmitPath = join(getAutoplyDir(), 'screenshots', `greenhouse_pre_submit_${Date.now()}.png`);
         await this.takeScreenshot(preSubmitPath);
 
-        // Log empty required fields
         const emptyFields = await this.page.evaluate(() => {
           const results: string[] = [];
-          // Check all visible inputs
           document.querySelectorAll('input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])').forEach(el => {
             const input = el as HTMLInputElement;
             if (input.offsetParent !== null && !input.value) {
@@ -213,7 +204,6 @@ export class GreenhouseScraper extends BaseScraper {
               results.push(`Empty input: ${label}`);
             }
           });
-          // Check unchecked required checkboxes
           document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach(el => {
             const cb = el as HTMLInputElement;
             if (cb.offsetParent !== null) {
@@ -221,14 +211,12 @@ export class GreenhouseScraper extends BaseScraper {
               results.push(`Unchecked checkbox: ${label}`);
             }
           });
-          // Check unfilled selects
           document.querySelectorAll('select').forEach(el => {
             const sel = el as HTMLSelectElement;
             if (sel.offsetParent !== null && !sel.value) {
               results.push(`Empty select: ${sel.name || sel.id}`);
             }
           });
-          // Check React Select placeholders
           document.querySelectorAll('[class*="placeholder"]').forEach(el => {
             if ((el as HTMLElement).offsetParent !== null) {
               const container = el.closest('.field, .form-group, div');
@@ -238,624 +226,114 @@ export class GreenhouseScraper extends BaseScraper {
               results.push(`Unfilled React Select: label="${label}" classes="${classes}" parentClasses="${parentClasses}"`);
             }
           });
-          // Log all empty inputs with more detail
-          document.querySelectorAll('input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])').forEach(el => {
-            const input = el as HTMLInputElement;
-            if (input.offsetParent !== null && !input.value) {
-              results.push(`Empty input detail: name="${input.name}" id="${input.id}" placeholder="${input.placeholder}" autocomplete="${input.autocomplete}"`);
-            }
-          });
           return results;
         });
         console.log('[Greenhouse Debug] Empty fields before submit:', JSON.stringify(emptyFields, null, 2));
+      } catch (err) {
+        console.error('[Greenhouse Debug] Error collecting debug info', err);
       }
-
-      // Submit
-      const submitted = await this.clickGreenhouseSubmit();
-      if (!submitted) {
-        return {
-          success: false,
-          message: 'Could not find or click submit button',
-          errors,
-        };
-      }
-
-      // Wait for confirmation
-      const confirmation = await this.waitForGreenhouseConfirmation();
-
-      // Take screenshot
-      const { configRepository } = await import('../db/repositories/config');
-      const config = configRepository.loadAppConfig();
-      let screenshotPath: string | undefined;
-      if (config.application.saveScreenshots) {
-        const { getAutoplyDir } = await import('../db');
-        const { join } = await import('path');
-        screenshotPath = join(getAutoplyDir(), 'screenshots', `greenhouse_${Date.now()}.png`);
-        await this.takeScreenshot(screenshotPath);
-      }
-
-      return {
-        success: confirmation.success,
-        message: confirmation.message,
-        screenshotPath,
-        errors,
-      };
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : 'Unknown error');
-      return {
-        success: false,
-        message: 'Greenhouse submission failed',
-        errors,
-      };
-    } finally {
-      await this.cleanup();
     }
   }
 
-  private async fillGreenhouseBasicFields(options: SubmissionOptions): Promise<void> {
-    if (!this.page) return;
+  protected override async uploadFile(filePath: string, type: 'resume' | 'cover_letter'): Promise<boolean> {
+    if (!this.page) return false;
 
-    const { profile } = options;
-
-    // First name
-    await this.fillInputBySelector('#first_name, input[name="job_application[first_name]"]', profile.name.split(' ')[0]);
-
-    // Last name
-    const lastName = profile.name.split(' ').slice(1).join(' ');
-    await this.fillInputBySelector('#last_name, input[name="job_application[last_name]"]', lastName);
-
-    // Email
-    await this.fillInputBySelector('#email, input[name="job_application[email]"]', profile.email);
-
-    // Phone - handle country code React Select if present
-    if (profile.phone) {
-      await this.fillPhoneWithCountryCode(profile.phone);
-    }
-
-    // Location/Address - Greenhouse often uses autocomplete
-    if (profile.location) {
-      await this.fillLocationField(profile.location);
-    }
-
-    // Fill candidate-location autocomplete field
-    await this.fillCandidateLocationAutocomplete(profile.location || 'Lagos, Nigeria');
-
-    // Fill country React Select if present
-    await this.fillCountryReactSelect('Nigeria');
-  }
-
-  /**
-   * Fill phone field with country code handling.
-   * Greenhouse forms often have a React Select for country code and a separate input for number.
-   */
-  private async fillPhoneWithCountryCode(phone: string): Promise<void> {
-    if (!this.page) return;
-
-    try {
-      // Parse phone: if starts with +234, extract country code and number
-      let countryCode = '';
-      let localNumber = phone;
-
-      // Common country code patterns
-      const countryCodeMatch = phone.match(/^\+(\d{1,4})/);
-      if (countryCodeMatch) {
-        const code = countryCodeMatch[1];
-        if (code === '234') {
-          countryCode = 'Nigeria';
-          localNumber = phone.replace(/^\+234\s*/, '');
-        } else if (code === '1') {
-          countryCode = 'United States';
-          localNumber = phone.replace(/^\+1\s*/, '');
-        } else if (code === '44') {
-          countryCode = 'United Kingdom';
-          localNumber = phone.replace(/^\+44\s*/, '');
-        }
-        // Add more country codes as needed
-      }
-
-      // Find phone field container - look for field with phone-related label
-      const phoneContainer = await this.page.$('#phone')?.then(el => el?.evaluateHandle(e => e.closest('.field, .form-group, div')))
-        .catch(() => null);
-
-      // Look for React Select near phone field
-      const phoneField = await this.page.$('#phone');
-      if (phoneField) {
-        // Check if there's a React Select sibling (country code dropdown)
-        const hasCountrySelect = await this.page.evaluate(() => {
-          const phoneInput = document.querySelector('#phone');
-          if (!phoneInput) return false;
-          const container = phoneInput.closest('.field, .form-group, div');
-          if (!container) return false;
-          return !!container.querySelector('.select__control');
-        });
-
-        if (hasCountrySelect && countryCode) {
-          // Find and fill the country code React Select
-          const countrySelect = await this.page.evaluateHandle(() => {
-            const phoneInput = document.querySelector('#phone');
-            const container = phoneInput?.closest('.field, .form-group, div');
-            return container?.querySelector('.select__control');
-          });
-
-          const selectEl = countrySelect.asElement();
-          if (selectEl) {
-            await selectEl.click();
-            await this.humanDelay(true);
-
-            // Wait for menu and type country name
-            await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
-            const input = await this.page.$('.select__menu-list input, .select__input input, .select__control input');
-            if (input) {
-              await input.fill(countryCode);
-              await this.page.waitForTimeout(500);
-            }
-
-            // Click matching option (e.g., "Nigeria (+234)")
-            const options = await this.page.$$('.select__option');
-            for (const option of options) {
-              const text = await option.textContent();
-              if (text?.toLowerCase().includes(countryCode.toLowerCase())) {
-                await option.click();
-                await this.humanDelay(true);
-                break;
-              }
-            }
-          }
-        }
-
-        // Fill the phone number input (with or without country code prefix already stripped)
-        await phoneField.click();
-        await phoneField.fill(localNumber);
-        await this.humanDelay(true);
-      } else {
-        // Fallback: try standard phone selectors
-        await this.fillInputBySelector('#phone, input[name="job_application[phone]"]', phone);
-      }
-    } catch {
-      // Fallback to simple fill
-      await this.fillInputBySelector('#phone, input[name="job_application[phone]"]', phone);
-    }
-  }
-
-  /**
-   * Fill the candidate-location autocomplete field.
-   * This is a location field that shows suggestions as you type.
-   * Greenhouse uses a React-based location autocomplete component.
-   */
-  private async fillCandidateLocationAutocomplete(location: string): Promise<void> {
-    if (!this.page) return;
-
-    try {
-      // First, try to find the React Select control for location
-      // Look for a field container with "Location" or "City" in the label
-      const locationFieldInfo = await this.page.evaluate(() => {
-        // Try to find by #candidate-location
-        const candidateLocationInput = document.querySelector('#candidate-location');
-        if (candidateLocationInput) {
-          const container = candidateLocationInput.closest('.field, .form-group, div');
-          const hasReactSelect = container?.querySelector('.select__control');
-          const hasDirectInput = candidateLocationInput.tagName === 'INPUT' && 
-            (candidateLocationInput as HTMLInputElement).type !== 'hidden';
-          return { 
-            hasReactSelect: !!hasReactSelect, 
-            hasDirectInput,
-            containerId: container?.id || ''
-          };
-        }
-        
-        // Try by label
-        const labels = Array.from(document.querySelectorAll('label'));
-        for (const label of labels) {
-          const text = label.textContent?.toLowerCase() || '';
-          if (text.includes('location') && (text.includes('city') || text.length < 30)) {
-            const container = label.closest('.field, .form-group, div');
-            const hasReactSelect = container?.querySelector('.select__control');
-            return { hasReactSelect: !!hasReactSelect, hasDirectInput: false, containerId: '' };
-          }
-        }
-        
-        return { hasReactSelect: false, hasDirectInput: false, containerId: '' };
-      });
-
-      if (locationFieldInfo.hasReactSelect) {
-        // Handle React Select for location
-        const control = await this.page.evaluateHandle(() => {
-          const candidateLocationInput = document.querySelector('#candidate-location');
-          if (candidateLocationInput) {
-            const container = candidateLocationInput.closest('.field, .form-group, div');
-            return container?.querySelector('.select__control');
-          }
-          // Try by label
-          const labels = Array.from(document.querySelectorAll('label'));
-          for (const label of labels) {
-            const text = label.textContent?.toLowerCase() || '';
-            if (text.includes('location') && (text.includes('city') || text.length < 30)) {
-              const container = label.closest('.field, .form-group, div');
-              return container?.querySelector('.select__control');
-            }
-          }
-          return null;
-        });
-
-        const selectEl = control.asElement();
-        if (selectEl) {
-          // Check if already has a value
-          const hasValue = await selectEl.$('.select__single-value');
-          if (hasValue) return;
-
-          // Click to open and type
-          await selectEl.click();
-          await this.humanDelay(true);
-
-          // Type in the input
-          const input = await this.page.$('.select__input input, .select__control input');
-          if (input) {
-            await input.fill(location);
-            await this.page.waitForTimeout(1000); // Wait for suggestions
-          }
-
-          // Wait for and click first option
-          try {
-            await this.page.waitForSelector('.select__option, .select__menu-list > div', { timeout: 3000 });
-            const firstOption = await this.page.$('.select__option:first-child, .select__menu-list > div:first-child');
-            if (firstOption) {
-              await firstOption.click();
+    if (type === 'resume') {
+      try {
+        // First try: Find any file input and check if it's for resume
+        const allFileInputs = await this.page.$$('input[type="file"]');
+        for (const input of allFileInputs) {
+          // Check if this input is related to resume by looking at parent/sibling elements
+          const parent = await input.evaluateHandle(el => el.closest('[class*="resume"], [id*="resume"], [data-field*="resume"], .field'));
+          const parentEl = parent.asElement();
+          if (parentEl) {
+            const text = await parentEl.textContent();
+            if (text?.toLowerCase().includes('resume') || text?.toLowerCase().includes('cv')) {
+              await input.setInputFiles(filePath);
+              await this.page.waitForTimeout(2000);
               await this.humanDelay(true);
-              return;
-            }
-          } catch {
-            // Press enter to select
-            if (input) await input.press('Enter');
-          }
-        }
-      }
-
-      // Fallback: scan ALL unfilled React Selects for location field
-      const allControls = await this.page.$$('.select__control');
-      for (const control of allControls) {
-        // Check if already has a value
-        const hasValue = await control.$('.select__single-value');
-        if (hasValue) continue;
-
-        // Check if this might be a location field
-        const isLocationField = await control.evaluate((el) => {
-          // Check for hidden input with candidate-location
-          const container = el.closest('.field, .form-group, div');
-          if (container?.querySelector('#candidate-location')) return true;
-          
-          // Check label text
-          let current: Element | null = el;
-          for (let i = 0; i < 10 && current; i++) {
-            current = current.parentElement;
-            if (!current) break;
-            const label = current.querySelector('label');
-            if (label) {
-              const text = label.textContent?.toLowerCase() || '';
-              if (text.includes('location') || text.includes('city')) return true;
-            }
-          }
-          return false;
-        });
-
-        if (isLocationField) {
-          // Click to open
-          await control.click();
-          await this.humanDelay(true);
-
-          // Wait for menu and find the input
-          await this.page.waitForSelector('.select__menu, .select__input', { timeout: 3000 }).catch(() => {});
-          
-          // Type location
-          const input = await this.page.$('.select__input input, .select__control input, input:focus');
-          if (input) {
-            await input.fill(location);
-            await this.page.waitForTimeout(1500); // Wait for suggestions to load
-          }
-
-          // Wait for and click first option
-          try {
-            await this.page.waitForSelector('.select__option', { timeout: 5000 });
-            const options = await this.page.$$('.select__option');
-            if (options.length > 0) {
-              await options[0].click();
-              await this.humanDelay(true);
-              return;
-            }
-          } catch {
-            // Press enter to select
-            if (input) await input.press('Enter');
-          }
-          return;
-        }
-      }
-
-      // Final fallback: try direct input
-      const locationInput = await this.page.$('#candidate-location, input[id*="candidate-location"], input[name*="candidate_location"]');
-      if (locationInput && await locationInput.isVisible()) {
-        const currentValue = await locationInput.inputValue();
-        if (currentValue) return;
-
-        await locationInput.click();
-        await locationInput.fill(location);
-        await this.humanDelay(true);
-
-        // Wait for autocomplete suggestions to appear
-        try {
-          await this.page.waitForSelector(
-            '[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"], .pac-container .pac-item',
-            { timeout: 3000 }
-          );
-
-          const firstSuggestion = await this.page.$(
-            '[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child, .pac-container .pac-item:first-child'
-          );
-          if (firstSuggestion && await firstSuggestion.isVisible()) {
-            await firstSuggestion.click();
-            await this.humanDelay(true);
-          }
-        } catch {
-          await locationInput.press('Tab');
-        }
-      }
-    } catch {
-      // Non-critical
-    }
-  }
-
-  /**
-   * Fill country React Select dropdown.
-   */
-  private async fillCountryReactSelect(country: string): Promise<void> {
-    if (!this.page) return;
-
-    try {
-      // Look for country field by ID or by label
-      const countryContainer = await this.page.evaluate(() => {
-        // Try by ID first
-        const countryInput = document.querySelector('#country');
-        if (countryInput) {
-          const container = countryInput.closest('.field, .form-group, div');
-          if (container?.querySelector('.select__control')) {
-            return true;
-          }
-        }
-        // Try by label
-        const labels = Array.from(document.querySelectorAll('label'));
-        for (const label of labels) {
-          if (/^country$/i.test(label.textContent?.trim() || '')) {
-            const container = label.closest('.field, .form-group, div');
-            if (container?.querySelector('.select__control')) {
               return true;
             }
           }
         }
-        return false;
-      });
 
-      if (!countryContainer) return;
+        // Second try: Use specific selectors
+        const resumeSelectors = [
+          '#resume_upload input[type="file"]',
+          '#s3_upload_for_resume input[type="file"]',
+          'input[type="file"][name*="resume"]',
+          '#resume input[type="file"]',
+          '[data-field="resume"] input[type="file"]',
+          '.field:has-text("Resume") input[type="file"]',
+          '.field:has-text("CV") input[type="file"]',
+        ];
 
-      // Find the React Select control for country
-      const control = await this.page.evaluateHandle(() => {
-        // Try by #country first
-        const countryInput = document.querySelector('#country');
-        if (countryInput) {
-          const container = countryInput.closest('.field, .form-group, div');
-          return container?.querySelector('.select__control');
-        }
-        // Try by label
-        const labels = Array.from(document.querySelectorAll('label'));
-        for (const label of labels) {
-          if (/^country$/i.test(label.textContent?.trim() || '')) {
-            const container = label.closest('.field, .form-group, div');
-            return container?.querySelector('.select__control');
-          }
-        }
-        return null;
-      });
-
-      const selectEl = control.asElement();
-      if (!selectEl) return;
-
-      // Check if already has a value
-      const hasValue = await selectEl.$('.select__single-value');
-      if (hasValue) return;
-
-      // Click to open dropdown
-      await selectEl.click();
-      await this.humanDelay(true);
-
-      // Wait for menu
-      await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
-
-      // Type country name
-      const input = await this.page.$('.select__input input, .select__control input');
-      if (input) {
-        await input.fill(country);
-        await this.page.waitForTimeout(500);
-      }
-
-      // Click matching option
-      const options = await this.page.$$('.select__option');
-      for (const option of options) {
-        const text = await option.textContent();
-        if (text?.toLowerCase().includes(country.toLowerCase())) {
-          await option.click();
-          await this.humanDelay(true);
-          return;
-        }
-      }
-
-      // If no exact match, click first option
-      if (options.length > 0) {
-        await options[0].click();
-        await this.humanDelay(true);
-      }
-    } catch {
-      // Non-critical
-    }
-  }
-
-  private async fillLocationField(location: string): Promise<boolean> {
-    if (!this.page) return false;
-
-    try {
-      // Try various location selectors
-      const locationSelectors = [
-        '#job_application_location',
-        'input[name*="location"]',
-        'input[id*="location"]',
-        'input[placeholder*="City"]',
-        'input[placeholder*="Location"]',
-        'input[autocomplete="address-level2"]',
-      ];
-
-      for (const selector of locationSelectors) {
-        const input = await this.page.$(selector);
-        if (input && await input.isVisible()) {
-          await input.click();
-          await input.fill(location);
-          await this.humanDelay(true);
-
-          // Wait for autocomplete dropdown and select first option if available
+        for (const selector of resumeSelectors) {
           try {
-            await this.page.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"]', { timeout: 2000 });
-            const firstOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child');
-            if (firstOption) {
-              await firstOption.click();
+            const fileInput = await this.page.$(selector);
+            if (fileInput) {
+              await fileInput.setInputFiles(filePath);
+              await this.page.waitForTimeout(2000);
               await this.humanDelay(true);
+              return true;
             }
           } catch {
-            // No autocomplete, just press Enter to confirm
-            await input.press('Tab');
+            continue;
           }
+        }
 
+        // Third try: Click on upload area and use file chooser
+        const uploadAreas = await this.page.$$('[class*="resume"] [class*="upload"], #resume_upload, .attach-or-paste, button:has-text("Attach"), button:has-text("Upload")');
+        for (const area of uploadAreas) {
+          try {
+            const [fileChooser] = await Promise.all([
+              this.page.waitForEvent('filechooser', { timeout: 5000 }),
+              area.click(),
+            ]);
+            await fileChooser.setFiles(filePath);
+            await this.page.waitForTimeout(2000);
+            return true;
+          } catch {
+            continue;
+          }
+        }
+
+        // Fourth try: Just use the first file input on the page
+        if (allFileInputs.length > 0) {
+          await allFileInputs[0].setInputFiles(filePath);
+          await this.page.waitForTimeout(2000);
           return true;
         }
+
+        return false;
+      } catch {
+        return false;
       }
+    } else if (type === 'cover_letter') {
+      try {
+        const coverLetterSelectors = [
+          '#cover_letter_upload input[type="file"]',
+          '#s3_upload_for_cover_letter input[type="file"]',
+          'input[type="file"][name*="cover"]',
+          '[data-field="cover_letter"] input[type="file"]',
+        ];
 
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  private async fillInputBySelector(selector: string, value: string): Promise<boolean> {
-    if (!this.page || !value) return false;
-
-    try {
-      const input = await this.page.$(selector);
-      if (input) {
-        await input.click();
-        await input.fill(value);
-        await this.humanDelay(true);
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  private async uploadGreenhouseResume(resumePath: string): Promise<boolean> {
-    if (!this.page) return false;
-
-    try {
-      // First try: Find any file input and check if it's for resume
-      const allFileInputs = await this.page.$$('input[type="file"]');
-      for (const input of allFileInputs) {
-        // Check if this input is related to resume by looking at parent/sibling elements
-        const parent = await input.evaluateHandle(el => el.closest('[class*="resume"], [id*="resume"], [data-field*="resume"], .field'));
-        const parentEl = parent.asElement();
-        if (parentEl) {
-          const text = await parentEl.textContent();
-          if (text?.toLowerCase().includes('resume') || text?.toLowerCase().includes('cv')) {
-            await input.setInputFiles(resumePath);
-            await this.page.waitForTimeout(2000);
-            await this.humanDelay(true);
-            return true;
-          }
-        }
-      }
-
-      // Second try: Use specific selectors
-      const resumeSelectors = [
-        '#resume_upload input[type="file"]',
-        '#s3_upload_for_resume input[type="file"]',
-        'input[type="file"][name*="resume"]',
-        '#resume input[type="file"]',
-        '[data-field="resume"] input[type="file"]',
-        '.field:has-text("Resume") input[type="file"]',
-        '.field:has-text("CV") input[type="file"]',
-      ];
-
-      for (const selector of resumeSelectors) {
-        try {
+        for (const selector of coverLetterSelectors) {
           const fileInput = await this.page.$(selector);
           if (fileInput) {
-            await fileInput.setInputFiles(resumePath);
+            await fileInput.setInputFiles(filePath);
             await this.page.waitForTimeout(2000);
             await this.humanDelay(true);
             return true;
           }
-        } catch {
-          continue;
         }
-      }
 
-      // Third try: Click on upload area and use file chooser
-      const uploadAreas = await this.page.$$('[class*="resume"] [class*="upload"], #resume_upload, .attach-or-paste, button:has-text("Attach"), button:has-text("Upload")');
-      for (const area of uploadAreas) {
-        try {
-          const [fileChooser] = await Promise.all([
-            this.page.waitForEvent('filechooser', { timeout: 5000 }),
-            area.click(),
-          ]);
-          await fileChooser.setFiles(resumePath);
-          await this.page.waitForTimeout(2000);
-          return true;
-        } catch {
-          continue;
-        }
+        return false;
+      } catch {
+        return false;
       }
-
-      // Fourth try: Just use the first file input on the page
-      if (allFileInputs.length > 0) {
-        await allFileInputs[0].setInputFiles(resumePath);
-        await this.page.waitForTimeout(2000);
-        return true;
-      }
-
-      return false;
-    } catch {
-      return false;
     }
-  }
-
-  private async uploadGreenhouseCoverLetter(coverLetterPath: string): Promise<boolean> {
-    if (!this.page) return false;
-
-    try {
-      const coverLetterSelectors = [
-        '#cover_letter_upload input[type="file"]',
-        '#s3_upload_for_cover_letter input[type="file"]',
-        'input[type="file"][name*="cover"]',
-        '[data-field="cover_letter"] input[type="file"]',
-      ];
-
-      for (const selector of coverLetterSelectors) {
-        const fileInput = await this.page.$(selector);
-        if (fileInput) {
-          await fileInput.setInputFiles(coverLetterPath);
-          await this.page.waitForTimeout(2000);
-          await this.humanDelay(true);
-          return true;
-        }
-      }
-
-      return false;
-    } catch {
-      return false;
-    }
+    return false;
   }
 
   private async fillGreenhouseUrls(options: SubmissionOptions): Promise<void> {
@@ -921,7 +399,8 @@ export class GreenhouseScraper extends BaseScraper {
    * Greenhouse uses .select-shell containers with .select__control inside.
    */
   private async fillReactSelectDropdowns(
-    questionPatterns: Array<{ pattern: RegExp; answer: string }>
+    questionPatterns: Array<{ pattern: RegExp; answer: string }>,
+    profile: Profile
   ): Promise<void> {
     if (!this.page) return;
 
@@ -980,9 +459,9 @@ export class GreenhouseScraper extends BaseScraper {
         if (!answerToSelect) {
           const fieldContextLower = fieldContext.toLowerCase();
           if (fieldContextLower.includes('country')) {
-            answerToSelect = 'Nigeria';
+            answerToSelect = this.deriveCountryFromProfile(profile);
           } else if (fieldContextLower.includes('location') || fieldContextLower.includes('city')) {
-            answerToSelect = 'Lagos';
+            answerToSelect = this.deriveCityFromProfile(profile);
           } else if (fieldContextLower.includes('gender')) {
             answerToSelect = 'Decline';
           }
@@ -995,13 +474,18 @@ export class GreenhouseScraper extends BaseScraper {
         await this.humanDelay(true);
 
         // Wait for menu
-        await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+        await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
         // For searchable selects (like Country, Location), type the answer
         const input = await control.$('input');
         if (input) {
-          await input.fill(answerToSelect);
-          await this.page.waitForTimeout(500);
+          // Use type instead of fill to better trigger search results
+          const value = answerToSelect;
+          for (const char of value) {
+            await input.type(char, { delay: 50 });
+          }
+          // Wait longer for search results
+          await this.page.waitForTimeout(1500);
         }
 
         // Find and click matching option
@@ -1054,9 +538,16 @@ export class GreenhouseScraper extends BaseScraper {
     if (!this.page) return;
 
     // Common question patterns and their default answers
-    const questionPatterns = [
-      { pattern: /^country\b/i, answer: 'Nigeria' },
-      { pattern: /location.*city|city/i, answer: 'Lagos' },
+    const questionPatterns: Array<{ pattern: RegExp; answer: string }> = [];
+    const country = this.deriveCountryFromProfile(profile);
+    const city = this.deriveCityFromProfile(profile);
+    if (country) {
+      questionPatterns.push({ pattern: /^country\b/i, answer: country });
+    }
+    if (city) {
+      questionPatterns.push({ pattern: /location.*city|city/i, answer: city });
+    }
+    questionPatterns.push(
       { pattern: /source.*right.*work|right.*work.*source/i, answer: 'Citizen' },
       { pattern: /relocation|relocate|willing.*move|open.*move/i, answer: 'Yes' },
       { pattern: /open.*working.*in-person|work.*office|hybrid/i, answer: 'Yes' },
@@ -1077,11 +568,11 @@ export class GreenhouseScraper extends BaseScraper {
       { pattern: /experience.*typescript|typescript.*production/i, answer: 'Yes' },
       { pattern: /react.*hooks|component.*architecture/i, answer: 'Yes' },
       { pattern: /cli.*tools|ide.*extension|plugin/i, answer: 'Yes' },
-      { pattern: /ai.*ml.*component|machine.*learning/i, answer: 'Yes' },
-    ];
+      { pattern: /ai.*ml.*component|machine.*learning/i, answer: 'Yes' }
+    );
 
     // Handle React Select custom dropdowns (used by Greenhouse)
-    await this.fillReactSelectDropdowns(questionPatterns);
+    await this.fillReactSelectDropdowns(questionPatterns, profile);
 
     // Also handle native select elements as fallback
     const selects = await this.page.$$('select[required], select');
@@ -1289,13 +780,13 @@ export class GreenhouseScraper extends BaseScraper {
           }
 
           // "How did you hear" group — check one (prefer LinkedIn, then Job Board, etc.)
-          const isHowDidYouHear = ctxLower.includes('how did you hear') || 
-            ctxLower.includes('where did you find') || 
+          const isHowDidYouHear = ctxLower.includes('how did you hear') ||
+            ctxLower.includes('where did you find') ||
             ctxLower.includes('how did you find') ||
             ctxLower.includes('how did you learn') ||
             nameLower.includes('source') ||
             nameLower.includes('referral');
-            
+
           if (isHowDidYouHear && !howDidYouHearChecked) {
             // Check if this is a preferred option
             const isPreferred = preferredHowDidYouHearLabels.some(pref => lblLower.includes(pref));
@@ -1316,7 +807,7 @@ export class GreenhouseScraper extends BaseScraper {
         try {
           // Method 1: by ID/value/name attribute
           let linkedinCheckbox = await this.page.$('input[type="checkbox"][id*="linkedin" i], input[type="checkbox"][value*="linkedin" i], input[type="checkbox"][name*="linkedin" i]');
-          
+
           // Method 2: by label text using page context
           if (!linkedinCheckbox) {
             const handle = await this.page.evaluateHandle(() => {
@@ -1332,7 +823,7 @@ export class GreenhouseScraper extends BaseScraper {
             });
             linkedinCheckbox = handle.asElement() as typeof linkedinCheckbox;
           }
-          
+
           if (linkedinCheckbox && await linkedinCheckbox.isVisible() && !(await linkedinCheckbox.isChecked())) {
             await linkedinCheckbox.check();
             await this.humanDelay(true);
@@ -1499,7 +990,7 @@ export class GreenhouseScraper extends BaseScraper {
           await this.humanDelay(true);
 
           // Wait for menu
-          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
           // Look for "Decline" option
           const options = await this.page.$$('.select__option');
@@ -1544,6 +1035,7 @@ export class GreenhouseScraper extends BaseScraper {
             const id = (el.id || '').toLowerCase();
             const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
             const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+            const requiredAttr = el.getAttribute('required') !== null || el.getAttribute('aria-required') === 'true';
             // Check if this is a React Select internal input
             const isReactSelect = !!el.closest('[class*="select__"]') || !!el.closest('[class*="Select"]');
             // Get label
@@ -1555,7 +1047,8 @@ export class GreenhouseScraper extends BaseScraper {
               const containerLabel = container?.querySelector('label');
               labelText = containerLabel?.textContent?.trim() || '';
             }
-            return { name, id, placeholder, autocomplete, label: labelText.toLowerCase(), isReactSelect };
+            const required = requiredAttr || labelText.includes('*') || !!el.closest('.required');
+            return { name, id, placeholder, autocomplete, label: labelText.toLowerCase(), isReactSelect, required };
           }, input);
 
           // Skip React Select internal inputs — they're handled by fillReactSelectDropdowns
@@ -1564,6 +1057,7 @@ export class GreenhouseScraper extends BaseScraper {
           const combined = `${info.name} ${info.id} ${info.placeholder} ${info.autocomplete} ${info.label}`;
 
           let value = '';
+          let isFallback = false;
           if (combined.includes('linkedin')) {
             value = profile.linkedin_url || '';
           } else if (combined.includes('github')) {
@@ -1571,38 +1065,62 @@ export class GreenhouseScraper extends BaseScraper {
           } else if (combined.includes('portfolio') || combined.includes('website')) {
             value = profile.portfolio_url || '';
           } else if (combined.includes('country')) {
-            value = 'Nigeria';
+            value = this.deriveCountryFromProfile(profile) || '';
           } else if (combined.includes('location') || combined.includes('city')) {
-            value = profile.location || 'Lagos, Nigeria';
+            value = profile.location || '';
           } else if (combined.includes('preferred') && combined.includes('name')) {
             value = profile.name.split(' ')[0];
           } else if (combined.includes('phone') || combined.includes('tel')) {
             value = profile.phone || '';
           } else if (combined.includes('salary') || combined.includes('compensation') || combined.includes('pay')) {
             value = 'Negotiable';
+            isFallback = true;
           } else if (combined.includes('referral') || combined.includes('referred')) {
             value = 'N/A';
+            isFallback = true;
           } else if (combined.includes('address')) {
-            value = profile.location || 'Lagos, Nigeria';
+            value = profile.location || '';
           }
 
           if (value) {
-            await input.click();
-            await input.fill(value);
-            await this.humanDelay(true);
-
+            if (!info.required && isFallback) continue;
             // Handle autocomplete dropdowns (location fields)
             if (combined.includes('location') || combined.includes('city')) {
               try {
-                await this.page!.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"]', { timeout: 2000 });
-                const firstOption = await this.page!.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child');
+                // For location autocomplete, using type instead of fill helps trigger suggestions
+                await input.click();
+                await input.focus();
+                
+                // Clear existing text if any
+                const existingValue = await input.evaluate((el: HTMLInputElement) => el.value);
+                if (existingValue) {
+                  await input.click({ clickCount: 3 });
+                  await input.press('Backspace');
+                }
+
+                // Type slowly to trigger suggestions
+                for (const char of value) {
+                  await input.type(char, { delay: 50 });
+                }
+                
+                // Wait for suggestions to appear
+                await this.page!.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"], .select__option', { timeout: 4000 });
+                
+                const firstOption = await this.page!.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child, .select__option:first-child');
+                
                 if (firstOption) {
                   await firstOption.click();
                   await this.humanDelay(true);
+                } else {
+                  await input.press('Enter');
                 }
               } catch {
                 await input.press('Tab');
               }
+            } else {
+              await input.click();
+              await input.fill(value);
+              await this.humanDelay(true);
             }
           }
         } catch {
@@ -1692,16 +1210,19 @@ export class GreenhouseScraper extends BaseScraper {
 
       if (unfilledFields.length === 0) return;
 
+      const requiredFields = unfilledFields.filter((field) => field.required);
+      if (requiredFields.length === 0) return;
+
       // Use AI to get answers
       const provider = createAIProvider();
       if (!(await provider.isAvailable())) return;
 
-      const answers = await analyzeAndFillFormFields(provider, profile, unfilledFields);
+      const answers = await analyzeAndFillFormFields(provider, profile, requiredFields);
 
       // Apply answers to the form, track what's still unfilled
-      const stillUnfilled: typeof unfilledFields = [];
+      const stillUnfilled: typeof requiredFields = [];
 
-      for (const field of unfilledFields) {
+      for (const field of requiredFields) {
         const answer = answers.get(field.id);
         if (!answer) {
           if (field.required) stillUnfilled.push(field);
@@ -1731,7 +1252,7 @@ export class GreenhouseScraper extends BaseScraper {
               await controls[index].click();
               await this.humanDelay(true);
 
-              await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+              await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
               // Type answer if there's an input
               const input = await this.page.$('.select__input input');
@@ -1874,7 +1395,7 @@ export class GreenhouseScraper extends BaseScraper {
         if (controls[index]) {
           await controls[index].click();
           await new Promise(r => setTimeout(r, 300));
-          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
+          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
 
           const searchInput = await this.page.$('.select__input input');
           if (searchInput) {
@@ -1961,7 +1482,7 @@ export class GreenhouseScraper extends BaseScraper {
 
     try {
       // Wait for page to load after submit
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.humanDelay();
 
       // Check for email verification step before checking for confirmation
@@ -2039,7 +1560,7 @@ export class GreenhouseScraper extends BaseScraper {
         }
       }
 
-      return { success: true, message: 'Submission completed (no errors detected)' };
+      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
     } catch (error) {
       return {
         success: false,
@@ -2055,6 +1576,8 @@ export class GreenhouseScraper extends BaseScraper {
    */
   private async handleEmailVerification(): Promise<{ success: boolean; message: string } | null> {
     if (!this.page) return null;
+    const { configRepository } = await import('../db/repositories/config');
+    const config = configRepository.loadAppConfig();
 
     // Detect verification page — Greenhouse shows a code/pin input after emailing a confirmation code
     const verificationSelectors = [
@@ -2124,6 +1647,14 @@ export class GreenhouseScraper extends BaseScraper {
       return { success: false, message: 'Email verification required but could not find code input field. Check your email and complete verification manually.' };
     }
 
+    if (this.autoMode || !config.application.interactivePrompts) {
+      return { success: false, message: 'Email verification required. Run without --auto and ensure interactive prompts are enabled to enter the code.' };
+    }
+
+    if (!process.stdin.isTTY) {
+      return { success: false, message: 'Email verification required but no interactive TTY is available to enter the code.' };
+    }
+
     // Prompt user for the verification code
     console.log('\n');
     console.log('  ┌─────────────────────────────────────────────┐');
@@ -2132,21 +1663,16 @@ export class GreenhouseScraper extends BaseScraper {
     console.log('  └─────────────────────────────────────────────┘');
     console.log('');
 
-    const { input: promptInput } = await import('@inquirer/prompts');
-
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const code = await promptInput({
-        message: `Verification code${attempt > 1 ? ` (attempt ${attempt}/${maxAttempts})` : ''}:`,
-        validate: (value) => {
-          if (!value.trim()) return 'Code is required';
-          return true;
-        },
-      });
+      const code = await this.promptForVerificationCode(attempt, maxAttempts);
+      if (!code) {
+        return { success: false, message: 'Email verification required but no code was entered. Complete verification manually.' };
+      }
 
       // Fill the code
       await codeInput.fill('');
-      await codeInput.type(code.trim(), { delay: 50 });
+      await codeInput.type(code, { delay: 50 });
       await this.humanDelay();
 
       // Look for and click a verify/confirm/submit button
@@ -2171,7 +1697,7 @@ export class GreenhouseScraper extends BaseScraper {
       }
 
       // Wait for response
-      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
       await this.humanDelay();
 
       // Check if we got through to a confirmation/thank-you page
@@ -2230,29 +1756,119 @@ export class GreenhouseScraper extends BaseScraper {
     return { success: false, message: 'Email verification failed after 3 attempts. Complete verification manually.' };
   }
 
+  private async promptForVerificationCode(attempt: number, maxAttempts: number): Promise<string | null> {
+    const message = `Verification code${attempt > 1 ? ` (attempt ${attempt}/${maxAttempts})` : ''}:`;
+
+    try {
+      const { input } = await import('@inquirer/prompts');
+      const code = await input({
+        message,
+        validate: (value) => {
+          if (!value.trim()) return 'Code is required';
+          return true;
+        },
+      });
+      return code.trim() || null;
+    } catch {
+      try {
+        const { createInterface } = await import('readline');
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          const answer = await new Promise<string>((resolve) => {
+            rl.question(`${message} `, (result) => resolve(result));
+          });
+          const trimmed = answer.trim();
+          return trimmed || null;
+        } finally {
+          rl.close();
+        }
+      } catch {
+        return null;
+      }
+    }
+  }
+
   protected async extractJobData(url: string): Promise<JobData> {
     if (!this.page) throw new Error('Page not initialized');
 
     // Extract job title - try multiple selectors
+    // boards.greenhouse.io uses h1.app-title; job-boards.greenhouse.io uses h1 inside main content
     let title = await this.extractText('h1.app-title, h1[class*="job-title"], .job-title h1');
+    if (!title || title.toLowerCase().includes('open positions')) {
+      title = await this.extractText('.app-title, [data-mapped="true"] h1') || title;
+    }
+    
+    // Fallback: If title is generic or missing, look into any Greenhouse iframe
+    if (!title || title.toLowerCase().includes('open positions')) {
+      const ghFrame = this.page.frames().find(f => f.url().includes('greenhouse.io'));
+      if (ghFrame) {
+        const frameTitle = await (await ghFrame.$('h1.app-title, h1[class*="job-title"], .job-title h1, h1'))?.textContent();
+        if (frameTitle) title = frameTitle.trim();
+      }
+    }
+
     if (!title) {
-      // Fallback: get any h1 on the page
+      // Final fallback: get any h1 on the page
       title = await this.extractText('h1');
     }
 
     // Extract company name (usually in the page or URL)
-    let company = await this.extractText('.company-name, [class*="company"]');
-    if (!company) {
-      // Try to extract from URL (boards.greenhouse.io/companyname)
-      const urlMatch = url.match(/boards\.greenhouse\.io\/([^/]+)/);
-      company = urlMatch ? urlMatch[1].replace(/-/g, ' ') : 'Unknown Company';
+    let company = await this.extractText('.company-name, [class*="company-name"]');
+    if (!company || company === 'Unknown Company') {
+      // Try to extract from URL: boards.greenhouse.io/companyname or job-boards.greenhouse.io/companyname
+      const urlMatch = url.match(/(?:boards|job-boards)\.greenhouse\.io\/([^/]+)/);
+      if (urlMatch) {
+        company = urlMatch[1].replace(/-/g, ' ');
+      } else {
+        // Fallback for embedded forms: use hostname
+        try {
+          const domain = new URL(url).hostname;
+          if (!domain.includes('greenhouse.io')) {
+            company = domain.replace(/^(www\.)?([^.]+)\..*$/, '$2');
+          }
+        } catch {
+          // Keep the scraped company fallback if URL parsing fails.
+        }
+      }
+    }
+    
+    company = normalizeGreenhouseCompanyName(company);
+
+    // Extract job description — try platform-specific selectors first, then broader ones
+    // job-boards.greenhouse.io wraps content in sections/divs with varied classes
+    let description = await this.extractText('#content, .content, [class*="job-description"]');
+    if (!description || description.trim().length < 50) {
+      // Try broader extraction for job-boards.greenhouse.io
+      const sections = await this.extractAllText(
+        'section, .section, [class*="section"], .body, .job__description, ' +
+        '[data-mapped="true"], .posting-page, article'
+      );
+      const joined = sections.join('\n\n').trim();
+      if (joined.length > (description?.trim().length ?? 0)) {
+        description = joined;
+      }
+    }
+    if (!description || description.trim().length < 50) {
+      // Final fallback: get all text from main content area
+      description = await this.page.evaluate(() => {
+        // Exclude form elements, nav, header, footer from extraction
+        const excludeSelectors = 'form, nav, header, footer, [class*="application"], script, style';
+        const mainContent = document.querySelector('main, #app_body, .app-body, [role="main"]') || document.body;
+        const clone = mainContent.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll(excludeSelectors).forEach(el => el.remove());
+        return clone.textContent?.trim() ?? '';
+      });
     }
 
-    // Extract job description
-    const description = await this.extractText('#content, .content, [class*="job-description"]');
-
     // Extract location
-    const location = await this.extractText('.location, [class*="location"]');
+    let location = await this.extractText('.location, [class*="location"]');
+    if (!location) {
+      // job-boards.greenhouse.io may store location in meta or different elements
+      location = await this.page.evaluate(() => {
+        const meta = document.querySelector('meta[property="og:description"]');
+        return meta?.getAttribute('content') ?? '';
+      });
+    }
 
     // Extract form fields
     const formFields = await this.extractFormFields();
@@ -2352,7 +1968,7 @@ export class GreenhouseScraper extends BaseScraper {
   private resolveGreenhouseUrl(url: string): string {
     try {
       const parsed = new URL(url);
-      // Already a greenhouse.io URL
+      // Already a greenhouse.io URL (boards.greenhouse.io or job-boards.greenhouse.io)
       if (parsed.hostname.includes('greenhouse.io')) return url;
 
       const ghJid = parsed.searchParams.get('gh_jid');
@@ -2364,5 +1980,70 @@ export class GreenhouseScraper extends BaseScraper {
       // Fall through
     }
     return url;
+  }
+
+  private async fillInputBySelector(selector: string, value: string): Promise<boolean> {
+    if (!this.page || !value) return false;
+
+    try {
+      const input = await this.page.$(selector);
+      if (input) {
+        await input.click();
+        await input.fill(value);
+        await this.humanDelay(true);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  private matchCountryName(location: string): string | null {
+    const normalized = location.toLowerCase();
+    const mappings: Array<{ pattern: RegExp; name: string }> = [
+      { pattern: /\b(united states|usa|us)\b/i, name: 'United States' },
+      { pattern: /\b(canada)\b/i, name: 'Canada' },
+      { pattern: /\b(united kingdom|uk|england|scotland|wales|northern ireland)\b/i, name: 'United Kingdom' },
+      { pattern: /\b(australia)\b/i, name: 'Australia' },
+      { pattern: /\b(india)\b/i, name: 'India' },
+      { pattern: /\b(nigeria)\b/i, name: 'Nigeria' },
+      { pattern: /\b(germany)\b/i, name: 'Germany' },
+      { pattern: /\b(france)\b/i, name: 'France' },
+      { pattern: /\b(spain)\b/i, name: 'Spain' },
+      { pattern: /\b(italy)\b/i, name: 'Italy' },
+      { pattern: /\b(netherlands|holland)\b/i, name: 'Netherlands' },
+      { pattern: /\b(sweden)\b/i, name: 'Sweden' },
+      { pattern: /\b(norway)\b/i, name: 'Norway' },
+      { pattern: /\b(denmark)\b/i, name: 'Denmark' },
+      { pattern: /\b(switzerland)\b/i, name: 'Switzerland' },
+      { pattern: /\b(ireland)\b/i, name: 'Ireland' },
+      { pattern: /\b(singapore)\b/i, name: 'Singapore' },
+      { pattern: /\b(new zealand)\b/i, name: 'New Zealand' },
+    ];
+
+    for (const { pattern, name } of mappings) {
+      if (pattern.test(normalized)) return name;
+    }
+    return null;
+  }
+
+  private deriveCountryFromProfile(profile: Profile): string | null {
+    if (!profile.location) return null;
+    return this.matchCountryName(profile.location);
+  }
+
+  private deriveCityFromProfile(profile: Profile): string | null {
+    const location = profile.location?.trim();
+    if (!location) return null;
+    
+    // If it's just a country, use it
+    if (this.matchCountryName(location)) return location;
+
+    const parts = location.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) return null;
+    
+    // Return city if present, or just the first part
+    return parts[0];
   }
 }

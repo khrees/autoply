@@ -15,7 +15,7 @@ export type Platform =
   | 'generic';
 
 export const SUPPORTED_PLATFORMS: Record<Platform, RegExp> = {
-  greenhouse: /boards\.greenhouse\.io|[?&]gh_jid=|greenhouse\.io\/embed/,
+  greenhouse: /(?:job-)?boards\.greenhouse\.io|[?&]gh_jid=|greenhouse\.io\/embed/,
   linkedin: /linkedin\.com\/jobs/,
   lever: /jobs\.lever\.co/,
   jobvite: /jobs\.jobvite\.com/,
@@ -81,7 +81,7 @@ export type Education = z.infer<typeof EducationSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
 
 // ============ Application Types ============
-export type ApplicationStatus = 'pending' | 'submitted' | 'failed';
+export type ApplicationStatus = 'pending' | 'filled' | 'submitted' | 'failed';
 
 export interface Application {
   id?: number;
@@ -162,6 +162,13 @@ export interface AppConfig {
     headless: boolean;
     timeout: number;
     storageState?: string;
+    engine: 'playwright' | 'patchright';
+    reuseSessions: boolean;
+    maxOpenPagesPerBrowser: number;
+    retireBrowserAfterPageCount: number;
+    closeInactiveBrowserAfterMillis: number;
+    patchrightHosts: string[];
+    patchrightPlatforms: Platform[];
   };
   application: {
     autoSubmit: boolean;
@@ -170,6 +177,8 @@ export interface AppConfig {
     /** Delay in seconds between applications in bulk mode (0 = no delay) */
     rateLimitDelay: number;
     minFitScore?: number;
+    /** When true, fill non-required fields instead of leaving them blank */
+    fillOptionalFields: boolean;
     /** When true, prompt user for fields that can't be auto-filled or AI-answered */
     interactivePrompts: boolean;
   };
@@ -187,12 +196,20 @@ export const DEFAULT_CONFIG: AppConfig = {
   browser: {
     headless: false,
     timeout: 30000,
+    engine: 'playwright',
+    reuseSessions: true,
+    maxOpenPagesPerBrowser: 2,
+    retireBrowserAfterPageCount: 25,
+    closeInactiveBrowserAfterMillis: 30000,
+    patchrightHosts: [],
+    patchrightPlatforms: [],
   },
   application: {
     autoSubmit: false,
     saveScreenshots: true,
     retryAttempts: 3,
     rateLimitDelay: 0,
+    fillOptionalFields: false,
     interactivePrompts: true,
   },
 };
