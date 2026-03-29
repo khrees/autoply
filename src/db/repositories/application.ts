@@ -14,6 +14,7 @@ export interface ApplicationRow {
   generated_cover_letter: string | null;
   form_data: string | null;
   error_message: string | null;
+  time_saved: number | null;
   applied_at: string | null;
   created_at: string;
 }
@@ -29,8 +30,9 @@ function rowToApplication(row: ApplicationRow): Application {
     status: row.status as ApplicationStatus,
     generated_resume: row.generated_resume ?? undefined,
     generated_cover_letter: row.generated_cover_letter ?? undefined,
-    form_data: row.form_data ? (() => { try { return JSON.parse(row.form_data!); } catch { return undefined; } })() : undefined,
+    form_data: row.form_data ? (() => { try { return JSON.parse(row.form_data); } catch { return undefined; } })() : undefined,
     error_message: row.error_message ?? undefined,
+    time_saved: row.time_saved ?? undefined,
     applied_at: row.applied_at ?? undefined,
     created_at: row.created_at,
   };
@@ -42,8 +44,8 @@ export class ApplicationRepository {
     const stmt = db.prepare(`
       INSERT INTO applications (
         profile_id, url, platform, company, job_title, status,
-        generated_resume, generated_cover_letter, form_data, error_message, applied_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        generated_resume, generated_cover_letter, form_data, error_message, time_saved, applied_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const result = stmt.run(
@@ -57,6 +59,7 @@ export class ApplicationRepository {
       application.generated_cover_letter ?? null,
       application.form_data ? JSON.stringify(application.form_data) : null,
       application.error_message ?? null,
+      application.time_saved ?? 0,
       application.applied_at ?? null
     );
 
@@ -151,6 +154,10 @@ export class ApplicationRepository {
     if (updates.applied_at !== undefined) {
       fields.push('applied_at = ?');
       values.push(updates.applied_at);
+    }
+    if (updates.time_saved !== undefined) {
+      fields.push('time_saved = ?');
+      values.push(updates.time_saved);
     }
 
     if (fields.length > 0) {

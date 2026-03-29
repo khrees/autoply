@@ -37,14 +37,19 @@ export async function extractJobDataWithAI(
   rawHtml: string,
   url: string
 ): Promise<Partial<JobData>> {
-  const truncated = rawHtml.slice(0, 15000);
+  // Strip scripts and styles to save tokens and focus on content
+  const cleanedHtml = rawHtml
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+    .substring(0, 30000); // Increased window but with cleaner text
 
   const prompt = `Extract job posting data from this page HTML.
-
+  
 URL: ${url}
 
 HTML Content:
-${truncated}`;
+${cleanedHtml}`;
 
   const response = await provider.generateText(prompt, EXTRACTION_SYSTEM_PROMPT);
 

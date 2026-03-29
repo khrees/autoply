@@ -634,19 +634,19 @@ export class FormFiller {
       case 'text':
       case 'email':
       case 'tel':
-        return this.fillTextInput(selector, value!, field);
+        return value ? this.fillTextInput(selector, value, field) : false;
 
       case 'textarea':
-        return this.fillTextarea(selector, value!);
+        return value ? this.fillTextarea(selector, value) : false;
 
       case 'select':
-        return this.fillSelect(selector, value!, field);
+        return value ? this.fillSelect(selector, value, field) : false;
 
       case 'radio':
-        return this.fillRadio(field, value!);
+        return value ? this.fillRadio(field, value) : false;
 
       case 'checkbox':
-        return this.fillCheckbox(field, value!);
+        return value ? this.fillCheckbox(field, value) : false;
 
       case 'file':
         return this.fillFileInput(selector, field);
@@ -965,8 +965,10 @@ export class FormFiller {
             if (currentValue && /^https?:\/\//i.test(currentValue)) {
               return true; // Already filled with a URL, skip
             }
-            await input.fill(answer!);
-            await this.humanDelay();
+            if (answer) {
+              await input.fill(answer);
+              await this.humanDelay();
+            }
             return true;
           }
           break;
@@ -975,8 +977,10 @@ export class FormFiller {
         case 'textarea': {
           const textarea = await container.$('textarea');
           if (textarea) {
-            await textarea.fill(answer!);
-            await this.humanDelay();
+            if (answer) {
+              await textarea.fill(answer);
+              await this.humanDelay();
+            }
             return true;
           }
           break;
@@ -985,7 +989,7 @@ export class FormFiller {
         case 'select': {
           const select = await container.$('select');
           if (select && question.options) {
-            const matchedOption = this.findBestMatchingOption(answer!, question.options);
+            const matchedOption = answer ? this.findBestMatchingOption(answer, question.options) : null;
             if (matchedOption) {
               await select.selectOption({ label: matchedOption });
               await this.humanDelay();
@@ -997,7 +1001,7 @@ export class FormFiller {
 
         case 'radio': {
           if (question.options) {
-            const matchedOption = this.findBestMatchingOption(answer!, question.options);
+            const matchedOption = answer ? this.findBestMatchingOption(answer, question.options) : null;
             const radios = await container.$$('input[type="radio"]');
             for (const radio of radios) {
               const radioValue = await radio.getAttribute('value');

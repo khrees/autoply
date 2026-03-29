@@ -417,11 +417,11 @@ export class AshbyScraper extends BaseScraper {
         const role = await fieldEl.getAttribute('role');
 
         if (tag === 'input' || tag === 'textarea') {
-          const currentVal = await (fieldEl as any).inputValue?.().catch(() => '');
+          const currentVal = await fieldEl.inputValue().catch(() => '');
           if (!currentVal) {
             const answer = await this.getAIAnswer(profile, jobData, labelText, { type: 'text' });
             if (answer) {
-              await (fieldEl as any).fill?.(answer);
+              await fieldEl.fill(answer);
               await this.humanDelay(true);
             }
           }
@@ -725,7 +725,7 @@ export class AshbyScraper extends BaseScraper {
       const tag = await field.evaluate((el) => el.tagName.toLowerCase());
       if (tag === 'input' || tag === 'textarea') {
         if (answer) {
-          await (field as any).fill?.(answer);
+          await field.fill(answer);
           await this.humanDelay(true);
           didFill = true;
         }
@@ -880,12 +880,12 @@ export class AshbyScraper extends BaseScraper {
         const role = await fieldEl.getAttribute('role');
 
         if (tag === 'input' || tag === 'textarea') {
-          const currentVal = await (fieldEl as any).inputValue?.().catch(() => '');
+          const currentVal = await fieldEl.inputValue().catch(() => '');
           if (!currentVal) {
             const defaultAnswer = filler.getValueForLabel(label, 'text');
             const answer = defaultAnswer ?? (await this.getAIAnswer(options.profile, options.jobData, label, { type: 'text' }));
             if (answer) {
-              await (fieldEl as any).fill?.(answer);
+              await fieldEl.fill(answer);
               await this.humanDelay(true);
               const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
               if (optionElements.length > 0) {
@@ -917,7 +917,7 @@ export class AshbyScraper extends BaseScraper {
                 required: true,
               });
               if (userAnswer) {
-                await (fieldEl as any).fill?.(userAnswer);
+                await fieldEl.fill(userAnswer);
                 await this.humanDelay(true);
               }
             }
@@ -1153,14 +1153,15 @@ export class AshbyScraper extends BaseScraper {
   }
 
   private async extractCustomQuestions(
-    context: import('playwright').Page | import('playwright').Frame = this.page!
+    context?: import('playwright').Page | import('playwright').Frame
   ): Promise<CustomQuestion[]> {
-    if (!context) return [];
+    const activeContext = context || this.page;
+    if (!activeContext) return [];
 
     const questions: CustomQuestion[] = [];
 
     // Ashby uses specific patterns for custom questions in their application forms
-    const customFields = await context.$$(
+    const customFields = await activeContext.$$(
       '[data-testid*="question"], [class*="customQuestion"], .ashby-application-form-field'
     );
 

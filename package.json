@@ -7,6 +7,10 @@
   },
   "scripts": {
     "dev": "bun run src/cli/index.ts",
+    "api": "bun run src/api/server.ts",
+    "dev:api": "bun --watch src/api/server.ts",
+    "extension:build": "vite build",
+    "extension:dev": "vite",
     "start": "bun run src/cli/index.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
@@ -24,30 +28,46 @@
     "build:windows": "bun build ./src/cli/index.ts --compile --target=bun-windows-x64 --outfile dist/autoply-windows-x64.exe --external playwright --external playwright-core --external patchright --external patchright-core"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
     "@types/bun": "latest",
+    "@types/chrome": "^0.1.37",
     "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.4.27",
     "bun-types": "latest",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.1.0",
+    "postcss": "^8.5.8",
     "prettier": "^3.2.0",
-    "typescript": "^5.0.0"
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.0.0",
+    "vite": "^8.0.0"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.0",
     "@ai-sdk/google": "^1.0.0",
     "@ai-sdk/openai": "^1.0.0",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/static": "^9.0.0",
     "@inquirer/prompts": "^7.0.0",
     "ai": "^4.0.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
+    "fastify": "^5.8.2",
+    "lucide-react": "^0.577.0",
     "marked": "^11.0.0",
     "ora": "^8.0.0",
     "patchright": "^1.58.2",
     "pdf-lib": "^1.17.0",
     "pdf-parse": "1.1.1",
     "playwright": "^1.40.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "zod": "^3.22.0"
   }
 }

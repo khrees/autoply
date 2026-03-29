@@ -1,4 +1,4 @@
-import type { Profile, JobData, Application, GeneratedDocuments } from '../types';
+import type { Profile, JobData, Application, GeneratedDocuments, Platform } from '../types';
 import { parseJobUrl } from '../utils/url-parser';
 import { scrapeJob, createScraper, BaseScraper } from '../scrapers';
 import { createAIProvider } from '../ai/provider';
@@ -11,7 +11,7 @@ import { profileRepository } from '../db/repositories/profile';
 import { applicationRepository } from '../db/repositories/application';
 import { configRepository } from '../db/repositories/config';
 import { ApplicationQueue } from './queue';
-import { requiresHumanAnswer, shouldAllowAIAnswer } from './form-filler';
+import { requiresHumanAnswer, shouldAllowAIAnswer, getDeterministicFieldValue } from './form-filler';
 import { generateResumePdf, generateCoverLetterPdf, generateDocumentFilename } from './document';
 import { logger, createSpinner } from '../utils/logger';
 import { join } from 'path';
@@ -25,6 +25,16 @@ export interface ApplicationResult {
   error?: string;
   documents?: GeneratedDocuments;
   fitResult?: JobFitResult;
+}
+
+export interface GeneratedDocumentPaths {
+  resumePath?: string;
+  coverLetterPath?: string;
+}
+
+export interface PassiveProcessResult extends ApplicationResult {
+  jobData?: JobData;
+  fillPlan?: Record<string, string>;
 }
 
 export interface ApplyOptions {
@@ -171,7 +181,7 @@ export class ApplicationOrchestrator {
 
       // Create application record
       const application = applicationRepository.create({
-        profile_id: profile.id!,
+        profile_id: profile.id || 0,
         url,
         platform: parsedUrl.platform,
         company: jobData.company,
@@ -244,7 +254,7 @@ export class ApplicationOrchestrator {
 
     // Create application record
     const application = applicationRepository.create({
-      profile_id: profile.id!,
+      profile_id: profile.id || 0,
       url,
       platform: parsedUrl.platform,
       company: jobData.company,
@@ -291,8 +301,8 @@ export class ApplicationOrchestrator {
             lastScreenshotPath = submissionResult.screenshotPath;
 
             // Trust the scraper's DOM confirmation when it reports success.
-            if (submissionResult.success) {
-              const submittedApplication = applicationRepository.update(application.id!, {
+            if (submissionResult.success && application.id) {
+              const submittedApplication = applicationRepository.update(application.id, {
                 status: 'submitted',
                 applied_at: new Date().toISOString(),
               });
@@ -335,10 +345,12 @@ export class ApplicationOrchestrator {
       }
 
       // All retries exhausted
-      const failedApplication = applicationRepository.update(application.id!, {
-        status: 'failed',
-        error_message: lastError,
-      });
+      const failedApplication = application.id
+        ? applicationRepository.update(application.id, {
+            status: 'failed',
+            error_message: lastError,
+          })
+        : undefined;
       spinner.fail(`Submission failed after ${maxRetries} attempts`);
       if (lastScreenshotPath) {
         logger.info(`Screenshot saved to: ${lastScreenshotPath}`);
@@ -389,16 +401,18 @@ export class ApplicationOrchestrator {
           logger.info('Browser left open. You can review and submit manually.');
           logger.info('Close the browser window when you are done.');
 
-          const updatedApplication = applicationRepository.update(application.id!, {
-            status: 'filled',
-          });
+          if (application.id) {
+            applicationRepository.update(application.id, {
+              status: 'filled',
+            });
+          }
 
           await scraper.waitForBrowserClose();
           await scraper.close();
 
           return {
             success: true,
-            application: updatedApplication ?? application,
+            application,
             documents,
             fitResult,
           };
@@ -410,10 +424,12 @@ export class ApplicationOrchestrator {
         spinner.fail('Failed to fill application form.');
         logger.error(`Error: ${errorMessage}`);
 
-        applicationRepository.update(application.id!, {
-          status: 'failed',
-          error_message: errorMessage,
-        });
+        if (application.id) {
+          applicationRepository.update(application.id, {
+            status: 'failed',
+            error_message: errorMessage,
+          });
+        }
         await scraper.close();
         return {
           success: false,
@@ -425,10 +441,12 @@ export class ApplicationOrchestrator {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         spinner.fail(`Failed during form filling: ${errorMessage}`);
-        applicationRepository.update(application.id!, {
-          status: 'failed',
-          error_message: errorMessage,
-        });
+        if (application.id) {
+          applicationRepository.update(application.id, {
+            status: 'failed',
+            error_message: errorMessage,
+          });
+        }
         await scraper.close();
         return {
           success: false,
@@ -501,34 +519,14 @@ export class ApplicationOrchestrator {
     return result;
   }
 
-  async applyToMultipleJobs(urls: string[], options: ApplyOptions = {}): Promise<ApplicationResult[]> {
-    const results: ApplicationResult[] = [];
-
-    for (const url of urls) {
-      logger.header(`Processing: ${url}`);
-      const result = await this.applyToJob(url, options);
-      results.push(result);
-
-      if (result.success) {
-        logger.success(`Completed: ${result.application?.job_title} at ${result.application?.company}`);
-      } else {
-        logger.error(`Failed: ${result.error}`);
-      }
-
-      logger.newline();
-    }
-
-    return results;
-  }
-
   async generateDocuments(
     url: string,
     outputDir: string,
     type: 'resume' | 'cover-letter' | 'both' = 'both'
-  ): Promise<{ resumePath?: string; coverLetterPath?: string }> {
+  ): Promise<GeneratedDocumentPaths> {
     const parsedUrl = parseJobUrl(url);
     if (!parsedUrl.isValid) {
-      throw new Error(parsedUrl.error);
+      throw new Error(parsedUrl.error || 'Invalid URL');
     }
 
     const profile = profileRepository.findFirst();
@@ -536,34 +534,173 @@ export class ApplicationOrchestrator {
       throw new Error('No profile found. Run "autoply init" first.');
     }
 
+    await mkdir(outputDir, { recursive: true });
+
+    const provider = createAIProvider();
+    if (!(await provider.isAvailable())) {
+      throw new Error('AI provider is not running or configured');
+    }
+
     const spinner = createSpinner('Scraping job...');
     spinner.start();
 
-    const jobData = await scrapeJob(url, parsedUrl.platform);
-    spinner.succeed(`Scraped: ${jobData.title} at ${jobData.company}`);
+    let jobData: JobData;
+    try {
+      jobData = await scrapeJob(url, parsedUrl.platform);
+      spinner.succeed(`Scraped: ${jobData.title} at ${jobData.company}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      spinner.fail(`Failed to scrape job from ${parsedUrl.platform}`);
+      throw new Error(
+        `[${parsedUrl.platform}] Scraping failed for ${url}: ${message}. Check that the URL is accessible in a browser.`
+      );
+    }
 
-    const provider = createAIProvider();
-    const result: { resumePath?: string; coverLetterPath?: string } = {};
+    const result: GeneratedDocumentPaths = {};
 
     if (type === 'resume' || type === 'both') {
       spinner.start('Generating tailored resume...');
-      const resume = await tailorResume(provider, profile, jobData);
-      const resumePath = join(outputDir, generateDocumentFilename(profile.name, 'resume'));
-      await generateResumePdf(resume, resumePath, profile.name);
-      result.resumePath = resumePath;
-      spinner.succeed(`Resume saved to: ${resumePath}`);
+      try {
+        const resume = await tailorResume(provider, profile, jobData);
+        const resumePath = join(outputDir, generateDocumentFilename(profile.name, 'resume'));
+        await generateResumePdf(resume, resumePath, profile.name);
+        result.resumePath = resumePath;
+        spinner.succeed(`Resume saved to: ${resumePath}`);
+      } catch (error) {
+        spinner.fail('Failed to generate tailored resume');
+        throw new Error(error instanceof Error ? error.message : 'Unknown resume generation error');
+      }
     }
 
     if (type === 'cover-letter' || type === 'both') {
       spinner.start('Generating cover letter...');
-      const coverLetter = await generateCoverLetter(provider, profile, jobData);
-      const coverPath = join(outputDir, generateDocumentFilename(profile.name, 'cover_letter'));
-      await generateCoverLetterPdf(coverLetter, coverPath, profile.name);
-      result.coverLetterPath = coverPath;
-      spinner.succeed(`Cover letter saved to: ${coverPath}`);
+      try {
+        const coverLetter = await generateCoverLetter(provider, profile, jobData);
+        const coverLetterPath = join(
+          outputDir,
+          generateDocumentFilename(profile.name, 'cover_letter')
+        );
+        await generateCoverLetterPdf(coverLetter, coverLetterPath, profile.name);
+        result.coverLetterPath = coverLetterPath;
+        spinner.succeed(`Cover letter saved to: ${coverLetterPath}`);
+      } catch (error) {
+        spinner.fail('Failed to generate cover letter');
+        throw new Error(
+          error instanceof Error ? error.message : 'Unknown cover letter generation error'
+        );
+      }
     }
 
     return result;
+  }
+
+  async processJobPassively(
+    html: string,
+    url: string,
+    platform: Platform,
+    options: ApplyOptions = {}
+  ): Promise<PassiveProcessResult> {
+    const profile = options.profile ?? profileRepository.findFirst();
+    if (!profile) {
+      return { success: false, error: 'No profile found' };
+    }
+
+    const provider = createAIProvider();
+    if (!(await provider.isAvailable())) {
+      return { success: false, error: 'AI provider not available' };
+    }
+
+    try {
+      // 1. Extract job data from HTML using AI
+      const { extractJobDataWithAI, mergeJobData } = await import('../ai/job-extractor');
+      const extracted = await extractJobDataWithAI(provider, html, url);
+
+      // Create full JobData with defaults
+      const jobData: JobData = mergeJobData({
+        url,
+        platform,
+        title: 'Unknown Position',
+        company: '',
+        description: '',
+        requirements: [],
+        qualifications: [],
+        form_fields: [],
+        custom_questions: [],
+      }, extracted);
+
+      // 2. Evaluate Fit
+      const fitResult = await evaluateJobFit(provider, profile, jobData);
+
+      // 3. Generate Documents
+      const resumeMd = await tailorResume(provider, profile, jobData);
+      const coverLetterMd = await generateCoverLetter(provider, profile, jobData);
+
+      // Convert to PDF and then to base64
+      const { markdownToPdf } = await import('./document');
+      const resumeBytes = await markdownToPdf(resumeMd, { title: 'Resume' });
+      const coverLetterBytes = await markdownToPdf(coverLetterMd, { title: 'Cover Letter' });
+
+      const resumeBase64 = `data:application/pdf;base64,${Buffer.from(resumeBytes).toString('base64')}`;
+      const coverLetterBase64 = `data:application/pdf;base64,${Buffer.from(coverLetterBytes).toString('base64')}`;
+
+      const documents: GeneratedDocuments = {
+        resume: resumeBase64,
+        coverLetter: coverLetterBase64,
+      };
+
+      // 4. Create record
+      const application = applicationRepository.create({
+        profile_id: profile.id || 0,
+        url,
+        platform,
+        company: jobData.company,
+        job_title: jobData.title,
+        status: 'pending',
+        generated_resume: resumeMd,
+        generated_cover_letter: coverLetterMd,
+        form_data: {
+          fields: jobData.form_fields,
+          questions: jobData.custom_questions,
+        },
+      });
+
+      // 5. Calculate Fill Plan (Field mappings)
+      const fillPlan: Record<string, string> = {};
+
+      // Deterministic fields
+      for (const field of jobData.form_fields || []) {
+        const value = getDeterministicFieldValue(profile, field);
+        if (value) fillPlan[field.name || field.label || ''] = value;
+      }
+
+      // AI questions
+      if (jobData.custom_questions && jobData.custom_questions.length > 0) {
+        const answers = await answerAllQuestions(
+          provider,
+          profile,
+          jobData,
+          jobData.custom_questions,
+          []
+        );
+        for (const [q, a] of answers.entries()) {
+          fillPlan[q] = a;
+        }
+      }
+
+      return {
+        success: true,
+        application,
+        documents,
+        fitResult,
+        jobData,
+        fillPlan,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Processing failed',
+      };
+    }
   }
 }
 

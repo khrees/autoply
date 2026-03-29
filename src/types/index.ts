@@ -95,6 +95,7 @@ export interface Application {
   generated_cover_letter?: string;
   form_data?: Record<string, unknown>;
   error_message?: string;
+  time_saved?: number;
   applied_at?: string;
   created_at?: string;
 }
@@ -141,6 +142,7 @@ export interface AIConfig {
   provider: AIProviderType;
   model: string;
   baseUrl?: string;
+  apiKey?: string;
   temperature?: number;
 }
 
@@ -181,6 +183,7 @@ export interface AppConfig {
     fillOptionalFields: boolean;
     /** When true, prompt user for fields that can't be auto-filled or AI-answered */
     interactivePrompts: boolean;
+    vaultEncryption: boolean;
   };
   /** Cached answers for form fields the user has previously provided manually */
   cachedAnswers?: Record<string, string>;
@@ -211,6 +214,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     rateLimitDelay: 0,
     fillOptionalFields: false,
     interactivePrompts: true,
+    vaultEncryption: false,
   },
 };
 

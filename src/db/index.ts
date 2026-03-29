@@ -50,7 +50,34 @@ function runMigrations(database: Database): void {
     )
   `);
 
-  const migrations = [
+  type Migration = {
+    name: string;
+    sql?: string;
+    run?: (database: Database) => void;
+  };
+
+  function hasTable(tableName: string): boolean {
+    const row = database
+      .query<{ name: string }, [string]>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+      )
+      .get(tableName);
+    return Boolean(row);
+  }
+
+  function hasColumn(tableName: string, columnName: string): boolean {
+    if (!hasTable(tableName)) {
+      return false;
+    }
+
+    const columns = database
+      .query<{ name: string }, []>(`PRAGMA table_info(${tableName})`)
+      .all();
+
+    return columns.some((column) => column.name === columnName);
+  }
+
+  const migrations: Migration[] = [
     {
       name: '001_create_profiles',
       sql: `
@@ -89,6 +116,7 @@ function runMigrations(database: Database): void {
           generated_cover_letter TEXT,
           form_data TEXT,
           error_message TEXT,
+          time_saved INTEGER DEFAULT 0,
           applied_at DATETIME,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (profile_id) REFERENCES profiles(id)
@@ -104,6 +132,16 @@ function runMigrations(database: Database): void {
         )
       `,
     },
+    {
+      name: '004_add_time_saved_to_applications',
+      run: (currentDatabase) => {
+        if (!hasColumn('applications', 'time_saved')) {
+          currentDatabase.exec(
+            'ALTER TABLE applications ADD COLUMN time_saved INTEGER DEFAULT 0'
+          );
+        }
+      },
+    },
   ];
 
   const appliedMigrations = database
@@ -113,7 +151,11 @@ function runMigrations(database: Database): void {
 
   for (const migration of migrations) {
     if (!appliedMigrations.includes(migration.name)) {
-      database.exec(migration.sql);
+      if (migration.run) {
+        migration.run(database);
+      } else if (migration.sql) {
+        database.exec(migration.sql);
+      }
       database.run('INSERT INTO migrations (name) VALUES (?)', [migration.name]);
     }
   }

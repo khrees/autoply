@@ -7,9 +7,9 @@ import { configRepository } from '../db/repositories/config';
 
 // Model mappings for each provider
 const MODEL_DEFAULTS: Record<AIProviderType, string> = {
-  openai: 'gpt-5.2',
-  anthropic: 'claude-sonnet-4-5-20250929',
-  google: 'gemini-pro-3',
+  openai: 'gpt-4o',
+  anthropic: 'claude-3-5-sonnet-20240620',
+  google: 'gemini-1.5-pro',
   ollama: 'llama3.2',
   lmstudio: 'local-model',
 };
@@ -20,33 +20,39 @@ const API_KEY_ENV_VARS: Partial<Record<AIProviderType, string>> = {
   google: 'GOOGLE_API_KEY',
 };
 
-function createModel(config: AIConfig) {
+export interface AIConfigExtended extends AIConfig {
+  apiKey?: string;
+}
+
+function createModel(config: AIConfigExtended) {
   const modelId = config.model || MODEL_DEFAULTS[config.provider];
 
   // Validate API key for cloud providers
-  const envVar = API_KEY_ENV_VARS[config.provider];
-  if (envVar && !process.env[envVar]) {
+  const apiKey = config.apiKey || process.env[API_KEY_ENV_VARS[config.provider] || ''];
+  
+  const isCloudProvider = ['openai', 'anthropic', 'google'].includes(config.provider);
+  if (isCloudProvider && !apiKey) {
     throw new Error(
-      `Missing ${envVar} environment variable. Set it with: export ${envVar}=your-key`
+      `Missing API Key for ${config.provider}. Please set it in the extension vault.`
     );
   }
 
   switch (config.provider) {
     case 'openai': {
       const openai = createOpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
+        apiKey,
       });
       return openai(modelId);
     }
     case 'anthropic': {
       const anthropic = createAnthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY,
+        apiKey,
       });
       return anthropic(modelId);
     }
     case 'google': {
       const google = createGoogleGenerativeAI({
-        apiKey: process.env.GOOGLE_API_KEY,
+        apiKey,
       });
       return google(modelId);
     }
@@ -58,7 +64,7 @@ function createModel(config: AIConfig) {
       }
       const ollama = createOpenAI({
         baseURL: baseUrl,
-        apiKey: 'ollama', // Ollama doesn't require an API key
+        apiKey: 'ollama', 
       });
       return ollama(modelId);
     }
@@ -70,7 +76,7 @@ function createModel(config: AIConfig) {
       }
       const lmstudio = createOpenAI({
         baseURL: lmBaseUrl,
-        apiKey: 'lmstudio', // LMStudio doesn't require an API key
+        apiKey: 'lmstudio',
       });
       return lmstudio(modelId);
     }

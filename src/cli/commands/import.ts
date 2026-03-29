@@ -37,13 +37,13 @@ export const importCommand = new Command('import')
       process.exit(1);
     }
 
-    logger.success(`Extracted ${result.content!.length} characters from ${result.fileType} file`);
+    logger.success(`Extracted ${result.content ? result.content.length : 0} characters from ${result.fileType} file`);
     logger.newline();
 
     // Show preview
-    const preview = result.content!.slice(0, 300);
+    const preview = result.content ? result.content.slice(0, 300) : '';
     logger.header('Preview');
-    console.log(preview + (result.content!.length > 300 ? '\n...' : ''));
+    console.log(preview + (result.content && result.content.length > 300 ? '\n...' : ''));
     logger.newline();
 
     // Confirm update
@@ -63,13 +63,13 @@ export const importCommand = new Command('import')
     const fieldName = type === 'resume' ? 'base_resume' : 'base_cover_letter';
     const updates = { [fieldName]: result.content };
 
-    const updated = profileRepository.update(profile.id!, updates);
+    const updated = profile.id !== undefined ? profileRepository.update(profile.id, updates) : null;
     if (!updated) {
       logger.error('Failed to update profile');
       process.exit(1);
     }
 
     logger.success(`${type === 'resume' ? 'Resume' : 'Cover letter'} updated successfully!`);
-    logger.keyValue('Characters', result.content!.length.toString());
+    logger.keyValue('Characters', result.content ? result.content.length.toString() : '0');
     logger.keyValue('Source', result.filePath || file);
   });

@@ -324,8 +324,10 @@ describe('ApplicationQueue', () => {
       const info = queue.getPersistedInfo();
 
       expect(info).not.toBeNull();
-      expect(info!.pending).toBe(2);
-      expect(info!.savedAt).toBeTruthy();
+      if (info) {
+        expect(info.pending).toBe(2);
+        expect(info.savedAt).toBeTruthy();
+      }
     });
 
     test('getPersistedInfo returns null when no file', () => {
