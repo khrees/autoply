@@ -23,7 +23,6 @@
 
 ```bash
 curl -fsL https://autoply.khrees.com/install | bash
-bunx playwright install chromium
 ```
 
 Then set up your profile:
@@ -39,7 +38,6 @@ autoply init
 git clone https://github.com/khrees2412/autoply.git
 cd autoply
 bun install
-bunx playwright install chromium
 bun run build
 mv dist/autoply /usr/local/bin/
 ```
