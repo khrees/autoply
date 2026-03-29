@@ -12,6 +12,7 @@ export type Platform =
   | 'workday'
   | 'ashby'
   | 'bamboohr'
+  | 'workable'
   | 'generic';
 
 export const SUPPORTED_PLATFORMS: Record<Platform, RegExp> = {
@@ -25,7 +26,8 @@ export const SUPPORTED_PLATFORMS: Record<Platform, RegExp> = {
   workday: /\.myworkdayjobs\.com|workday\.com\/.*\/job/,
   ashby: /jobs\.ashbyhq\.com/,
   bamboohr: /\.bamboohr\.com\/careers/,
-  generic: /.*/
+  workable: /apply\.workable\.com/,
+  generic: /.*/,
 };
 
 // ============ Profile Schemas ============

@@ -3,6 +3,21 @@
   "name": "Autoply Copilot",
   "version": "1.0.0",
   "description": "Intelligent job application assistant for Autoply.",
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "32": "assets/icon32.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    },
+    "default_title": "Open Autoply Side Panel"
+  },
   "permissions": [
     "sidePanel",
     "storage",
@@ -27,8 +42,5 @@
   ],
   "side_panel": {
     "default_path": "sidepanel.html"
-  },
-  "action": {
-    "default_title": "Open Autoply Side Panel"
   }
 }

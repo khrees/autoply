@@ -1,4 +1,11 @@
-import type { Browser, BrowserContext, BrowserContextOptions, LaunchOptions, Page } from 'playwright';
+import type {
+  Browser,
+  BrowserContext,
+  BrowserContextOptions,
+  LaunchOptions,
+  Page,
+} from 'playwright-core';
+import chromium from '@sparticuz/chromium';
 import { existsSync } from 'fs';
 import type { AppConfig, Platform } from '../types';
 import { configRepository } from '../db/repositories/config';
@@ -33,12 +40,38 @@ export interface BrowserSession {
   waitForClose(): Promise<void>;
 }
 
-const DEFAULT_USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const USER_AGENTS = [
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Apple Silicon Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+];
+
+const VIEWPORTS = [
+  { width: 1920, height: 1080 },
+  { width: 1536, height: 864 },
+  { width: 1440, height: 900 },
+  { width: 1280, height: 800 },
+  { width: 1366, height: 768 },
+  { width: 2560, height: 1440 },
+];
+
+function getRandomUserAgent(): string {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function getRandomViewport(): { width: number; height: number } {
+  return VIEWPORTS[Math.floor(Math.random() * VIEWPORTS.length)];
+}
 
 const DEFAULT_LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
   '--disable-features=IsolateOrigins,site-per-process',
+  '--disable-dev-shm-usage',
+  '--no-sandbox',
 ];
 
 function maskAutomationIndicators(): void {
@@ -68,7 +101,10 @@ function maskAutomationIndicators(): void {
 }
 
 function normalizeHost(host: string): string {
-  return host.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+  return host
+    .trim()
+    .toLowerCase()
+    .replace(/^\.+|\.+$/g, '');
 }
 
 function hostMatches(host: string, configuredHost: string): boolean {
@@ -105,7 +141,10 @@ export function selectBrowserEngine(
   }
 
   const host = getUrlHost(url);
-  if (host && config.browser.patchrightHosts.some((configuredHost) => hostMatches(host, configuredHost))) {
+  if (
+    host &&
+    config.browser.patchrightHosts.some((configuredHost) => hostMatches(host, configuredHost))
+  ) {
     return 'patchright';
   }
 
@@ -114,14 +153,16 @@ export function selectBrowserEngine(
 
 function buildContextOptions(config: AppConfig): BrowserContextOptions {
   return {
-    userAgent: DEFAULT_USER_AGENT,
+    userAgent: getRandomUserAgent(),
     storageState:
       config.browser.storageState && existsSync(config.browser.storageState)
         ? config.browser.storageState
         : undefined,
-    viewport: { width: 1920, height: 1080 },
+    viewport: getRandomViewport(),
     locale: Intl.DateTimeFormat().resolvedOptions().locale || 'en-US',
     timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    deviceScaleFactor: Math.random() > 0.5 ? 1 : 2,
+    hasTouch: Math.random() > 0.8,
   };
 }
 
@@ -137,7 +178,7 @@ async function loadAutomationModule(engine: BrowserEngine): Promise<BrowserAutom
     }
   }
 
-  return (await import('playwright')) as BrowserAutomationModule;
+  return (await import('playwright-core')) as BrowserAutomationModule;
 }
 
 class BrowserManager {
@@ -234,9 +275,13 @@ class BrowserManager {
     }
 
     const automation = await loadAutomationModule(engine);
+    const launchArgs = config.browser.headless
+      ? [...DEFAULT_LAUNCH_ARGS, '--headless=new']
+      : DEFAULT_LAUNCH_ARGS;
     const browser = await automation.chromium.launch({
       headless: config.browser.headless,
-      args: DEFAULT_LAUNCH_ARGS,
+      args: launchArgs,
+      executablePath: await chromium.executablePath(),
     });
 
     const createdBrowser: PooledBrowser = {

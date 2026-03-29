@@ -4,8 +4,10 @@ import multipart from '@fastify/multipart';
 import { applicationRepository } from '../db/repositories/application';
 import { profileRepository } from '../db/repositories/profile';
 import { configRepository } from '../db/repositories/config';
+import { credentialStore } from '../db/repositories/secure-credentials';
 import { applicationOrchestrator } from '../core/application';
 import { createAIProvider, testProvider } from '../ai/provider';
+import { applicationQueue } from '../core/queue';
 import type { Platform, Profile, AppConfig, ApplicationStatus, AIConfig } from '../types';
 
 const DEFAULT_API_PORT = 8088;
@@ -17,7 +19,14 @@ const fastify = Fastify({
 
 // Plugins
 fastify.register(cors, {
-  origin: '*', // For extension development (can be restricted in prod)
+  origin: (origin, callback) => {
+    // Allow all origins for development (extension runs on chrome-extension://)
+    // In production, you might want to restrict this
+    callback(null, true);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
 });
 fastify.register(multipart);
 
@@ -36,9 +45,68 @@ fastify.get('/profile', async () => {
 fastify.post('/profile', async (request, reply) => {
   const data = request.body as Profile;
   try {
-    if (data.id === undefined) return reply.status(400).send({ error: 'Profile ID is required' });
-    const updated = profileRepository.update(data.id, data);
-    return updated;
+    // If ID provided, update existing; otherwise create new
+    if (data.id !== undefined) {
+      const updated = profileRepository.update(data.id, data);
+      return updated;
+    }
+    // Create new profile
+    const created = profileRepository.create({
+      name: data.name,
+      email: data.email,
+      phone: data.phone,
+      location: data.location,
+      linkedin_url: data.linkedin_url,
+      github_url: data.github_url,
+      portfolio_url: data.portfolio_url,
+      base_resume: data.base_resume,
+      base_cover_letter: data.base_cover_letter,
+      preferences: data.preferences,
+      skills: data.skills,
+      experience: data.experience,
+      education: data.education,
+    });
+    return { success: true, profile: created };
+  } catch (error) {
+    return reply.status(400).send({ error: (error as Error).message });
+  }
+});
+
+fastify.post('/profile/import', async (request, reply) => {
+  const { resumeText } = request.body as { resumeText?: string };
+  if (!resumeText) {
+    return reply.status(400).send({ error: 'resumeText is required' });
+  }
+
+  try {
+    const { extractProfileFromResume } = await import('../ai/profile-extractor');
+    const provider = createAIProvider();
+    const extractedProfile = await extractProfileFromResume(provider, resumeText);
+
+    // Check if we have an existing profile to update
+    const existingProfile = profileRepository.findFirst();
+    if (existingProfile && existingProfile.id !== undefined) {
+      const updated = profileRepository.update(existingProfile.id, extractedProfile);
+      return { success: true, profile: updated, action: 'updated' };
+    }
+
+    // Create new profile
+    const created = profileRepository.create(extractedProfile);
+    return { success: true, profile: created, action: 'created' };
+  } catch (error) {
+    return reply.status(500).send({ error: (error as Error).message });
+  }
+});
+
+fastify.delete('/profile/:id', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  try {
+    const numId = parseInt(id, 10);
+    if (isNaN(numId)) {
+      return reply.status(400).send({ error: 'Invalid profile ID' });
+    }
+    const deleted = profileRepository.delete(numId);
+    return { success: deleted };
   } catch (error) {
     return reply.status(400).send({ error: (error as Error).message });
   }
@@ -46,23 +114,64 @@ fastify.post('/profile', async (request, reply) => {
 
 // --- Config Routes ---
 fastify.get('/config', async () => {
-  return configRepository.loadAppConfig();
+  const config = configRepository.loadAppConfig();
+  // Don't return API keys in config response
+  if (config.ai) {
+    config.ai.apiKey = undefined;
+  }
+  return config;
 });
 
 fastify.post('/config', async (request) => {
   const data = request.body as AppConfig;
-  
-  // Update environment variables for API keys if provided
-  if (data.ai.provider === 'openai' && data.ai.apiKey) {
-    process.env.OPENAI_API_KEY = data.ai.apiKey;
-  } else if (data.ai.provider === 'anthropic' && data.ai.apiKey) {
-    process.env.ANTHROPIC_API_KEY = data.ai.apiKey;
-  } else if (data.ai.provider === 'google' && data.ai.apiKey) {
-    process.env.GOOGLE_API_KEY = data.ai.apiKey;
+
+  // Store API keys securely in keychain instead of config
+  if (data.ai.apiKey) {
+    const provider = data.ai.provider;
+    if (provider === 'openai' || provider === 'anthropic' || provider === 'google') {
+      await credentialStore.setApiKey(provider, data.ai.apiKey);
+      // Remove from config - we store it securely
+      data.ai.apiKey = undefined;
+    }
   }
 
   configRepository.saveAppConfig(data);
   return { success: true };
+});
+
+// Secure credential management endpoints
+fastify.post('/credentials/store', async (request, reply) => {
+  const { provider, apiKey } = request.body as {
+    provider: 'openai' | 'anthropic' | 'google';
+    apiKey: string;
+  };
+
+  if (!provider || !apiKey) {
+    return reply.status(400).send({ success: false, error: 'Provider and API key required' });
+  }
+
+  const success = await credentialStore.setApiKey(provider, apiKey);
+  return { success };
+});
+
+fastify.post('/credentials/delete', async (request, reply) => {
+  const { provider } = request.body as { provider: 'openai' | 'anthropic' | 'google' };
+
+  if (!provider) {
+    return reply.status(400).send({ success: false, error: 'Provider required' });
+  }
+
+  const success = await credentialStore.deleteApiKey(provider);
+  return { success };
+});
+
+fastify.get('/credentials/status', async () => {
+  const keys = await credentialStore.getAllApiKeys();
+  return {
+    openai: !!keys.openai,
+    anthropic: !!keys.anthropic,
+    google: !!keys.google,
+  };
 });
 
 fastify.post('/config/test', async (request, reply) => {
@@ -87,20 +196,175 @@ fastify.get('/applications', async (request) => {
   return applicationRepository.findAll({ status, company });
 });
 
-fastify.post('/applications/evaluate', async (request, reply) => {
-  const { url: _url } = request.body as { url: string; platform: Platform };
+fastify.delete<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
+  const id = parseInt(request.params.id, 10);
+  if (isNaN(id)) {
+    return reply.status(400).send({ success: false, error: 'Invalid application ID' });
+  }
 
+  const deleted = applicationRepository.delete(id);
+  if (!deleted) {
+    return reply.status(404).send({ success: false, error: 'Application not found' });
+  }
+
+  return { success: true };
+});
+
+// --- Extension Routes ---
+fastify.get('/extension/status', async () => {
   const profile = profileRepository.findFirst();
-  if (!profile) return reply.status(400).send({ error: 'No profile found' });
+  const config = configRepository.loadAppConfig();
+
+  let aiProviderStatus: { available: boolean; error?: string } = { available: false };
 
   try {
-    createAIProvider();
-    // In a real scenario, we might want to scrape the job first if not provided
-    // For now, assume this is called after scraping or with job data
-    return { message: 'Use /jobs/scrape first' };
+    const provider = createAIProvider();
+    aiProviderStatus = await testProvider(provider)
+      .then((result) => ({ available: result.success, error: result.error }))
+      .catch((error) => ({ available: false, error: error.message }));
   } catch (error) {
-    return reply.status(500).send({ error: (error as Error).message });
+    aiProviderStatus = { available: false, error: (error as Error).message };
   }
+
+  return {
+    hasProfile: !!profile,
+    profileName: profile?.name || null,
+    aiProvider: config.ai.provider,
+    aiProviderStatus,
+    autoSubmitEnabled: config.application.autoSubmit,
+  };
+});
+
+fastify.post('/applications/apply', async (request, reply) => {
+  const { url, autoSubmit } = request.body as { url: string; autoSubmit?: boolean };
+
+  const profile = profileRepository.findFirst();
+  if (!profile) {
+    return reply.status(400).send({
+      success: false,
+      error: 'No profile found. Please run "autoply init" first.',
+    });
+  }
+
+  try {
+    const result = await applicationOrchestrator.applyToJob(url, {
+      autoMode: autoSubmit,
+    });
+    return result;
+  } catch (error) {
+    return reply.status(500).send({ success: false, error: (error as Error).message });
+  }
+});
+
+// --- Queue/Bulk Routes ---
+fastify.get('/queue', async () => {
+  const queue = applicationQueue;
+  return {
+    stats: queue.getStats(),
+    items: queue.getAll(),
+    hasPersisted: queue.hasPersisted(),
+    persistedInfo: queue.getPersistedInfo(),
+  };
+});
+
+fastify.post('/queue/add', async (request, reply) => {
+  const { urls } = request.body as { urls: string[] };
+
+  if (!Array.isArray(urls) || urls.length === 0) {
+    return reply.status(400).send({ error: 'urls must be a non-empty array' });
+  }
+
+  // Load persisted queue if exists
+  applicationQueue.load();
+
+  const items = applicationQueue.addMany(urls);
+  applicationQueue.persist();
+
+  return {
+    success: true,
+    added: items.length,
+    items,
+    stats: applicationQueue.getStats(),
+  };
+});
+
+fastify.post('/queue/clear', async () => {
+  applicationQueue.clear();
+  return { success: true };
+});
+
+fastify.post('/queue/process', async (request, reply) => {
+  const { autoSubmit = false, delaySeconds = 0 } = request.body as {
+    autoSubmit?: boolean;
+    delaySeconds?: number;
+  };
+
+  const profile = profileRepository.findFirst();
+  if (!profile) {
+    return reply.status(400).send({
+      success: false,
+      error: 'No profile found. Please run "autoply init" first.',
+    });
+  }
+
+  // Load persisted queue if exists
+  applicationQueue.load();
+
+  const results: Array<{
+    id: string;
+    url: string;
+    status: string;
+    result?: unknown;
+    error?: string;
+  }> = [];
+
+  while (applicationQueue.hasNext()) {
+    const item = applicationQueue.getNext();
+    if (!item) break;
+
+    try {
+      applicationQueue.updateStatus(item.id, 'processing');
+
+      const result = await applicationOrchestrator.applyToJob(item.url, {
+        autoMode: autoSubmit,
+      });
+
+      applicationQueue.setResult(item.id, result.application);
+      applicationQueue.updateStatus(item.id, result.success ? 'completed' : 'failed', result.error);
+
+      results.push({
+        id: item.id,
+        url: item.url,
+        status: result.success ? 'completed' : 'failed',
+        result,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      applicationQueue.updateStatus(item.id, 'failed', errorMessage);
+      results.push({
+        id: item.id,
+        url: item.url,
+        status: 'failed',
+        error: errorMessage,
+      });
+    }
+
+    // Apply delay if configured
+    if (delaySeconds > 0 && applicationQueue.hasNext()) {
+      await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+    }
+  }
+
+  return {
+    success: true,
+    processed: results.length,
+    results,
+    stats: applicationQueue.getStats(),
+  };
+});
+
+fastify.get('/queue/stats', async () => {
+  return applicationQueue.getStats();
 });
 
 // --- Scraper & Action Routes ---
@@ -117,21 +381,7 @@ fastify.post('/jobs/passive-process', async (request, reply) => {
 fastify.post('/jobs/scrape', async (request, reply) => {
   const { url } = request.body as { url: string };
   try {
-    // This is a heavy operation, might eventually need a queue
-    // For now, direct call
     const result = await applicationOrchestrator.applyToJob(url, { dryRun: true });
-    return result;
-  } catch (error) {
-    return reply.status(500).send({ error: (error as Error).message });
-  }
-});
-
-fastify.post('/applications/apply', async (request, reply) => {
-  const { url, autoSubmit } = request.body as { url: string; autoSubmit?: boolean };
-  try {
-    const result = await applicationOrchestrator.applyToJob(url, {
-      autoMode: autoSubmit,
-    });
     return result;
   } catch (error) {
     return reply.status(500).send({ error: (error as Error).message });

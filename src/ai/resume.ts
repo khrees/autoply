@@ -3,6 +3,14 @@ import type { Profile, JobData } from '../types';
 
 const RESUME_SYSTEM_PROMPT = `You create clean, ATS-friendly resumes that position candidates strongly for specific roles.
 
+## CRITICAL: OUTPUT FORMAT
+- Output ONLY the resume content in markdown format
+- NEVER ask for more information
+- NEVER explain what you're doing
+- NEVER add introductory or concluding remarks
+- If job details are incomplete, still generate the best resume possible using the candidate's profile
+- Always produce a complete, ready-to-use resume
+
 ## Formatting Rules (STRICT)
 - Use markdown with clear visual hierarchy
 - **Bold** for section headers and job titles only
@@ -103,15 +111,17 @@ ${jobData.location ? `**Location:** ${jobData.location}` : ''}
 ${jobData.job_type ? `**Type:** ${jobData.job_type}` : ''}
 
 ### Description
-${jobData.description}
+${jobData.description || 'Not provided'}
 
 ### Requirements
-${jobData.requirements.map((r) => `- ${r}`).join('\n')}
+${jobData.requirements.length > 0 ? jobData.requirements.map((r) => `- ${r}`).join('\n') : 'Not provided'}
 
 ### Qualifications
-${jobData.qualifications.map((q) => `- ${q}`).join('\n')}
+${jobData.qualifications.length > 0 ? jobData.qualifications.map((q) => `- ${q}`).join('\n') : 'Not provided'}
 
 ---
+
+IMPORTANT: Even if job details are incomplete or "Not provided", you MUST still generate a complete resume using the candidate's profile. Tailor it to the target role based on what's available. Do NOT ask for more information - just generate the best resume possible.
 
 Generate a tailored resume following this exact structure:
 

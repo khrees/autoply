@@ -90,9 +90,8 @@ if command -v autoply &> /dev/null; then
   info "Successfully installed autoply!"
   echo ""
   echo "  Next steps:"
-  echo "    1. Install Playwright browsers: bunx playwright install chromium"
-  echo "    2. Run 'autoply init' to set up your profile"
-  echo "    3. Run 'autoply --help' for all commands"
+  echo "    1. Run 'autoply init' to set up your profile"
+  echo "    2. Run 'autoply --help' for all commands"
   echo ""
 else
   warn "Installed but 'autoply' not found in PATH. You may need to add $INSTALL_DIR to your PATH."

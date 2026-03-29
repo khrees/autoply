@@ -11,7 +11,11 @@ import { profileRepository } from '../db/repositories/profile';
 import { applicationRepository } from '../db/repositories/application';
 import { configRepository } from '../db/repositories/config';
 import { ApplicationQueue } from './queue';
-import { requiresHumanAnswer, shouldAllowAIAnswer, getDeterministicFieldValue } from './form-filler';
+import {
+  requiresHumanAnswer,
+  shouldAllowAIAnswer,
+  getDeterministicFieldValue,
+} from './form-filler';
 import { generateResumePdf, generateCoverLetterPdf, generateDocumentFilename } from './document';
 import { logger, createSpinner } from '../utils/logger';
 import { join } from 'path';
@@ -50,9 +54,10 @@ export function summarizeSubmissionFailure(
   submissionResult: SubmissionResult,
   verification?: VerificationResult
 ): string {
-  let message = submissionResult.errors.length > 0
-    ? `${submissionResult.message}: ${submissionResult.errors.join(', ')}`
-    : submissionResult.message;
+  let message =
+    submissionResult.errors.length > 0
+      ? `${submissionResult.message}: ${submissionResult.errors.join(', ')}`
+      : submissionResult.message;
 
   if (verification) {
     const screenshotDetail = verification.errors?.length
@@ -72,7 +77,13 @@ export class ApplicationOrchestrator {
   }
 
   async applyToJob(url: string, options: ApplyOptions = {}): Promise<ApplicationResult> {
-    const { dryRun = false, generateOnly = false, autoMode = false, resumePath, coverLetterPath } = options;
+    const {
+      dryRun = false,
+      generateOnly = false,
+      autoMode = false,
+      resumePath,
+      coverLetterPath,
+    } = options;
 
     // Validate URL
     const parsedUrl = parseJobUrl(url);
@@ -107,7 +118,8 @@ export class ApplicationOrchestrator {
     if (jobData.title === 'Unknown Position' && !dryRun && !generateOnly) {
       return {
         success: false,
-        error: 'Cannot submit application: job title could not be scraped. Try with --dry-run to generate documents only.',
+        error:
+          'Cannot submit application: job title could not be scraped. Try with --dry-run to generate documents only.',
       };
     }
 
@@ -130,7 +142,9 @@ export class ApplicationOrchestrator {
         // Check minimum fit score threshold
         const config = configRepository.loadAppConfig();
         if (config.application.minFitScore && fitResult.score < config.application.minFitScore) {
-          logger.warning(`Skipping: fit score ${fitResult.score}% below threshold ${config.application.minFitScore}%`);
+          logger.warning(
+            `Skipping: fit score ${fitResult.score}% below threshold ${config.application.minFitScore}%`
+          );
           return { success: false, error: `Fit score below threshold`, fitResult };
         }
       }
@@ -280,11 +294,21 @@ export class ApplicationOrchestrator {
 
       try {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          logger.debug(`Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`);
-          spinner.start(attempt === 1 ? 'Submitting application...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
+          logger.debug(
+            `Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`
+          );
+          spinner.start(
+            attempt === 1
+              ? 'Submitting application...'
+              : `Retrying submission (attempt ${attempt}/${maxRetries})...`
+          );
           // Stop spinner so interactive prompts for unfillable fields can display on stdin
           if (!autoMode) {
-            spinner.info(attempt === 1 ? 'Filling application form...' : `Retrying submission (attempt ${attempt}/${maxRetries})...`);
+            spinner.info(
+              attempt === 1
+                ? 'Filling application form...'
+                : `Retrying submission (attempt ${attempt}/${maxRetries})...`
+            );
           }
 
           try {
@@ -307,7 +331,12 @@ export class ApplicationOrchestrator {
                 applied_at: new Date().toISOString(),
               });
               spinner.succeed('Application submitted!');
-              return { success: true, application: submittedApplication ?? application, documents, fitResult };
+              return {
+                success: true,
+                application: submittedApplication ?? application,
+                documents,
+                fitResult,
+              };
             }
 
             let verification: VerificationResult | undefined;
@@ -324,7 +353,9 @@ export class ApplicationOrchestrator {
             }
 
             lastError = summarizeSubmissionFailure(submissionResult, verification);
-            spinner.warn(`Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`);
+            spinner.warn(
+              `Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`
+            );
 
             if (attempt < maxRetries) {
               logger.info('Retrying submission...');
@@ -372,8 +403,10 @@ export class ApplicationOrchestrator {
       const docsDir = join(getAutoplyDir(), 'documents');
       await mkdir(docsDir, { recursive: true });
 
-      const resumePdfPath = resumePath ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
-      const coverLetterPdfPath = coverLetterPath ?? join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
+      const resumePdfPath =
+        resumePath ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
+      const coverLetterPdfPath =
+        coverLetterPath ?? join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
 
       // Generate PDFs for uploading if they don't exist
       if (!resumePath) {
@@ -418,9 +451,10 @@ export class ApplicationOrchestrator {
           };
         }
 
-        const errorMessage = fillResult.errors.length > 0
-          ? `${fillResult.message}: ${fillResult.errors.join(', ')}`
-          : fillResult.message;
+        const errorMessage =
+          fillResult.errors.length > 0
+            ? `${fillResult.message}: ${fillResult.errors.join(', ')}`
+            : fillResult.message;
         spinner.fail('Failed to fill application form.');
         logger.error(`Error: ${errorMessage}`);
 
@@ -457,8 +491,6 @@ export class ApplicationOrchestrator {
         };
       }
     }
-
-    return { success: true, application, documents, fitResult };
   }
 
   private async submitApplication(
@@ -471,8 +503,6 @@ export class ApplicationOrchestrator {
     coverLetterPathOverride?: string,
     scraperOverride?: BaseScraper
   ): Promise<SubmissionResult> {
-    const _config = configRepository.loadAppConfig();
-
     // Ensure directories exist
     ensureAutoplyDir();
     const docsDir = join(getAutoplyDir(), 'documents');
@@ -484,8 +514,11 @@ export class ApplicationOrchestrator {
     // Save documents (markdown and PDF)
     const resumeMdPath = join(docsDir, `${application.id}_resume.md`);
     const coverLetterMdPath = join(docsDir, `${application.id}_cover_letter.md`);
-    const resumePdfPath = resumePathOverride ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
-    const coverLetterPdfPath = coverLetterPathOverride ?? join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
+    const resumePdfPath =
+      resumePathOverride ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
+    const coverLetterPdfPath =
+      coverLetterPathOverride ??
+      join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
 
     // Save markdown versions
     await Bun.write(resumeMdPath, documents.resume);
@@ -616,17 +649,20 @@ export class ApplicationOrchestrator {
       const extracted = await extractJobDataWithAI(provider, html, url);
 
       // Create full JobData with defaults
-      const jobData: JobData = mergeJobData({
-        url,
-        platform,
-        title: 'Unknown Position',
-        company: '',
-        description: '',
-        requirements: [],
-        qualifications: [],
-        form_fields: [],
-        custom_questions: [],
-      }, extracted);
+      const jobData: JobData = mergeJobData(
+        {
+          url,
+          platform,
+          title: 'Unknown Position',
+          company: '',
+          description: '',
+          requirements: [],
+          qualifications: [],
+          form_fields: [],
+          custom_questions: [],
+        },
+        extracted
+      );
 
       // 2. Evaluate Fit
       const fitResult = await evaluateJobFit(provider, profile, jobData);
