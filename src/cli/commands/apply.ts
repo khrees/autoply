@@ -68,7 +68,7 @@ export const applyCommand = new Command('apply')
           process.exit(1);
         }
 
-        const profileData = await extractProfileFromResume(provider, result.content!);
+        const profileData = await extractProfileFromResume(provider, result.content || '');
         profile = profileRepository.create(profileData);
         // Only initialize config if no config file exists yet
         const configPath = join(getAutoplyDir(), 'config.json');
@@ -195,7 +195,8 @@ export const applyCommand = new Command('apply')
     // Process applications
     const results = [];
     while (applicationQueue.hasNext()) {
-      const item = applicationQueue.getNext()!;
+      const item = applicationQueue.getNext();
+      if (!item) break;
       applicationQueue.updateStatus(item.id, 'processing');
 
       const result = await applicationOrchestrator.applyToJob(item.url, {

@@ -190,12 +190,12 @@ Nice to have:
       expect(requirements).not.toContain('Optional skill');
     });
 
-    test('known limitation: bullet items containing header keywords are skipped', () => {
-      // This documents a known limitation in the extraction logic:
-      // Bullet points that contain header keywords like "must have" get treated as headers
+    test('extracts bullet items containing header keywords', () => {
       const description = `
 Requirements:
 - You must have 3+ years experience
+- Must have TypeScript skills
+- Should have 5+ years
 
 What we offer:
 - Competitive salary
@@ -203,9 +203,10 @@ What we offer:
 
       const requirements = scraper.testExtractRequirements(description);
 
-      // Due to the bug, "must have" in the bullet triggers header detection
-      // and the item is skipped instead of being added
-      expect(requirements).toHaveLength(0);
+      expect(requirements).toContain('You must have 3+ years experience');
+      expect(requirements).toContain('Must have TypeScript skills');
+      expect(requirements).toContain('Should have 5+ years');
+      expect(requirements).not.toContain('Competitive salary');
     });
   });
 

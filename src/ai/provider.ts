@@ -4,12 +4,13 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { AIProvider, AIProviderType, AIConfig } from '../types';
 import { configRepository } from '../db/repositories/config';
+import { credentialStore } from '../db/repositories/secure-credentials';
 
 // Model mappings for each provider
 const MODEL_DEFAULTS: Record<AIProviderType, string> = {
-  openai: 'gpt-5.2',
-  anthropic: 'claude-sonnet-4-5-20250929',
-  google: 'gemini-pro-3',
+  openai: 'gpt-5.4-mini',
+  anthropic: 'claude-sonnet-4-6',
+  google: 'gemini-3.1-flash-lite-preview',
   ollama: 'llama3.2',
   lmstudio: 'local-model',
 };
@@ -20,33 +21,79 @@ const API_KEY_ENV_VARS: Partial<Record<AIProviderType, string>> = {
   google: 'GOOGLE_API_KEY',
 };
 
-function createModel(config: AIConfig) {
+export interface AIConfigExtended extends AIConfig {
+  apiKey?: string;
+}
+
+type CloudProvider = 'openai' | 'anthropic' | 'google';
+
+async function resolveApiKey(provider: AIProviderType): Promise<string | null> {
+  if (!['openai', 'anthropic', 'google'].includes(provider)) {
+    return null;
+  }
+
+  const cloudProvider = provider as CloudProvider;
+
+  // Priority 1: Environment variable (most secure - never stored)
+  const envKey = API_KEY_ENV_VARS[cloudProvider];
+  if (envKey && process.env[envKey]) {
+    return process.env[envKey] ?? null;
+  }
+
+  // Priority 2: Secure keychain storage
+  const keychainKey = await credentialStore.getApiKey(cloudProvider);
+  if (keychainKey) {
+    return keychainKey;
+  }
+
+  // Priority 3: Config file (deprecated - warn user)
+  const config = configRepository.loadAppConfig();
+  if (config.ai.apiKey && config.ai.provider === cloudProvider) {
+    console.warn(
+      `[Deprecation Warning] Storing API keys in config.json is deprecated. ` +
+        `Use environment variable ${envKey} or the secure keychain instead.`
+    );
+    return config.ai.apiKey;
+  }
+
+  return null;
+}
+
+async function createModel(config: AIConfigExtended) {
   const modelId = config.model || MODEL_DEFAULTS[config.provider];
 
-  // Validate API key for cloud providers
-  const envVar = API_KEY_ENV_VARS[config.provider];
-  if (envVar && !process.env[envVar]) {
+  // Resolve API key from secure storage (priority: env > keychain > config)
+  const apiKey = await resolveApiKey(config.provider);
+
+  const isCloudProvider = ['openai', 'anthropic', 'google'].includes(config.provider);
+  if (isCloudProvider && !apiKey) {
     throw new Error(
-      `Missing ${envVar} environment variable. Set it with: export ${envVar}=your-key`
+      `Missing API Key for ${config.provider}. Set ${API_KEY_ENV_VARS[config.provider]} env var or store securely.`
     );
   }
 
   switch (config.provider) {
     case 'openai': {
       const openai = createOpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
+        apiKey: apiKey!,
+        headers: {
+          'OpenAI-Beta': 'prompt-caching=v1',
+        },
       });
       return openai(modelId);
     }
     case 'anthropic': {
       const anthropic = createAnthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY,
+        apiKey: apiKey!,
+        headers: {
+          'anthropic-beta': 'prompt-caching-2024-07-31',
+        },
       });
       return anthropic(modelId);
     }
     case 'google': {
       const google = createGoogleGenerativeAI({
-        apiKey: process.env.GOOGLE_API_KEY,
+        apiKey: apiKey!,
       });
       return google(modelId);
     }
@@ -58,7 +105,7 @@ function createModel(config: AIConfig) {
       }
       const ollama = createOpenAI({
         baseURL: baseUrl,
-        apiKey: 'ollama', // Ollama doesn't require an API key
+        apiKey: 'ollama',
       });
       return ollama(modelId);
     }
@@ -70,7 +117,7 @@ function createModel(config: AIConfig) {
       }
       const lmstudio = createOpenAI({
         baseURL: lmBaseUrl,
-        apiKey: 'lmstudio', // LMStudio doesn't require an API key
+        apiKey: 'lmstudio',
       });
       return lmstudio(modelId);
     }
@@ -90,7 +137,7 @@ class UnifiedAIProvider implements AIProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const model = createModel(this.config);
+      const model = await createModel(this.config);
       await generateText({
         model,
         prompt: 'Hi',
@@ -103,7 +150,7 @@ class UnifiedAIProvider implements AIProvider {
   }
 
   async generateText(prompt: string, systemPrompt?: string): Promise<string> {
-    const model = createModel(this.config);
+    const model = await createModel(this.config);
 
     const result = await generateText({
       model,
@@ -125,7 +172,9 @@ export function getAvailableProviders(): AIProviderType[] {
   return ['openai', 'anthropic', 'google', 'ollama', 'lmstudio'];
 }
 
-export async function testProvider(provider: AIProvider): Promise<{ success: boolean; error?: string }> {
+export async function testProvider(
+  provider: AIProvider
+): Promise<{ success: boolean; error?: string }> {
   try {
     const available = await provider.isAvailable();
     if (!available) {

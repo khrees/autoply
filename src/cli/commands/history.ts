@@ -118,7 +118,9 @@ historyCommand
 
     if (confirmed) {
       for (const app of applications) {
-        applicationRepository.delete(app.id!);
+        if (app.id) {
+          applicationRepository.delete(app.id);
+        }
       }
       logger.success(`Cleared ${applications.length} application(s).`);
     } else {

@@ -1,87 +1,214 @@
-# Autoply - Automated Job Application CLI
+# Autoply - Open Source Job Application Automation
+
+> **The privacy-first, open-source alternative to Simplify.jobs.** Take control of your job search with AI-powered autofill, resume tailoring, and application tracking - using your own API keys or local models.
+
+---
 
 ## Overview
 
-Autoply is a CLI tool that automates job applications across major job platforms. It uses AI to generate tailored CVs and cover letters based on user profile data, then auto-fills and submits applications.
+Autoply is a CLI tool and Chrome extension that automates job applications across major ATS platforms. Unlike Simplify.jobs (proprietary, cloud-dependent), Autoply is:
+
+- **Open Source** (MIT License)
+- **Privacy-Focused** (data stays local)
+- **BYOK** (Bring Your Own Key)
+- **Local AI** (Ollama, LM Studio support)
+- **Self-Hostable** (full control)
+
+### Comparison: Autoply vs Simplify.jobs
+
+| Feature | Simplify.jobs | Autoply |
+|---------|---------------|---------|
+| License | Proprietary | MIT (open source) |
+| AI | Cloud (built-in) | BYOK + Local ✅ |
+| Privacy | Data on their servers | Data stays local ✅ |
+| Deployment | SaaS only | Self-host option ✅ |
+| Extension | Chrome, Firefox | Chrome ✅ / Firefox ✅ |
+| Autofill | ✅ | ✅ (AI-powered) |
+| Resume Builder | ✅ AI-powered | ✅ AI-powered |
+| Cover Letters | ❌ | ✅ AI-powered |
+| Job Tracker | ✅ | ✅ |
+| Bulk Mode | ❌ | ✅ (queue + rate limiting) |
+| Profile in Extension | ❌ | ✅ (standalone) |
+| Resume Import | ❌ | ✅ (AI extraction) |
+| Job Recommendations | ✅ | 📋 Backlog |
+| API Access | ❌ | ✅ |
+| Platforms | 1000+ | 11 supported |
+
+---
 
 ## Supported Job Platforms
 
-- **Greenhouse** - `boards.greenhouse.io/*`
-- **LinkedIn** - `linkedin.com/jobs/*`
-- **Lever** - `jobs.lever.co/*`
-- **Jobvite** - `jobs.jobvite.com/*`
-- **SmartRecruiters** - `jobs.smartrecruiters.com/*`
-- **Pinpoint** - `*.pinpointhq.com/*`
-- **Teamtailor** - `*.teamtailor.com/*`
+| Platform | Status | URL Pattern |
+|----------|--------|-------------|
+| Greenhouse | ✅ Complete | `boards.greenhouse.io/*` |
+| LinkedIn | ✅ Complete | `linkedin.com/jobs/*` |
+| Lever | ✅ Complete | `jobs.lever.co/*` |
+| Workday | ✅ Complete | `*.myworkdayjobs.com/*` |
+| SmartRecruiters | ✅ Complete | `jobs.smartrecruiters.com/*` |
+| Ashby | ✅ Complete | `jobs.ashbyhq.com/*` |
+| BambooHR | ✅ Complete | `*.bamboohr.com/*` |
+| Teamtailor | ✅ Complete | `*.teamtailor.com/*` |
+| Pinpoint | ✅ Complete | `*.pinpointhq.com/*` |
+| Jobvite | ✅ Complete | `jobs.jobvite.com/*` |
+| Generic | ✅ Complete | Fallback for unknown ATS |
+
+---
 
 ## Core Features
 
-### 1. URL Processing
-- Accept single or multiple job URLs via CLI arguments
-- Validate URLs against supported platforms
-- Queue multiple applications for batch processing
-- Support reading URLs from a file (`--file urls.txt`)
+### 1. Universal Autofill
 
-### 2. Profile Management (Local DB)
-Store user data in SQLite database (`~/.autoply/autoply.db`):
+**Description**: Fill job application forms instantly with profile data across all supported ATS platforms.
 
+**User Flow**:
+1. User opens job application page
+2. Clicks "Fill Application" in extension sidebar (or CLI)
+3. AI analyzes form fields and job context
+4. Profile data intelligently mapped to form fields
+5. Fields auto-filled; user reviews and submits
+
+**AI-Powered Field Classification**:
+- Uses AI models to understand form context
+- Maps fields to profile data with confidence scores
+- Skips legal/privacy fields (D&I questions)
+- Provides smart defaults for ambiguous fields
+
+**Edge Cases**:
+- Required fields AI can't determine → Interactive prompt
+- reCAPTCHA → Best-effort (checkbox only)
+- Email verification → Pause for user input
+
+### 2. AI-Powered Resume Tailoring
+
+**Description**: Generate ATS-optimized resumes tailored to each job posting.
+
+**Features**:
+- [x] Extract requirements/qualifications from job description
+- [x] Rewrite bullets to highlight relevant experience
+- [x] Optimize job titles to match target role
+- [x] Add missing keywords from job posting
+- [x] Keep existing resume voice/style if provided
+- [x] Export as Markdown → PDF conversion
+
+### 3. AI Cover Letter Generation
+
+**Description**: Generate personalized cover letters that sound human, not robotic.
+
+**Features**:
+- [x] Reference existing cover letter for voice/style
+- [x] Connect candidate story to job requirements
+- [x] Keep to 3-4 short paragraphs
+- [x] Avoid corporate buzzwords
+- [x] Tailor to specific company/role
+
+### 4. Job Application Tracker
+
+**Description**: SQLite database tracks all applications with status, time saved, and diagnostics.
+
+**Data Model**:
 ```
-profiles
-├── id (primary key)
-├── name
-├── email
-├── phone
-├── location
-├── linkedin_url
-├── github_url
-├── portfolio_url
-├── base_resume (text/markdown)
-├── base_cover_letter (text/markdown)
-├── preferences (JSON)
-│   ├── remote_only: boolean
-│   ├── min_salary: number
-│   ├── preferred_locations: string[]
-│   ├── excluded_companies: string[]
-│   └── job_types: string[] (full-time, contract, etc.)
-├── skills (JSON array)
-├── experience (JSON array of work history)
-├── education (JSON array)
-└── created_at / updated_at
+Application {
+  id: number
+  profile_id: number
+  url: string
+  platform: enum
+  company: string
+  job_title: string
+  status: 'pending' | 'filled' | 'submitted' | 'failed'
+  generated_resume?: string
+  generated_cover_letter?: string
+  form_data?: JSON
+  error_message?: string
+  time_saved: number (seconds)
+  applied_at?: timestamp
+  created_at: timestamp
+}
 ```
 
-### 3. AI Service (Multi-Provider)
-Abstract AI interface supporting multiple providers:
+**CLI Commands**:
+```bash
+autoply history          # List all applications
+autoply history --status submitted  # Filter by status
+autoply history --company "Acme"  # Filter by company
+```
 
-#### Supported Providers
+### 5. Browser Extension
+
+**Description**: Browser extension for one-click autofill and job tracking. Works with Chrome and Firefox.
+
+**Components**:
+- [x] `content.ts` - Injected script for form detection and autofill
+- [x] `background.ts` - Service worker for side panel management
+- [x] `background-firefox.ts` - Firefox-compatible background script
+- [x] `sidepanel.tsx` - React UI for extension controls
+
+**Extension Features**:
+- [x] Side panel UI with dashboard
+- [x] One-click "Fill Application"
+- [x] Connection status indicator
+- [x] Application history view
+- [x] Profile tab with inline editing
+- [x] Import profile from resume (AI extraction)
+- [x] Settings/AI provider config
+- [x] Bulk apply queue in extension
+- [x] Firefox support
+- [ ] Job recommendations feed
+
+### 6. Bulk Application Mode
+
+**Description**: Process multiple job URLs from a file with queue persistence and rate limiting.
+
+**CLI**:
+```bash
+autoply apply --file jobs.txt --auto
+```
+
+**Features**:
+- [ ] Resume interrupted bulk applications
+- [ ] Configurable delay between applications
+- [ ] Progress indicator
+- [ ] Queue persistence (survive restarts)
+- [ ] Deduplication (skip already-applied)
+
+---
+
+## AI Provider Configuration
+
+### Supported Providers
+
 | Provider | Type | Configuration |
 |----------|------|---------------|
 | OpenAI | Cloud | `OPENAI_API_KEY` |
 | Anthropic | Cloud | `ANTHROPIC_API_KEY` |
+| Google | Cloud | `GOOGLE_API_KEY` |
 | Ollama | Local | `OLLAMA_BASE_URL` (default: `http://localhost:11434`) |
 | LMStudio | Local | `LMSTUDIO_BASE_URL` (default: `http://localhost:1234`) |
 
-#### AI Capabilities
-- **Resume Tailoring**: Rewrite resume to match job requirements
-- **Cover Letter Generation**: Create personalized cover letters
-- **Form Field Mapping**: Intelligently map profile data to form fields
-- **Question Answering**: Generate responses to custom application questions
+### Model Recommendations
 
-### 4. Job Scraping
-For each platform, extract:
-- Job title
-- Company name
-- Job description
-- Required qualifications
-- Application form fields
-- Custom questions
+| Use Case | Recommended Model | Notes |
+|----------|-------------------|-------|
+| Resume tailoring | GPT-4o-mini, Claude 3.5 Haiku | Fast, cost-effective |
+| Cover letters | Claude 3.5 Sonnet | Better at creative writing |
+| Form field detection | GPT-4o-mini | Good at structured output |
+| Local (Mac M-series) | llama3.2:3b, mistral-nemo | Good quality/speed balance |
+| Local (with GPU) | llama3.2:70b, mixtral-8x7b | Near cloud quality |
 
-### 5. Application Automation
-- Parse application forms using headless browser (Playwright)
-- Map user profile to form fields
-- Upload generated resume (PDF export)
-- Fill custom questions using AI
-- Support dry-run mode (`--dry-run`)
-- Save application history
+### Configuration
+
+```bash
+# Use OpenAI
+autoply config set ai.provider openai
+autoply config set ai.model gpt-4o-mini
+autoply config set ai.apiKey YOUR_KEY
+
+# Use local Ollama
+autoply config set ai.provider ollama
+autoply config set ai.model llama3.2
+autoply config set ai.baseUrl http://localhost:11434
+```
+
+---
 
 ## CLI Commands
 
@@ -105,91 +232,122 @@ autoply apply <url>
 autoply apply <url1> <url2> <url3>
 autoply apply --file urls.txt
 autoply apply <url> --dry-run
+autoply apply <url> --auto
+
+# Resume interrupted batch
+autoply apply --resume
+
+# Generate documents (without applying)
+autoply generate resume <url> --output resume.pdf
+autoply generate cover-letter <url> --output cover.pdf
 
 # View history
 autoply history
 autoply history --status pending
 autoply history --company "Acme Corp"
 
-# Generate documents (without applying)
-autoply generate resume <url> --output resume.pdf
-autoply generate cover-letter <url> --output cover.pdf
+# API Server (for extension)
+autoply api
 ```
 
-## Configuration
-
-Config stored in `~/.autoply/config.json`:
-
-```json
-{
-  "ai": {
-    "provider": "ollama",
-    "model": "llama3.2",
-    "baseUrl": "http://localhost:11434",
-    "temperature": 0.7
-  },
-  "browser": {
-    "headless": true,
-    "timeout": 30000
-  },
-  "application": {
-    "autoSubmit": false,
-    "saveScreenshots": true,
-    "retryAttempts": 3
-  }
-}
-```
+---
 
 ## Architecture
 
 ```
+┌─────────────────────────────────────────────────────────────┐
+│                      Browser Extension                        │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐       │
+│  │Sidepanel│  │Content  │  │Background│ │  Icons  │       │
+│  │  (UI)   │  │ Script  │  │ Worker  │  │         │       │
+│  └────┬────┘  └────┬────┘  └────┬────┘  └─────────┘       │
+└───────┼────────────┼────────────┼───────────────────────────┘
+        │            │            │
+        └────────────┴────────────┘
+                    │ HTTP
+                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      API Server (Fastify)                     │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │  Routes  │  │  Middle- │  │  CORS    │  │  Auth    │   │
+│  │          │  │  ware    │  │          │  │  (future)│   │
+│  └────┬─────┘  └──────────┘  └──────────┘  └──────────┘   │
+└───────┼─────────────────────────────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Core Application                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │ Scraper  │  │  Form    │  │Document  │  │   AI     │   │
+│  │  Manager │  │  Filler  │  │Generator │  │ Provider │   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
+└───────┼──────────────┼─────────────┼─────────────┼──────────┘
+        │              │             │             │
+        ▼              ▼             ▼             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Data Layer                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │ SQLite   │  │  Config  │  │ Resume   │  │   AI     │   │
+│  │ Database │  │   JSON   │  │  Store   │  │ Cache    │   │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### File Structure
+
+```
 src/
-├── cli/
-│   ├── index.ts          # CLI entry point (Commander.js)
-│   ├── commands/
-│   │   ├── init.ts
-│   │   ├── profile.ts
-│   │   ├── config.ts
-│   │   ├── apply.ts
-│   │   ├── generate.ts
-│   │   └── history.ts
-│   └── prompts/          # Interactive prompts (Inquirer)
-├── core/
-│   ├── application.ts    # Application orchestrator
-│   ├── queue.ts          # Job queue for batch processing
-│   └── document.ts       # PDF generation
-├── ai/
-│   ├── provider.ts       # AI provider interface
-│   ├── providers/
-│   │   ├── openai.ts
-│   │   ├── anthropic.ts
-│   │   ├── ollama.ts
-│   │   └── lmstudio.ts
-│   ├── resume.ts         # Resume tailoring logic
-│   └── cover-letter.ts   # Cover letter generation
-├── scrapers/
+├── cli/                    # CLI entry point
+│   ├── index.ts           # Commander.js setup
+│   ├── commands/          # apply, init, history, etc.
+│   └── prompts/          # Interactive prompts
+├── core/                   # Business logic
+│   ├── application.ts     # Application orchestrator
+│   ├── browser-manager.ts # Playwright/Patchright pool
+│   ├── form-filler.ts     # Form field detection & filling
+│   ├── queue.ts          # Job queue management
+│   └── helpers.ts        # Shared utilities
+├── scrapers/              # Platform-specific scrapers
 │   ├── base.ts           # Base scraper class
-│   ├── greenhouse.ts
-│   ├── linkedin.ts
-│   ├── lever.ts
-│   ├── jobvite.ts
-│   ├── smartrecruiters.ts
-│   ├── pinpoint.ts
-│   └── teamtailor.ts
-├── db/
-│   ├── index.ts          # Database connection
-│   ├── migrations/
-│   └── repositories/
+│   ├── greenhouse.ts     # Greenhouse implementation
+│   ├── linkedin.ts       # LinkedIn Easy Apply
+│   ├── lever.ts          # Lever implementation
+│   └── ...               # Other platforms
+├── ai/                    # AI integrations
+│   ├── provider.ts       # AI provider factory
+│   ├── openai.ts         # OpenAI implementation
+│   ├── anthropic.ts      # Anthropic implementation
+│   ├── google.ts         # Google implementation
+│   ├── ollama.ts         # Ollama implementation
+│   ├── lmstudio.ts       # LM Studio implementation
+│   ├── resume.ts         # Resume generation
+│   ├── cover-letter.ts   # Cover letter generation
+│   ├── job-extractor.ts  # AI job data extraction
+│   └── profile-extractor.ts # Resume → Profile parsing
+├── db/                    # Database layer
+│   ├── index.ts          # SQLite initialization
+│   └── repositories/     # Data access objects
 │       ├── profile.ts
 │       ├── application.ts
 │       └── config.ts
-├── utils/
-│   ├── url-parser.ts     # URL validation & platform detection
-│   ├── pdf.ts            # PDF utilities
-│   └── logger.ts
-└── types/
-    └── index.ts          # TypeScript interfaces
+├── api/                   # REST API server
+│   └── server.ts         # Fastify server
+├── extension/             # Chrome extension
+│   ├── manifest.json     # Extension manifest
+│   ├── sidepanel.html    # Side panel entry
+│   ├── sidepanel.tsx     # Side panel React app
+│   ├── background.ts     # Service worker
+│   ├── content.ts        # Content script
+│   └── index.css         # Styles
+├── utils/                 # Utilities
+│   ├── logger.ts         # Logging
+│   ├── url-parser.ts      # URL validation
+│   └── document-extractor.ts # PDF/MD parsing
+└── types/                 # TypeScript types
+    └── index.ts          # All type definitions
 ```
+
+---
 
 ## Data Flow
 
@@ -225,6 +383,8 @@ src/
    └── Stores generated documents
 ```
 
+---
+
 ## Database Schema
 
 ### profiles
@@ -256,11 +416,12 @@ src/
 | platform | TEXT | Platform name |
 | company | TEXT | Company name |
 | job_title | TEXT | Position title |
-| status | TEXT | pending/submitted/failed |
+| status | TEXT | pending/filled/submitted/failed |
 | generated_resume | TEXT | Tailored resume |
 | generated_cover_letter | TEXT | Generated cover letter |
 | form_data | JSON | Submitted form data |
 | error_message | TEXT | Error if failed |
+| time_saved | INTEGER | Seconds saved |
 | applied_at | DATETIME | Submission time |
 | created_at | DATETIME | Creation timestamp |
 
@@ -270,131 +431,178 @@ src/
 | key | TEXT | Config key (primary) |
 | value | TEXT | Config value (JSON) |
 
-## Testing Strategy
+---
 
-### Unit Tests (Critical Services)
+## API Endpoints
 
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Health check |
+| `/profile` | GET | Get current profile |
+| `/profile` | POST | Update profile |
+| `/config` | GET | Get app config |
+| `/config` | POST | Update config |
+| `/config/test` | POST | Test AI provider |
+| `/applications` | GET | List applications |
+| `/applications/apply` | POST | Submit application |
+| `/jobs/passive-process` | POST | Process job HTML |
+| `/jobs/scrape` | POST | Scrape job page |
+| `/extension/status` | GET | Extension connection status |
+
+---
+
+## Privacy & Security
+
+### Data Storage
+
+| Data | Location | User Control |
+|------|----------|--------------|
+| Profile | `~/.autoply/` | ✅ Full |
+| Applications | SQLite in `~/.autoply/` | ✅ Full |
+| AI API Keys | `config.json` | ✅ Full |
+| Browser Sessions | `~/.autoply/sessions/` | ✅ Full |
+| Generated Docs | `~/.autoply/documents/` | ✅ Full |
+
+### Security Measures
+
+- [x] No third-party data collection
+- [x] API keys stored locally only
+- [x] Browser sessions encrypted at rest (optional)
+- [x] No cloud sync without explicit consent
+- [ ] End-to-end encryption for sync (future)
+- [ ] Secure credential manager integration (future)
+
+---
+
+## Installation & Setup
+
+### Prerequisites
+- Node.js 18+ or Bun 1.0+
+- Playwright (installed automatically)
+
+### Quick Start
+
+```bash
+# Install
+bun install
+
+# Initialize profile
+bun run src/cli/index.ts init
+
+# Start API server (for extension)
+bun run api
+
+# Apply to a job
+bun run src/cli/index.ts apply https://boards.greenhouse.io/acme/jobs/123
+
+# Load extension from dist/extension/
 ```
-tests/
-├── ai/
-│   ├── provider.test.ts      # AI provider interface
-│   ├── ollama.test.ts        # Ollama integration
-│   ├── lmstudio.test.ts      # LMStudio integration
-│   ├── resume.test.ts        # Resume generation
-│   └── cover-letter.test.ts  # Cover letter generation
-├── scrapers/
-│   ├── url-parser.test.ts    # URL validation
-│   ├── greenhouse.test.ts    # Greenhouse scraper
-│   ├── linkedin.test.ts      # LinkedIn scraper
-│   ├── lever.test.ts         # Lever scraper
-│   └── ...
-├── db/
-│   ├── profile.test.ts       # Profile CRUD
-│   └── application.test.ts   # Application history
-├── core/
-│   ├── application.test.ts   # Application flow
-│   └── queue.test.ts         # Batch processing
-└── utils/
-    └── pdf.test.ts           # PDF generation
+
+### Extension Setup
+
+1. Build: `bun run extension:build`
+2. Open Chrome: `chrome://extensions`
+3. Enable "Developer mode"
+4. "Load unpacked" → Select `dist/extension/`
+5. Click Autoply icon in toolbar
+6. Ensure API server is running: `bun run api`
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+bun test
+
+# Watch mode
+bun test --watch
+
+# Specific test
+bun test src/scrapers/base.test.ts
+
+# Type check
+bun run typecheck
+
+# Lint
+bun run lint
 ```
 
-### Test Coverage Requirements
-- AI Provider Interface: 90%+
-- URL Parser: 100%
-- Database Repositories: 90%+
-- Core Application Logic: 85%+
+---
 
-### Integration Tests
-- End-to-end application flow (dry-run mode)
-- AI provider connectivity
-- Database migrations
+## Roadmap
 
-## Dependencies
+### Phase 1: MVP Stabilization (Current)
+- [x] Core autofill for all major ATS platforms
+- [x] AI resume tailoring
+- [x] AI cover letter generation
+- [x] CLI application tracker
+- [x] Extension with autofill
+- [ ] Extension login (standalone, no CLI dependency)
+- [ ] Bug fixes and edge case handling
 
-```json
-{
-  "dependencies": {
-    "commander": "^12.0.0",
-    "inquirer": "^9.0.0",
-    "playwright": "^1.40.0",
-    "better-sqlite3": "^9.0.0",
-    "pdf-lib": "^1.17.0",
-    "marked": "^11.0.0",
-    "puppeteer-html-pdf": "^4.0.0",
-    "zod": "^3.22.0",
-    "chalk": "^5.3.0",
-    "ora": "^8.0.0",
-    "openai": "^4.0.0",
-    "@anthropic-ai/sdk": "^0.10.0"
-  },
-  "devDependencies": {
-    "bun-types": "latest",
-    "typescript": "^5.0.0"
-  }
-}
+### Phase 2: Bulk & Scale
+- [ ] Bulk application mode
+- [ ] Queue persistence
+- [ ] Rate limiting
+- [ ] Deduplication
+- [ ] Progress reporting
+
+### Phase 3: Discovery
+- [ ] Job recommendations engine
+- [ ] LinkedIn job search integration
+- [ ] Custom company list support
+- [ ] Email notifications for new matches
+
+### Phase 4: Polish
+- [ ] Firefox extension
+- [ ] Safari extension
+- [ ] Mobile companion app
+- [ ] Collaborative features (shared team profiles)
+
+---
+
+## Contributing
+
+Autoply is MIT licensed and welcomes contributions.
+
+### Areas Needing Help
+
+1. **More ATS Platforms**: Workday, Taleo, iCIMS, BrassRing integrations
+2. **Firefox Extension**: Port from Chrome
+3. **Better Form Detection**: ML-based field classification
+4. **Resume Parsing**: Improved PDF structure extraction
+5. **Documentation**: User guides, video tutorials
+
+### Development
+
+```bash
+# Install dependencies
+bun install
+
+# Run in development mode
+bun run dev
+
+# Run tests
+bun test
+
+# Type check
+bun run typecheck
+
+# Lint
+bun run lint
 ```
 
-## Security Considerations
+---
 
-1. **Credential Storage**: Never store passwords; use session tokens where possible
-2. **API Keys**: Store in environment variables, not config files
-3. **Data Privacy**: All data stored locally; no external telemetry
-4. **Browser Sessions**: Clear cookies/storage after each application
-5. **Rate Limiting**: Respect platform rate limits to avoid bans
+## License
 
-## Error Handling
+MIT License - see [LICENSE](LICENSE)
 
-| Error Type | Handling |
-|------------|----------|
-| Invalid URL | Show error, suggest correct format |
-| Unsupported Platform | List supported platforms |
-| Scraping Failed | Retry with exponential backoff |
-| AI Generation Failed | Fall back to base resume/cover letter |
-| Form Submission Failed | Save progress, allow retry |
-| Network Error | Queue for later retry |
+---
+<!-- 
+## Resources
 
-## Future Enhancements
-
-1. **Browser Extension**: Quick-apply from job listing pages
-2. **Application Tracking**: Kanban-style job application tracker
-3. **Resume Versioning**: Track multiple resume versions
-4. **Analytics Dashboard**: Application success rates
-5. **Email Integration**: Track responses from companies
-6. **More Platforms**: Indeed, Workday, iCIMS, etc.
-
-## Development Milestones
-
-### Phase 1: Foundation
-- [ ] Project setup & CLI scaffolding
-- [ ] Database schema & migrations
-- [ ] Profile management commands
-- [ ] Configuration system
-
-### Phase 2: AI Integration
-- [ ] AI provider interface
-- [ ] Ollama provider implementation
-- [ ] LMStudio provider implementation
-- [ ] OpenAI/Anthropic providers
-- [ ] Resume tailoring
-- [ ] Cover letter generation
-
-### Phase 3: Job Scrapers
-- [ ] Base scraper class
-- [ ] Greenhouse scraper
-- [ ] Lever scraper
-- [ ] LinkedIn scraper
-- [ ] Additional platform scrapers
-
-### Phase 4: Application Engine
-- [ ] Form detection & mapping
-- [ ] Document upload handling
-- [ ] Custom question answering
-- [ ] Submission logic
-- [ ] History tracking
-
-### Phase 5: Polish
-- [ ] Comprehensive error handling
-- [ ] Progress indicators
-- [ ] Dry-run mode
-- [ ] Batch processing
-- [ ] Documentation
+- [Documentation](https://docs.autoply.dev) (planned)
+- [Discord Community](https://discord.gg/autoply) (planned)
+- [Issue Tracker](https://github.com/autoply/autoply/issues) -->

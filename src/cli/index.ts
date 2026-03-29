@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { initCommand } from './commands/init';
 import { profileCommand } from './commands/profile';
-import { configCommand } from './commands/config';
+import { configCommand, credentialsCommand } from './commands/config';
 import { applyCommand } from './commands/apply';
 import { generateCommand } from './commands/generate';
 import { historyCommand } from './commands/history';
@@ -32,6 +32,7 @@ program.hook('preAction', (thisCommand) => {
 program.addCommand(initCommand);
 program.addCommand(profileCommand);
 program.addCommand(configCommand);
+program.addCommand(credentialsCommand);
 program.addCommand(applyCommand);
 program.addCommand(generateCommand);
 program.addCommand(historyCommand);

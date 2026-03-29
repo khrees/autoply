@@ -79,8 +79,10 @@ profileCommand
 
     try {
       const updates = await promptForProfileUpdate(profile);
-      profileRepository.update(profile.id!, updates);
-      logger.success('Profile updated successfully!');
+      if (profile.id !== undefined) {
+        profileRepository.update(profile.id, updates);
+        logger.success('Profile updated successfully!');
+      }
     } catch (error) {
       if (error instanceof Error && error.message.includes('ExitPromptError')) {
         logger.info('Edit cancelled.');
@@ -107,7 +109,9 @@ profileCommand
     });
 
     if (confirmed) {
-      profileRepository.delete(profile.id!);
+      if (profile.id !== undefined) {
+        profileRepository.delete(profile.id);
+      }
       logger.success('Profile deleted.');
     } else {
       logger.info('Deletion cancelled.');

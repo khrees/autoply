@@ -38,7 +38,7 @@ generateCommand
 
     const parsed = parseJobUrl(url);
     if (!parsed.isValid) {
-      logger.error(parsed.error!);
+      logger.error(parsed.error || 'Invalid URL');
       logger.info('Supported platforms: ' + getSupportedPlatforms().join(', '));
       process.exit(1);
     }
@@ -78,7 +78,7 @@ async function generateDocument(
 
   const parsed = parseJobUrl(url);
   if (!parsed.isValid) {
-    logger.error(parsed.error!);
+    logger.error(parsed.error || 'Invalid URL');
     logger.info('Supported platforms: ' + getSupportedPlatforms().join(', '));
     process.exit(1);
   }

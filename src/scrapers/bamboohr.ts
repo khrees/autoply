@@ -508,8 +508,9 @@ ${pageText.slice(0, 6000)}`,
         if (match?.value) {
           await countrySelect.selectOption(match.value);
           await this.humanDelay(true);
-          // Wait for State dropdown to potentially update
-          await this.page!.waitForTimeout(1000);
+          if (this.page) {
+            await this.page.waitForTimeout(1000);
+          }
         }
       } catch {
         // Country might be a custom Fabric/React dropdown instead of native select

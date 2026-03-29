@@ -144,7 +144,7 @@ async function promptDocumentViaFile(label: string): Promise<string> {
       // Clean up path (remove surrounding quotes from drag-and-drop)
       const cleaned = value.trim().replace(/^['"]|['"]$/g, '');
       const validation = validateDocumentPath(cleaned);
-      if (!validation.valid) return validation.error!;
+      if (!validation.valid) return validation.error || 'Invalid file';
       return true;
     },
   });
@@ -166,8 +166,8 @@ async function promptDocumentViaFile(label: string): Promise<string> {
     return promptDocumentViaPaste(label);
   }
 
-  console.log(`\n  ✓ Extracted ${result.content!.length} characters from ${result.fileType} file.\n`);
-  return result.content!;
+  console.log(`\n  ✓ Extracted ${result.content ? result.content.length : 0} characters from ${result.fileType} file.\n`);
+  return result.content || '';
 }
 
 async function promptDocumentViaPaste(label: string): Promise<string> {

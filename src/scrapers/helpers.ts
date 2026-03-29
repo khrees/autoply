@@ -1,6 +1,16 @@
 import type { Page, ElementHandle } from 'playwright';
 import { join } from 'path';
+import { mkdirSync, existsSync } from 'fs';
 import type { CustomQuestion } from '../types';
+
+/**
+ * Ensures a directory exists, creating it if necessary.
+ */
+function ensureDir(dir: string): void {
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+}
 
 export function normalizeText(text: string | null | undefined): string {
   if (!text) return '';
@@ -21,9 +31,11 @@ export function normalizeLabel(text: string | null | undefined): string {
 export function countryFromLocation(location: string): string {
   if (!location) return 'United States';
   const loc = location.toLowerCase();
-  
-  if (loc.includes('united states') || loc.includes('us') || loc.includes('usa')) return 'United States';
-  if (loc.includes('united kingdom') || loc.includes('uk') || loc.includes('great britain')) return 'United Kingdom';
+
+  if (loc.includes('united states') || loc.includes('us') || loc.includes('usa'))
+    return 'United States';
+  if (loc.includes('united kingdom') || loc.includes('uk') || loc.includes('great britain'))
+    return 'United Kingdom';
   if (loc.includes('canada')) return 'Canada';
   if (loc.includes('australia')) return 'Australia';
   if (loc.includes('india')) return 'India';
@@ -36,13 +48,13 @@ export function countryFromLocation(location: string): string {
   if (loc.includes('netherlands') || loc.includes('holland')) return 'Netherlands';
   if (loc.includes('sweden') || loc.includes('sverige')) return 'Sweden';
   if (loc.includes('nigeria')) return 'Nigeria';
-  
+
   // Default fallback if a comma is present (assumes "City, Country" format tentatively)
   const parts = location.split(',');
   if (parts.length > 1) {
     return parts[parts.length - 1].trim();
   }
-  
+
   return location;
 }
 
@@ -50,8 +62,8 @@ export function countryFromLocation(location: string): string {
  * Attempts to take a screenshot if configured and returns the path.
  */
 export async function takeScreenshotIfEnabled(
-  page: Page, 
-  prefix: string, 
+  page: Page,
+  prefix: string,
   configResolver: () => { application: { saveScreenshots: boolean } },
   dirResolver: () => string
 ): Promise<string | undefined> {
@@ -59,7 +71,9 @@ export async function takeScreenshotIfEnabled(
   if (!config.application.saveScreenshots) return undefined;
 
   try {
-    const screenshotPath = join(dirResolver(), 'screenshots', `${prefix}_${Date.now()}.png`);
+    const screenshotsDir = join(dirResolver(), 'screenshots');
+    ensureDir(screenshotsDir);
+    const screenshotPath = join(screenshotsDir, `${prefix}_${Date.now()}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: true });
     return screenshotPath;
   } catch {
@@ -159,8 +173,8 @@ export async function clickMatchingOption(
  * Generic extraction of custom questions from common DOM containers.
  */
 export async function extractCustomQuestionsFromContainers(
-  page: Page, 
-  containers: ElementHandle[], 
+  page: Page,
+  containers: ElementHandle[],
   platformPrefix: string,
   skipLabels: string[] = ['name', 'email', 'phone', 'resume', 'cv', 'cover letter']
 ): Promise<CustomQuestion[]> {
@@ -168,15 +182,20 @@ export async function extractCustomQuestionsFromContainers(
 
   for (let i = 0; i < containers.length; i++) {
     const container = containers[i];
-    
-    const questionText = await container.$eval(
-      'label, .question-text, .question-label, [class*="label"], legend',
-      (el) => el.textContent?.trim() ?? ''
-    ).catch(() => '');
+
+    const questionText = await container
+      .$eval(
+        'label, .question-text, .question-label, [class*="label"], legend',
+        (el) => el.textContent?.trim() ?? ''
+      )
+      .catch(() => '');
 
     if (!questionText) continue;
 
-    if (skipLabels.length > 0 && skipLabels.some((skip) => questionText.toLowerCase().includes(skip))) {
+    if (
+      skipLabels.length > 0 &&
+      skipLabels.some((skip) => questionText.toLowerCase().includes(skip))
+    ) {
       continue;
     }
 
@@ -192,29 +211,39 @@ export async function extractCustomQuestionsFromContainers(
       type = 'textarea';
     } else if (hasSelect) {
       type = 'select';
-      options = await container.$$eval('select option', (opts) =>
-        opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
-      ).catch(() => []);
+      options = await container
+        .$$eval('select option', (opts) =>
+          opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
+        )
+        .catch(() => []);
     } else if (hasRadio) {
       type = 'radio';
-      options = await container.$$eval('input[type="radio"]', (radios) => 
-        radios.map((r) => r.getAttribute('value') ?? '').filter(Boolean)
-      ).catch(() => []);
-      
+      options = await container
+        .$$eval('input[type="radio"]', (radios) =>
+          radios.map((r) => r.getAttribute('value') ?? '').filter(Boolean)
+        )
+        .catch(() => []);
+
       if (!options || options.length === 0) {
         // Try getting labels associated with radios if value attribute is missing or empty
-        options = await container.$$eval('input[type="radio"]', (radios) => {
-           return radios.map(r => {
-             const lbl = r.closest('label') || document.querySelector(`label[for="${r.id}"]`);
-             return lbl ? lbl.textContent?.trim() ?? '' : (r as HTMLInputElement).value;
-           }).filter(Boolean);
-        }).catch(() => []);
+        options = await container
+          .$$eval('input[type="radio"]', (radios) => {
+            return radios
+              .map((r) => {
+                const lbl = r.closest('label') || document.querySelector(`label[for="${r.id}"]`);
+                return lbl ? (lbl.textContent?.trim() ?? '') : (r as HTMLInputElement).value;
+              })
+              .filter(Boolean);
+          })
+          .catch(() => []);
       }
     } else if (hasCheckbox) {
       type = 'checkbox';
-      options = await container.$$eval('input[type="checkbox"]', (check) => 
-        check.map((c) => c.getAttribute('value') ?? '').filter(Boolean)
-      ).catch(() => []);
+      options = await container
+        .$$eval('input[type="checkbox"]', (check) =>
+          check.map((c) => c.getAttribute('value') ?? '').filter(Boolean)
+        )
+        .catch(() => []);
     }
 
     const required = (await container.$('[required], [aria-required="true"]')) !== null;

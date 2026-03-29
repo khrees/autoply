@@ -1104,15 +1104,17 @@ export class GreenhouseScraper extends BaseScraper {
                 }
                 
                 // Wait for suggestions to appear
-                await this.page!.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"], .select__option', { timeout: 4000 });
-                
-                const firstOption = await this.page!.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child, .select__option:first-child');
-                
-                if (firstOption) {
-                  await firstOption.click();
-                  await this.humanDelay(true);
-                } else {
-                  await input.press('Enter');
+                if (this.page) {
+                  await this.page.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"], .select__option', { timeout: 4000 });
+                  
+                  const firstOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child, .select__option:first-child');
+                  
+                  if (firstOption) {
+                    await firstOption.click();
+                    await this.humanDelay(true);
+                  } else {
+                    await input.press('Enter');
+                  }
                 }
               } catch {
                 await input.press('Tab');

@@ -1,10 +1,20 @@
 import type { Page, Frame } from 'playwright';
-import type { Profile, FormField, CustomQuestion, JobData } from '../types';
+import type { Profile, FormField, CustomQuestion, JobData, AIProvider } from '../types';
 import { join } from 'path';
 import { getAutoplyDir } from '../db';
 import { configRepository } from '../db/repositories/config';
 import { answerApplicationQuestion } from '../ai/cover-letter';
 import { createAIProvider } from '../ai/provider';
+import { calculateYearsExperienceString, calculateYearsExperience } from '../utils/experience';
+import { classifyFieldsWithAI, getProfileValueForKey } from '../ai/form-classifier';
+import { findInputBySemanticSearch, buildSemanticSelector } from './semantic-selectors';
+import {
+  handleReactSelect,
+  handleChakraSelect,
+  handleMaterialUISelect,
+  handleFileUpload,
+  waitForFileUploaded,
+} from './platform-handlers';
 
 // Field matching patterns for common form fields
 const FIELD_PATTERNS = {
@@ -14,7 +24,8 @@ const FIELD_PATTERNS = {
   fullName: /full[\s_-]?name|\bname\b|your[\s_-]?name|candidate[\s_-]?name/i,
   email: /e?[\s_-]?mail|email[\s_-]?address/i,
   phone: /phone|tel|mobile|cell|contact[\s_-]?number/i,
-  location: /location|city|address|where.*based|current[\s_-]?location|office|work[\s_-]?out[\s_-]?of/i,
+  location:
+    /location|city|address|where.*based|current[\s_-]?location|office|work[\s_-]?out[\s_-]?of/i,
 
   // URLs
   linkedin: /linkedin|li[\s_-]?url|li[\s_-]?profile/i,
@@ -26,11 +37,13 @@ const FIELD_PATTERNS = {
   coverLetter: /cover[\s_-]?letter|covering[\s_-]?letter|motivation[\s_-]?letter/i,
 
   // Work authorization
-  workAuthorization: /work[\s_-]?auth|authorized[\s_-]?to[\s_-]?work|legally[\s_-]?authorized|eligib|visa[\s_-]?status|right[\s_-]?to[\s_-]?work/i,
+  workAuthorization:
+    /work[\s_-]?auth|authorized[\s_-]?to[\s_-]?work|legally[\s_-]?authorized|eligib|visa[\s_-]?status|right[\s_-]?to[\s_-]?work/i,
   sponsorship: /sponsor|visa[\s_-]?sponsor|immigration[\s_-]?sponsor|require.*sponsor/i,
 
   // Experience
-  yearsExperience: /years?[\s_-]?(?:of[\s_-]?)?experience|experience[\s_-]?years|how[\s_-]?many[\s_-]?years/i,
+  yearsExperience:
+    /years?[\s_-]?(?:of[\s_-]?)?experience|experience[\s_-]?years|how[\s_-]?many[\s_-]?years/i,
   currentCompany: /current[\s_-]?company|employer|where.*work/i,
   currentTitle: /current[\s_-]?title|current[\s_-]?role|job[\s_-]?title/i,
 
@@ -49,10 +62,12 @@ const FIELD_PATTERNS = {
   disability: /disability|disabled/i,
 
   // Country / Nationality
-  country: /\bcountry\b|country[\s_-]?of[\s_-]?residence|passport[\s_-]?country|nationality|citizenship/i,
+  country:
+    /\bcountry\b|country[\s_-]?of[\s_-]?residence|passport[\s_-]?country|nationality|citizenship/i,
 
   // Age verification
-  ageVerification: /over[\s_-]?(?:the[\s_-]?)?(?:age[\s_-]?(?:of[\s_-]?)?)?18|legal[\s_-]?age|are[\s_-]?you[\s_-]?(?:at[\s_-]?least[\s_-]?)?18/i,
+  ageVerification:
+    /over[\s_-]?(?:the[\s_-]?)?(?:age[\s_-]?(?:of[\s_-]?)?)?18|legal[\s_-]?age|are[\s_-]?you[\s_-]?(?:at[\s_-]?least[\s_-]?)?18/i,
 
   // Other
   referral: /referral|how.*hear|source|where.*find|referred[\s_-]?by/i,
@@ -143,23 +158,6 @@ function getFieldContext(field: FieldLike | string): string {
   return `${field.label || ''} ${field.name || ''}`.toLowerCase();
 }
 
-function calculateYearsExperienceForProfile(profile: Profile): string {
-  if (profile.experience.length === 0) {
-    return '0';
-  }
-
-  let totalMonths = 0;
-  for (const exp of profile.experience) {
-    const start = new Date(exp.start_date);
-    const end = exp.end_date ? new Date(exp.end_date) : new Date();
-    const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-    totalMonths += Math.max(0, months);
-  }
-
-  const years = Math.round(totalMonths / 12);
-  return years.toString();
-}
-
 function getProfileText(profile: Profile): string {
   const experienceText = profile.experience
     .map((exp) => [exp.title, exp.description, ...(exp.highlights || [])].join(' '))
@@ -199,11 +197,7 @@ export function shouldAllowAIAnswer(field: FieldLike | string): boolean {
   const label = typeof field === 'string' ? field : field.label || field.name || '';
   if (!label) return false;
 
-  return !(
-    isIdentityField(field) ||
-    isComplianceField(field) ||
-    isSensitiveQuestionLabel(label)
-  );
+  return !(isIdentityField(field) || isComplianceField(field) || isSensitiveQuestionLabel(label));
 }
 
 export function getIdentityAssertionKey(field: FieldLike | string): IdentityAssertionKey | null {
@@ -219,7 +213,10 @@ export function getIdentityAssertionKey(field: FieldLike | string): IdentityAsse
   return null;
 }
 
-export function getExpectedIdentityValue(profile: Profile, key: IdentityAssertionKey): string | null {
+export function getExpectedIdentityValue(
+  profile: Profile,
+  key: IdentityAssertionKey
+): string | null {
   switch (key) {
     case 'firstName':
       return profile.name.split(' ')[0] || null;
@@ -286,7 +283,8 @@ export function getDeterministicFieldValue(
   allowAssumptions = true
 ): string | null {
   const combined = getFieldContext(field);
-  const isChoiceField = field.type === 'radio' || field.type === 'select' || field.type === 'checkbox';
+  const isChoiceField =
+    field.type === 'radio' || field.type === 'select' || field.type === 'checkbox';
 
   if (FIELD_PATTERNS.firstName.test(combined)) {
     return profile.name.split(' ')[0] || null;
@@ -326,14 +324,17 @@ export function getDeterministicFieldValue(
   }
 
   if (FIELD_PATTERNS.yearsExperience.test(combined)) {
-    return calculateYearsExperienceForProfile(profile);
+    return calculateYearsExperienceString(profile.experience);
   }
 
   if (isChoiceField) {
-    const yearsThresholdMatch = combined.match(/(\d+)\s*(?:\+|plus|or\s+more|or\s+greater|or\s+above)/i);
+    const yearsThresholdMatch = combined.match(
+      /(\d+)\s*(?:\+|plus|or\s+more|or\s+greater|or\s+above)/i
+    );
     if (yearsThresholdMatch) {
       const threshold = Number.parseInt(yearsThresholdMatch[1], 10);
-      const years = Number.parseInt(calculateYearsExperienceForProfile(profile), 10);
+      const yearsExp = calculateYearsExperience(profile.experience);
+      const years = yearsExp;
       if (!Number.isNaN(threshold) && !Number.isNaN(years)) {
         return years >= threshold ? 'Yes' : 'No';
       }
@@ -345,7 +346,9 @@ export function getDeterministicFieldValue(
     /front[\s-]?end.*back[\s-]?end|back[\s-]?end.*front[\s-]?end|full[\s-]?stack/i.test(combined)
   ) {
     const profileText = getProfileText(profile);
-    const hasFrontend = /(frontend|front-end|react|vue|angular|svelte|html|css)\b/i.test(profileText);
+    const hasFrontend = /(frontend|front-end|react|vue|angular|svelte|html|css)\b/i.test(
+      profileText
+    );
     const hasBackend =
       /(backend|back-end|api|server|node|golang|go|python|java|c#|ruby|postgres|mysql|redis)\b/i.test(
         profileText
@@ -355,9 +358,10 @@ export function getDeterministicFieldValue(
 
   if (isChoiceField && /(0[\s-]?1|zero[\s-]?to[\s-]?one|from\s*0\s*to\s*1)/i.test(combined)) {
     const profileText = getProfileText(profile);
-    const hasLeadership = /(led|lead|owned|owner|launched|built|end-to-end|end to end|from scratch|0-1)/i.test(
-      profileText
-    );
+    const hasLeadership =
+      /(led|lead|owned|owner|launched|built|end-to-end|end to end|from scratch|0-1)/i.test(
+        profileText
+      );
     return hasLeadership ? 'Yes' : 'No';
   }
 
@@ -407,6 +411,43 @@ export function normalizeLocationInput(location: string): string {
   return cleaned;
 }
 
+export interface AIFieldClassification {
+  field: FormField;
+  value: string | null;
+  confidence: number;
+  reasoning: string;
+}
+
+async function classifyFieldsWithAIOnce(
+  provider: AIProvider,
+  fields: FormField[],
+  jobContext?: string
+): Promise<Map<string, AIFieldClassification>> {
+  const result = new Map<string, AIFieldClassification>();
+
+  try {
+    const classifications = await classifyFieldsWithAI(provider, fields, jobContext);
+
+    for (const classification of classifications) {
+      const profileValue = getProfileValueForKey(
+        classification.field as unknown as Record<string, unknown>,
+        classification.matchedProfileKey
+      );
+
+      result.set(classification.field.name || classification.field.label || '', {
+        field: classification.field,
+        value: profileValue || null,
+        confidence: classification.confidence,
+        reasoning: classification.reasoning,
+      });
+    }
+  } catch {
+    // AI classification failed, return empty map
+  }
+
+  return result;
+}
+
 export class FormFiller {
   private page: Page;
   private root: Page | Frame;
@@ -436,6 +477,8 @@ export class FormFiller {
       errors: [],
     };
 
+    const aiClassifications = await this.getAIFieldClassifications(formFields);
+
     for (const field of formFields) {
       try {
         const fieldLabel = field.label || field.name;
@@ -444,30 +487,44 @@ export class FormFiller {
           continue;
         }
 
-        const filled = await this.fillField(field, field.required);
+        const aiClassification = aiClassifications.get(fieldLabel || '');
+
+        let filled = await this.fillField(field, field.required);
         if (filled) {
           if (fieldLabel) result.filledFields.push(fieldLabel);
         } else if (field.required) {
           let aiAnswerUsed = false;
 
-          // Check cache first
+          if (aiClassification?.value) {
+            field.value = aiClassification.value;
+            filled = await this.fillFieldWithRetry(field, field.required, 2);
+            if (filled) {
+              aiAnswerUsed = true;
+              if (fieldLabel) result.filledFields.push(fieldLabel);
+              continue;
+            }
+          }
+
           const cached = fieldLabel ? this.getCachedAnswer(fieldLabel) : null;
           if (cached) {
             field.value = cached;
-            const retryFilled = await this.fillField(field, field.required);
+            const retryFilled = await this.fillFieldWithRetry(field, field.required, 2);
             if (retryFilled) {
               result.filledFields.push(fieldLabel);
               continue;
             }
           }
 
-          // For fields that are safe to answer, try AI as a fallback
-          if ((field.type === 'text' || field.type === 'textarea') && fieldLabel && shouldAllowAIAnswer(field)) {
+          if (
+            (field.type === 'text' || field.type === 'textarea') &&
+            fieldLabel &&
+            shouldAllowAIAnswer(field)
+          ) {
             const aiAnswer = await this.tryAIAnswerForField(fieldLabel);
             if (aiAnswer) {
               aiAnswerUsed = true;
               field.value = aiAnswer;
-              const retryFilled = await this.fillField(field, field.required);
+              const retryFilled = await this.fillFieldWithRetry(field, field.required, 2);
               if (retryFilled) {
                 result.filledFields.push(fieldLabel);
                 continue;
@@ -475,7 +532,6 @@ export class FormFiller {
             }
           }
 
-          // For select/radio/checkbox fields with options, try AI to choose an option
           if (
             (field.type === 'select' || field.type === 'radio' || field.type === 'checkbox') &&
             fieldLabel &&
@@ -485,7 +541,7 @@ export class FormFiller {
             if (aiAnswer) {
               aiAnswerUsed = true;
               field.value = aiAnswer;
-              const retryFilled = await this.fillField(field, field.required);
+              const retryFilled = await this.fillFieldWithRetry(field, field.required, 2);
               if (retryFilled) {
                 result.filledFields.push(fieldLabel);
                 continue;
@@ -493,12 +549,11 @@ export class FormFiller {
             }
           }
 
-          // Fall back to interactive prompt for human-only fields
           if (this.isInteractive() && !aiAnswerUsed) {
             const userValue = await this.promptForField(field);
             if (userValue) {
               field.value = userValue;
-              const retryFilled = await this.fillField(field, field.required);
+              const retryFilled = await this.fillFieldWithRetry(field, field.required, 2);
               if (retryFilled) {
                 result.filledFields.push(fieldLabel);
               } else {
@@ -516,7 +571,7 @@ export class FormFiller {
             const neutral = this.getNeutralAnswerForField(field);
             if (neutral) {
               field.value = neutral;
-              const retryFilled = await this.fillField(field, false);
+              const retryFilled = await this.fillFieldWithRetry(field, false, 1);
               if (retryFilled) {
                 result.filledFields.push(fieldLabel);
                 optionalFilled = true;
@@ -572,12 +627,16 @@ export class FormFiller {
             }
           }
 
-          if (!question.answer && question.required && shouldAllowAIAnswer({
-            label: question.question,
-            name: question.id,
-            type: question.type,
-            options: question.options,
-          })) {
+          if (
+            !question.answer &&
+            question.required &&
+            shouldAllowAIAnswer({
+              label: question.question,
+              name: question.id,
+              type: question.type,
+              options: question.options,
+            })
+          ) {
             // AI-answerable required question — get AI answer
             const aiAnswer = await this.tryAIAnswer(question);
             if (aiAnswer) {
@@ -634,19 +693,19 @@ export class FormFiller {
       case 'text':
       case 'email':
       case 'tel':
-        return this.fillTextInput(selector, value!, field);
+        return value ? this.fillTextInput(selector, value, field) : false;
 
       case 'textarea':
-        return this.fillTextarea(selector, value!);
+        return value ? this.fillTextarea(selector, value) : false;
 
       case 'select':
-        return this.fillSelect(selector, value!, field);
+        return value ? this.fillSelect(selector, value, field) : false;
 
       case 'radio':
-        return this.fillRadio(field, value!);
+        return value ? this.fillRadio(field, value) : false;
 
       case 'checkbox':
-        return this.fillCheckbox(field, value!);
+        return value ? this.fillCheckbox(field, value) : false;
 
       case 'file':
         return this.fillFileInput(selector, field);
@@ -654,6 +713,47 @@ export class FormFiller {
       default:
         return false;
     }
+  }
+
+  private async fillFieldWithRetry(
+    field: FormField,
+    allowAssumptions: boolean,
+    maxRetries = 2
+  ): Promise<boolean> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const filled = await this.fillField(field, allowAssumptions);
+      if (filled) return true;
+
+      if (attempt < maxRetries) {
+        await this.humanDelay();
+      }
+    }
+    return false;
+  }
+
+  private async getAIFieldClassifications(
+    fields: FormField[]
+  ): Promise<Map<string, AIFieldClassification>> {
+    const result = new Map<string, AIFieldClassification>();
+
+    if (fields.length === 0) return result;
+
+    try {
+      const provider = createAIProvider();
+      const jobContext = this.jobData.description
+        ? `${this.jobData.title} at ${this.jobData.company}\n\n${this.jobData.description.slice(0, 2000)}`
+        : undefined;
+
+      const classifications = await classifyFieldsWithAIOnce(provider, fields, jobContext);
+
+      for (const [key, value] of classifications) {
+        result.set(key, value);
+      }
+    } catch {
+      // AI classification failed, continue with pattern matching
+    }
+
+    return result;
   }
 
   private getValueForField(field: FormField, allowAssumptions = true): string | null {
@@ -672,14 +772,19 @@ export class FormFiller {
   }
 
   private buildSelector(field: FormField): string {
-    const selectors: string[] = [];
+    const semanticSelector = buildSemanticSelector({
+      label: field.label,
+      name: field.name,
+      type: field.type,
+    });
+
+    const selectors: string[] = [semanticSelector];
 
     if (field.name) {
       selectors.push(`[name="${field.name}"]`);
       selectors.push(`#${field.name}`);
     }
 
-    // Build selector from label
     const labelText = field.label?.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (labelText) {
       selectors.push(`[name*="${labelText}"]`);
@@ -693,10 +798,16 @@ export class FormFiller {
 
   private async fillTextInput(selector: string, value: string, field: FormField): Promise<boolean> {
     try {
-      // Try multiple strategies to find the input
       let element = await this.root.$(selector);
 
-      // If not found by selector, try finding by label text
+      if (!element && field.label) {
+        element = (await findInputBySemanticSearch(
+          this.page,
+          field.label,
+          field.type as 'text' | 'email' | 'tel' | undefined
+        )) as typeof element;
+      }
+
       if (!element && field.label) {
         element = await this.findInputByLabel(field.label);
       }
@@ -707,7 +818,8 @@ export class FormFiller {
 
       const fieldContext = `${field.label || ''} ${field.name || ''}`.toLowerCase();
       const role = (await element.getAttribute('role'))?.toLowerCase() ?? '';
-      const ariaAutocomplete = (await element.getAttribute('aria-autocomplete'))?.toLowerCase() ?? '';
+      const ariaAutocomplete =
+        (await element.getAttribute('aria-autocomplete'))?.toLowerCase() ?? '';
       const isLocationField = FIELD_PATTERNS.location.test(fieldContext);
       const isAutocompleteField =
         isLocationField ||
@@ -738,7 +850,7 @@ export class FormFiller {
           const isVisible = await option.isVisible().catch(() => false);
           if (!isVisible) continue;
 
-          await option.click().catch(() => { });
+          await option.click().catch(() => {});
           await this.humanDelay();
 
           const finalValue = await element.inputValue().catch(() => '');
@@ -747,9 +859,9 @@ export class FormFiller {
           }
         }
 
-        await element.press('ArrowDown').catch(() => { });
-        await element.press('Enter').catch(() => { });
-        await element.press('Tab').catch(() => { });
+        await element.press('ArrowDown').catch(() => {});
+        await element.press('Enter').catch(() => {});
+        await element.press('Tab').catch(() => {});
         await this.humanDelay();
 
         const finalValue = await element.inputValue().catch(() => '');
@@ -758,7 +870,7 @@ export class FormFiller {
 
       // Clear existing value and type new one
       await element.click();
-      await this.page.keyboard.press('Control+a').catch(() => { });
+      await this.page.keyboard.press('Control+a').catch(() => {});
       await element.fill(value);
       await this.humanDelay();
 
@@ -788,14 +900,43 @@ export class FormFiller {
       const element = await this.root.$(selector);
       if (!element) return false;
 
-      // Try to find the best matching option
       const options = field.options || [];
       const matchedOption = this.findBestMatchingOption(value, options);
+      const targetValue = matchedOption || value;
+
+      const isReactSelect = await element.evaluate((el) => {
+        const parent = el.closest('[class*="react-select"], [class*="Select"]');
+        return parent !== null;
+      });
+
+      if (isReactSelect) {
+        const filled = await handleReactSelect(this.page, element, targetValue);
+        if (filled) return true;
+      }
+
+      const isChakraSelect = await element.evaluate((el) => {
+        const parent = el.closest('[class*="chakra"]');
+        return parent !== null;
+      });
+
+      if (isChakraSelect) {
+        const filled = await handleChakraSelect(this.page, element, targetValue);
+        if (filled) return true;
+      }
+
+      const isMuiSelect = await element.evaluate((el) => {
+        const parent = el.closest('[class*="MuiSelect"], [class*="MuiInput"]');
+        return parent !== null;
+      });
+
+      if (isMuiSelect) {
+        const filled = await handleMaterialUISelect(this.page, element, targetValue);
+        if (filled) return true;
+      }
 
       if (matchedOption) {
         await element.selectOption({ label: matchedOption });
       } else {
-        // Try selecting by value directly
         await element.selectOption(value);
       }
 
@@ -862,7 +1003,9 @@ export class FormFiller {
       const shouldCheck = ['yes', 'true', '1', 'checked'].includes(value.toLowerCase());
 
       // Strategy 1: by name attribute
-      let checkbox = field.name ? await this.root.$(`input[type="checkbox"][name="${field.name}"]`) : null;
+      let checkbox = field.name
+        ? await this.root.$(`input[type="checkbox"][name="${field.name}"]`)
+        : null;
 
       // Strategy 2: find checkbox near the label text
       if (!checkbox && field.label) {
@@ -911,32 +1054,50 @@ export class FormFiller {
     }
 
     try {
-      // Find file input
       let fileInput = await this.root.$(selector);
 
-      // Try alternative selectors for file inputs
       if (!fileInput) {
         fileInput = await this.root.$('input[type="file"]');
       }
 
       if (!fileInput) {
-        // Some sites hide the file input - look for upload buttons
-        const uploadButton = await this.root.$('[class*="upload"], [class*="attach"], button:has-text("Upload")');
+        const uploaded = await handleFileUpload(
+          this.page,
+          fileInput as unknown as import('playwright').ElementHandle<HTMLInputElement>,
+          filePath
+        );
+        if (uploaded) {
+          await waitForFileUploaded(this.page);
+          return true;
+        }
+
+        const uploadButton = await this.root.$(
+          '[class*="upload"], [class*="attach"], button:has-text("Upload")'
+        );
         if (uploadButton) {
-          // Click and wait for file chooser
           const [fileChooser] = await Promise.all([
             this.page.waitForEvent('filechooser'),
             uploadButton.click(),
           ]);
           await fileChooser.setFiles(filePath);
-          await this.humanDelay();
+          await waitForFileUploaded(this.page);
           return true;
         }
         return false;
       }
 
+      const uploaded = await handleFileUpload(
+        this.page,
+        fileInput as unknown as import('playwright').ElementHandle<HTMLInputElement>,
+        filePath
+      );
+      if (uploaded) {
+        await waitForFileUploaded(this.page);
+        return true;
+      }
+
       await fileInput.setInputFiles(filePath);
-      await this.humanDelay();
+      await waitForFileUploaded(this.page);
       return true;
     } catch {
       return false;
@@ -965,8 +1126,10 @@ export class FormFiller {
             if (currentValue && /^https?:\/\//i.test(currentValue)) {
               return true; // Already filled with a URL, skip
             }
-            await input.fill(answer!);
-            await this.humanDelay();
+            if (answer) {
+              await input.fill(answer);
+              await this.humanDelay();
+            }
             return true;
           }
           break;
@@ -975,8 +1138,10 @@ export class FormFiller {
         case 'textarea': {
           const textarea = await container.$('textarea');
           if (textarea) {
-            await textarea.fill(answer!);
-            await this.humanDelay();
+            if (answer) {
+              await textarea.fill(answer);
+              await this.humanDelay();
+            }
             return true;
           }
           break;
@@ -985,7 +1150,9 @@ export class FormFiller {
         case 'select': {
           const select = await container.$('select');
           if (select && question.options) {
-            const matchedOption = this.findBestMatchingOption(answer!, question.options);
+            const matchedOption = answer
+              ? this.findBestMatchingOption(answer, question.options)
+              : null;
             if (matchedOption) {
               await select.selectOption({ label: matchedOption });
               await this.humanDelay();
@@ -997,12 +1164,15 @@ export class FormFiller {
 
         case 'radio': {
           if (question.options) {
-            const matchedOption = this.findBestMatchingOption(answer!, question.options);
+            const matchedOption = answer
+              ? this.findBestMatchingOption(answer, question.options)
+              : null;
             const radios = await container.$$('input[type="radio"]');
             for (const radio of radios) {
               const radioValue = await radio.getAttribute('value');
               const radioLabel = await this.root.evaluate((el) => {
-                const label = el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
+                const label =
+                  el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
                 return label?.textContent?.trim() || '';
               }, radio);
 
@@ -1081,7 +1251,8 @@ export class FormFiller {
       if (text?.toLowerCase().includes(normalizedQuestion)) {
         // Find the parent container
         const parentSelector = await this.root.evaluate((el) => {
-          const parent = el.closest('.form-group, fieldset, [class*="question"]') || el.parentElement;
+          const parent =
+            el.closest('.form-group, fieldset, [class*="question"]') || el.parentElement;
           if (parent && parent.id) return `#${parent.id}`;
           if (parent && parent.className) return `.${parent.className.split(' ').join('.')}`;
           return null;
@@ -1145,8 +1316,7 @@ export class FormFiller {
     // Contains match
     const containsMatch = options.find(
       (opt) =>
-        opt.toLowerCase().includes(normalizedValue) ||
-        normalizedValue.includes(opt.toLowerCase())
+        opt.toLowerCase().includes(normalizedValue) || normalizedValue.includes(opt.toLowerCase())
     );
     if (containsMatch) return containsMatch;
 
@@ -1159,9 +1329,7 @@ export class FormFiller {
     }
 
     if (['no', 'false', 'n'].includes(normalizedValue)) {
-      const noOption = options.find((opt) =>
-        /^(no|false|n|negative)$/i.test(opt.trim())
-      );
+      const noOption = options.find((opt) => /^(no|false|n|negative)$/i.test(opt.trim()));
       if (noOption) return noOption;
     }
 
@@ -1202,7 +1370,10 @@ export class FormFiller {
     const neutralOption = this.getNeutralOption(question.options);
     if (neutralOption) return neutralOption;
 
-    if ((question.type === 'text' || question.type === 'textarea') && this.isSensitiveQuestion(question.question)) {
+    if (
+      (question.type === 'text' || question.type === 'textarea') &&
+      this.isSensitiveQuestion(question.question)
+    ) {
       return 'Prefer not to say';
     }
 
@@ -1272,7 +1443,10 @@ export class FormFiller {
 
   /** Normalize a field label into a cache key */
   private getCacheKey(label: string): string {
-    return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    return label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '');
   }
 
   /** Look up a cached answer for this field */
@@ -1311,10 +1485,14 @@ export class FormFiller {
       const { input, select } = await import('@inquirer/prompts');
 
       // Select, radio, and checkbox with options — show select UI
-      if ((field.type === 'select' || field.type === 'radio') && field.options && field.options.length > 0) {
+      if (
+        (field.type === 'select' || field.type === 'radio') &&
+        field.options &&
+        field.options.length > 0
+      ) {
         const answer = await select({
           message: `  ${label}:`,
-          choices: field.options.map(opt => ({ name: opt, value: opt })),
+          choices: field.options.map((opt) => ({ name: opt, value: opt })),
         });
         this.saveCachedAnswer(label, answer);
         return answer;
@@ -1361,10 +1539,14 @@ export class FormFiller {
 
       console.log('');
 
-      if ((question.type === 'select' || question.type === 'radio') && question.options && question.options.length > 0) {
+      if (
+        (question.type === 'select' || question.type === 'radio') &&
+        question.options &&
+        question.options.length > 0
+      ) {
         const answer = await select({
           message: `  ${label}`,
-          choices: question.options.map(opt => ({ name: opt, value: opt })),
+          choices: question.options.map((opt) => ({ name: opt, value: opt })),
         });
         this.saveCachedAnswer(label, answer);
         return answer;
@@ -1387,7 +1569,7 @@ export class FormFiller {
       if (question.type === 'checkbox' && question.options && question.options.length > 0) {
         const answer = await select({
           message: `  ${label}`,
-          choices: question.options.map(opt => ({ name: opt, value: opt })),
+          choices: question.options.map((opt) => ({ name: opt, value: opt })),
         });
         this.saveCachedAnswer(label, answer);
         return answer;
@@ -1415,13 +1597,16 @@ export class FormFiller {
     options?: string[],
     allowAssumptions = true
   ): string | null {
-    return this.getValueForField({
-      name: '',
-      type: fieldType,
-      label,
-      required: false,
-      options,
-    }, allowAssumptions);
+    return this.getValueForField(
+      {
+        name: '',
+        type: fieldType,
+        label,
+        required: false,
+        options,
+      },
+      allowAssumptions
+    );
   }
 }
 

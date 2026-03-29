@@ -70,6 +70,7 @@ export function getPlatformExamples(): Record<Platform, string> {
     workday: 'https://company.myworkdayjobs.com/en-US/External/job/12345',
     ashby: 'https://jobs.ashbyhq.com/company/job-id',
     bamboohr: 'https://company.bamboohr.com/careers/123',
+    workable: 'https://apply.workable.com/company/j/1234567/apply/',
     generic: 'https://company.com/careers/job/12345',
   };
 }
@@ -88,7 +89,17 @@ export function normalizeUrl(url: string): string {
     const parsed = new URL(url);
     parsed.hash = '';
     parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '/';
-    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'ref', 'fbclid', 'gclid', 'source'];
+    const trackingParams = [
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'utm_term',
+      'utm_content',
+      'ref',
+      'fbclid',
+      'gclid',
+      'source',
+    ];
     for (const param of trackingParams) {
       parsed.searchParams.delete(param);
     }

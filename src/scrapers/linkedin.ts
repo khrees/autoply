@@ -1,15 +1,18 @@
 import { BaseScraper, type SubmissionOptions, type SubmissionResult } from './base';
 import type { JobData, CustomQuestion, Platform } from '../types';
 import { FormFiller } from '../core/form-filler';
+import { calculateYearsExperience } from '../utils/experience';
 
 export class LinkedInScraper extends BaseScraper {
   platform: Platform = 'linkedin';
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('.job-view-layout, .jobs-unified-top-card', {
-      timeout: 15000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('.job-view-layout, .jobs-unified-top-card', {
+        timeout: 15000,
+      })
+      .catch(() => {});
   }
 
   // ============ LinkedIn Easy Apply Form Submission ============
@@ -18,7 +21,10 @@ export class LinkedInScraper extends BaseScraper {
    * LinkedIn Easy Apply is a multi-step modal flow.
    * Requires the user to be logged in (browser storage state).
    */
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
+  override async submitApplication(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<SubmissionResult> {
     const errors: string[] = [];
 
     try {
@@ -93,7 +99,9 @@ export class LinkedInScraper extends BaseScraper {
 
     try {
       // Check for logged-in indicators
-      const profileMenu = await this.page.$('.global-nav__me, .nav-item--profile, #ember[class*="profile"]');
+      const profileMenu = await this.page.$(
+        '.global-nav__me, .nav-item--profile, #ember[class*="profile"]'
+      );
       if (profileMenu) return true;
 
       // Check for login button (means not logged in)
@@ -182,7 +190,9 @@ export class LinkedInScraper extends BaseScraper {
     }
   }
 
-  private async processEasyApplySteps(options: SubmissionOptions): Promise<{ success: boolean; message: string; errors: string[] }> {
+  private async processEasyApplySteps(
+    options: SubmissionOptions
+  ): Promise<{ success: boolean; message: string; errors: string[] }> {
     if (!this.page) return { success: false, message: 'Page not initialized', errors: [] };
 
     const errors: string[] = [];
@@ -196,7 +206,9 @@ export class LinkedInScraper extends BaseScraper {
       await this.fillCurrentEasyApplyStep(options, errors);
 
       // Check for submit button (final step)
-      const submitButton = await this.page.$('button[aria-label*="Submit"], button:has-text("Submit application")');
+      const submitButton = await this.page.$(
+        'button[aria-label*="Submit"], button:has-text("Submit application")'
+      );
       if (submitButton) {
         const isVisible = await submitButton.isVisible();
         const isEnabled = await submitButton.isEnabled();
@@ -229,7 +241,10 @@ export class LinkedInScraper extends BaseScraper {
     };
   }
 
-  private async fillCurrentEasyApplyStep(options: SubmissionOptions, errors: string[]): Promise<void> {
+  private async fillCurrentEasyApplyStep(
+    options: SubmissionOptions,
+    errors: string[]
+  ): Promise<void> {
     if (!this.page) return;
 
     const { profile } = options;
@@ -301,11 +316,13 @@ export class LinkedInScraper extends BaseScraper {
     }
 
     // Phone country code if separate
-    const countryCodeSelect = await this.page.$('select[name*="country"], select[id*="phoneCountry"]');
+    const countryCodeSelect = await this.page.$(
+      'select[name*="country"], select[id*="phoneCountry"]'
+    );
     if (countryCodeSelect) {
       const countryCode = this.deriveCountryCodeFromLocation(profile.location);
       if (countryCode) {
-        await countryCodeSelect.selectOption({ value: countryCode }).catch(() => { });
+        await countryCodeSelect.selectOption({ value: countryCode }).catch(() => {});
       }
     }
   }
@@ -314,11 +331,23 @@ export class LinkedInScraper extends BaseScraper {
     if (!location) return null;
     const normalized = location.toLowerCase();
 
-    if (normalized.includes('united states') || normalized.includes('usa') || normalized.includes('us') || normalized.includes('america')) {
+    if (
+      normalized.includes('united states') ||
+      normalized.includes('usa') ||
+      normalized.includes('us') ||
+      normalized.includes('america')
+    ) {
       return 'US';
     }
     if (normalized.includes('canada')) return 'CA';
-    if (normalized.includes('united kingdom') || normalized.includes('uk') || normalized.includes('england') || normalized.includes('scotland') || normalized.includes('wales') || normalized.includes('northern ireland')) {
+    if (
+      normalized.includes('united kingdom') ||
+      normalized.includes('uk') ||
+      normalized.includes('england') ||
+      normalized.includes('scotland') ||
+      normalized.includes('wales') ||
+      normalized.includes('northern ireland')
+    ) {
       return 'GB';
     }
     if (normalized.includes('australia')) return 'AU';
@@ -362,7 +391,9 @@ export class LinkedInScraper extends BaseScraper {
       }
 
       // Try upload button approach
-      const uploadButton = await this.page.$('button:has-text("Upload resume"), button:has-text("Upload")');
+      const uploadButton = await this.page.$(
+        'button:has-text("Upload resume"), button:has-text("Upload")'
+      );
       if (uploadButton) {
         try {
           const [fileChooser] = await Promise.all([
@@ -406,9 +437,11 @@ export class LinkedInScraper extends BaseScraper {
         await companyInput.fill(latestExperience.company);
         // Wait for autocomplete and potentially select first option
         await this.page.waitForTimeout(1000);
-        const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child');
+        const autocompleteOption = await this.page.$(
+          '[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child'
+        );
         if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => { });
+          await autocompleteOption.click().catch(() => {});
         }
       }
     }
@@ -429,7 +462,7 @@ export class LinkedInScraper extends BaseScraper {
         await this.page.waitForTimeout(1000);
         const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child');
         if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => { });
+          await autocompleteOption.click().catch(() => {});
         }
       }
     }
@@ -439,7 +472,7 @@ export class LinkedInScraper extends BaseScraper {
     if (degreeInput) {
       const tagName = await degreeInput.evaluate((el) => el.tagName.toLowerCase());
       if (tagName === 'select') {
-        await degreeInput.selectOption({ label: latestEducation.degree }).catch(() => { });
+        await degreeInput.selectOption({ label: latestEducation.degree }).catch(() => {});
       } else {
         const currentValue = await degreeInput.inputValue();
         if (!currentValue) {
@@ -463,12 +496,20 @@ export class LinkedInScraper extends BaseScraper {
       let selectYes = false;
 
       // Work authorization questions - typically Yes
-      if (lower.includes('authorized to work') || lower.includes('legally authorized') || lower.includes('right to work')) {
+      if (
+        lower.includes('authorized to work') ||
+        lower.includes('legally authorized') ||
+        lower.includes('right to work')
+      ) {
         selectYes = true;
       }
 
       // Sponsorship - typically No
-      if (lower.includes('require sponsor') || lower.includes('need sponsor') || lower.includes('visa sponsor')) {
+      if (
+        lower.includes('require sponsor') ||
+        lower.includes('need sponsor') ||
+        lower.includes('visa sponsor')
+      ) {
         selectYes = false;
       }
 
@@ -484,18 +525,24 @@ export class LinkedInScraper extends BaseScraper {
       }
 
       // Select the appropriate radio button
-      const yesRadio = await group.$('input[value*="Yes"], input[value="true"], label:has-text("Yes") input');
-      const noRadio = await group.$('input[value*="No"], input[value="false"], label:has-text("No") input');
+      const yesRadio = await group.$(
+        'input[value*="Yes"], input[value="true"], label:has-text("Yes") input'
+      );
+      const noRadio = await group.$(
+        'input[value*="No"], input[value="false"], label:has-text("No") input'
+      );
 
       if (selectYes && yesRadio) {
-        await yesRadio.check().catch(() => { });
+        await yesRadio.check().catch(() => {});
       } else if (!selectYes && noRadio) {
-        await noRadio.check().catch(() => { });
+        await noRadio.check().catch(() => {});
       }
     }
   }
 
-  private async handleLinkedInSelectQuestions(profile: SubmissionOptions['profile']): Promise<void> {
+  private async handleLinkedInSelectQuestions(
+    profile: SubmissionOptions['profile']
+  ): Promise<void> {
     if (!this.page) return;
 
     const selects = await this.page.$$('select');
@@ -508,7 +555,7 @@ export class LinkedInScraper extends BaseScraper {
 
       // Years of experience
       if (combined.includes('experience') || combined.includes('years')) {
-        const years = this.calculateYearsExperience(profile);
+        const years = calculateYearsExperience(profile?.experience || []);
         // Try to select the option that best matches
         const options = await select.$$eval('option', (opts) =>
           opts.map((o) => ({ value: o.value, text: o.textContent?.trim() || '' }))
@@ -516,7 +563,11 @@ export class LinkedInScraper extends BaseScraper {
 
         for (const opt of options) {
           const optText = opt.text.toLowerCase();
-          if (optText.includes(years.toString()) || optText.includes(`${years}+`) || optText.includes(`${years} `)) {
+          if (
+            optText.includes(years.toString()) ||
+            optText.includes(`${years}+`) ||
+            optText.includes(`${years} `)
+          ) {
             await select.selectOption({ value: opt.value });
             break;
           }
@@ -527,21 +578,9 @@ export class LinkedInScraper extends BaseScraper {
     }
   }
 
-  private calculateYearsExperience(profile: SubmissionOptions['profile']): number {
-    if (!profile.experience || profile.experience.length === 0) return 0;
-
-    let totalMonths = 0;
-    for (const exp of profile.experience) {
-      const start = new Date(exp.start_date);
-      const end = exp.end_date ? new Date(exp.end_date) : new Date();
-      const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-      totalMonths += Math.max(0, months);
-    }
-
-    return Math.round(totalMonths / 12);
-  }
-
-  private async findLinkedInNextButton(): Promise<Awaited<ReturnType<NonNullable<typeof this.page>['$']>> | null> {
+  private async findLinkedInNextButton(): Promise<Awaited<
+    ReturnType<NonNullable<typeof this.page>['$']>
+  > | null> {
     if (!this.page) return null;
 
     const nextSelectors = [
@@ -574,7 +613,11 @@ export class LinkedInScraper extends BaseScraper {
     return null;
   }
 
-  private async waitForLinkedInConfirmation(): Promise<{ success: boolean; message: string; errors: string[] }> {
+  private async waitForLinkedInConfirmation(): Promise<{
+    success: boolean;
+    message: string;
+    errors: string[];
+  }> {
     if (!this.page) return { success: false, message: 'Page not initialized', errors: [] };
 
     try {
@@ -609,7 +652,9 @@ export class LinkedInScraper extends BaseScraper {
       }
 
       // Check for dismiss button (success state)
-      const dismissButton = await this.page.$('button:has-text("Done"), button:has-text("Dismiss")');
+      const dismissButton = await this.page.$(
+        'button:has-text("Done"), button:has-text("Dismiss")'
+      );
       if (dismissButton) {
         const isVisible = await dismissButton.isVisible();
         if (isVisible) {
@@ -678,7 +723,8 @@ export class LinkedInScraper extends BaseScraper {
     );
 
     // Check if remote
-    const remote = jobType.toLowerCase().includes('remote') || location.toLowerCase().includes('remote');
+    const remote =
+      jobType.toLowerCase().includes('remote') || location.toLowerCase().includes('remote');
 
     // Form fields for LinkedIn are typically handled through their Easy Apply flow
     const formFields = await this.extractFormFields();
@@ -719,10 +765,12 @@ export class LinkedInScraper extends BaseScraper {
     for (let i = 0; i < questionContainers.length; i++) {
       const container = questionContainers[i];
 
-      const questionText = await container.$eval(
-        'label, .fb-form-element-label, [class*="artdeco-text-input--label"]',
-        (el) => el.textContent?.trim() ?? ''
-      ).catch(() => '');
+      const questionText = await container
+        .$eval(
+          'label, .fb-form-element-label, [class*="artdeco-text-input--label"]',
+          (el) => el.textContent?.trim() ?? ''
+        )
+        .catch(() => '');
 
       if (!questionText) continue;
 

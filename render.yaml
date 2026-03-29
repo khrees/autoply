@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: autoply-api
+    runtime: docker
+    plan: starter # Can be adjusted based on needs
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: HOST
+        value: 0.0.0.0
+      - key: ANTHROPIC_API_KEY
+        sync: false # User must provide this in Render dashboard
+      - key: OPENAI_API_KEY
+        sync: false # User must provide this in Render dashboard
+      - key: GOOGLE_API_KEY
+        sync: false # User must provide this in Render dashboard
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /health
+    # Auto-deploy on push to main
+    autoDeploy: true

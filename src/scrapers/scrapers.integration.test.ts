@@ -159,7 +159,7 @@ describe('Scraper Integration Tests', () => {
         'https://boards.greenhouse.io/my-company/jobs/12345'
       );
 
-      expect(jobData.company).toBe('my company');
+      expect(jobData.company).toBe('My Company');
     });
 
     testFn('handles missing title gracefully', async () => {
@@ -232,10 +232,7 @@ describe('Scraper Integration Tests', () => {
       `;
 
       const scraper = new TestableLeverScraper();
-      const jobData = await scraper.testWithHtml(
-        html,
-        'https://jobs.lever.co/my-startup/job-id'
-      );
+      const jobData = await scraper.testWithHtml(html, 'https://jobs.lever.co/my-startup/job-id');
 
       expect(jobData.company).toBe('my startup');
     });

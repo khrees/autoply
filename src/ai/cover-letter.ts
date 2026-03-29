@@ -8,6 +8,7 @@ Writing style guidelines:
 - Lead with genuine excitement and curiosity about the role
 - Focus on impact and stories, not technical jargon or buzzwords
 - Show heart - let the candidate's passion and drive shine through
+- Avoid emdashes as much as possible
 - Subtly weave in the candidate's unique perspective as someone bringing diverse global experience
 - Keep it conversational yet professional
 - Be confident but humble, ambitious but grounded
@@ -71,7 +72,10 @@ ${jobData.location ? `**Location:** ${jobData.location}` : ''}
 ${jobData.description}
 
 ### Key Requirements
-${jobData.requirements.slice(0, 5).map((r) => `- ${r}`).join('\n')}
+${jobData.requirements
+  .slice(0, 5)
+  .map((r) => `- ${r}`)
+  .join('\n')}
 
 ---
 
@@ -163,24 +167,33 @@ Rules:
 - Sound human, not robotic
 - Draw from the candidate's actual experience`;
 
-  const questionsBlock = questions.map((q, i) => {
-    let block = `${i + 1}. "${q.question}" (type: ${q.type})`;
-    if (q.options && q.options.length > 0) {
-      block += `\n   Options: ${q.options.join(', ')}`;
-    }
-    return block;
-  }).join('\n');
+  const questionsBlock = questions
+    .map((q, i) => {
+      let block = `${i + 1}. "${q.question}" (type: ${q.type})`;
+      if (q.options && q.options.length > 0) {
+        block += `\n   Options: ${q.options.join(', ')}`;
+      }
+      return block;
+    })
+    .join('\n');
 
-  const examplesBlock = previousAnswers && previousAnswers.length > 0
-    ? `\n## Examples of how this candidate has answered questions before:\n${previousAnswers.slice(0, 5).map(a => `Q: "${a.question}"\nA: "${a.answer}"`).join('\n\n')}\n`
-    : '';
+  const examplesBlock =
+    previousAnswers && previousAnswers.length > 0
+      ? `\n## Examples of how this candidate has answered questions before:\n${previousAnswers
+          .slice(0, 5)
+          .map((a) => `Q: "${a.question}"\nA: "${a.answer}"`)
+          .join('\n\n')}\n`
+      : '';
 
   const prompt = `Answer these application questions for the candidate.
 
 ## Candidate
 Name: ${profile.name}
 Skills: ${profile.skills.join(', ')}
-Experience: ${profile.experience.slice(0, 3).map(e => `${e.title} at ${e.company}: ${e.highlights.slice(0, 2).join('; ')}`).join(' | ')}
+Experience: ${profile.experience
+    .slice(0, 3)
+    .map((e) => `${e.title} at ${e.company}: ${e.highlights.slice(0, 2).join('; ')}`)
+    .join(' | ')}
 ${examplesBlock}
 ## Job
 ${jobData.title} at ${jobData.company}
@@ -192,7 +205,10 @@ ${questionsBlock}
 Return JSON array: [{"question": "...", "answer": "..."}, ...]`;
 
   const response = await provider.generateText(prompt, systemPrompt);
-  const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+  const cleaned = response
+    .replace(/```json?\n?/g, '')
+    .replace(/```/g, '')
+    .trim();
 
   const results = new Map<string, string>();
 
@@ -225,22 +241,6 @@ Return JSON array: [{"question": "...", "answer": "..."}, ...]`;
       });
       results.set(q.question, answer);
     }
-  }
-
-  return results;
-}
-
-export async function answerMultipleQuestions(
-  provider: AIProvider,
-  profile: Profile,
-  jobData: JobData,
-  questions: string[]
-): Promise<Map<string, string>> {
-  const results = new Map<string, string>();
-
-  for (const question of questions) {
-    const answer = await answerApplicationQuestion(provider, profile, jobData, question);
-    results.set(question, answer);
   }
 
   return results;

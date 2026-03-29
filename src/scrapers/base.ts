@@ -1,5 +1,13 @@
 import type { Browser, Page, BrowserContext } from 'playwright';
-import type { JobData, FormField, CustomQuestion, Platform, Profile, GeneratedDocuments, AIProvider } from '../types';
+import type {
+  JobData,
+  FormField,
+  CustomQuestion,
+  Platform,
+  Profile,
+  GeneratedDocuments,
+  AIProvider,
+} from '../types';
 import { configRepository } from '../db/repositories/config';
 import { logger } from '../utils/logger';
 import {
@@ -132,10 +140,7 @@ export abstract class BaseScraper {
 
       // Simulate human behavior: mouse movement and scrolling
       await this.humanDelay(true);
-      await this.page.mouse.move(
-        Math.random() * 500 + 100,
-        Math.random() * 300 + 100
-      );
+      await this.page.mouse.move(Math.random() * 500 + 100, Math.random() * 300 + 100);
       await this.humanScroll();
 
       await this.waitForContent();
@@ -256,7 +261,9 @@ export abstract class BaseScraper {
 
     try {
       // Try to find associated label by id
-      const id = await (input as { getAttribute: (attr: string) => Promise<string | null> }).getAttribute('id');
+      const id = await (
+        input as { getAttribute: (attr: string) => Promise<string | null> }
+      ).getAttribute('id');
       if (id) {
         const label = await this.page.$(`label[for="${id}"]`);
         if (label) {
@@ -274,11 +281,15 @@ export abstract class BaseScraper {
       if (parentLabel) return parentLabel;
 
       // Try aria-label
-      const ariaLabel = await (input as { getAttribute: (attr: string) => Promise<string | null> }).getAttribute('aria-label');
+      const ariaLabel = await (
+        input as { getAttribute: (attr: string) => Promise<string | null> }
+      ).getAttribute('aria-label');
       if (ariaLabel) return ariaLabel;
 
       // Try placeholder
-      const placeholder = await (input as { getAttribute: (attr: string) => Promise<string | null> }).getAttribute('placeholder');
+      const placeholder = await (
+        input as { getAttribute: (attr: string) => Promise<string | null> }
+      ).getAttribute('placeholder');
       if (placeholder) return placeholder;
 
       return '';
@@ -295,11 +306,14 @@ export abstract class BaseScraper {
     for (const line of lines) {
       const trimmed = line.trim();
       const lower = trimmed.toLowerCase();
+      const isBullet =
+        trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*');
 
       if (
-        lower.includes('requirement') ||
-        lower.includes('must have') ||
-        lower.includes('you will need')
+        !isBullet &&
+        (lower.includes('requirement') ||
+          lower.includes('must have') ||
+          lower.includes('you will need'))
       ) {
         inRequirements = true;
         continue;
@@ -307,6 +321,7 @@ export abstract class BaseScraper {
 
       if (
         inRequirements &&
+        !isBullet &&
         (lower.includes('nice to have') ||
           lower.includes('preferred') ||
           lower.includes('bonus') ||
@@ -315,7 +330,7 @@ export abstract class BaseScraper {
         inRequirements = false;
       }
 
-      if (inRequirements && (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*'))) {
+      if (inRequirements && isBullet) {
         requirements.push(trimmed.replace(/^[-•*]\s*/, ''));
       }
     }
@@ -331,11 +346,14 @@ export abstract class BaseScraper {
     for (const line of lines) {
       const trimmed = line.trim();
       const lower = trimmed.toLowerCase();
+      const isBullet =
+        trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*');
 
       if (
-        lower.includes('qualification') ||
-        lower.includes('nice to have') ||
-        lower.includes('preferred')
+        !isBullet &&
+        (lower.includes('qualification') ||
+          lower.includes('nice to have') ||
+          lower.includes('preferred'))
       ) {
         inQualifications = true;
         continue;
@@ -343,15 +361,15 @@ export abstract class BaseScraper {
 
       if (
         inQualifications &&
-        (lower.includes('responsibilit') || lower.includes('what we offer') || lower.includes('benefit'))
+        !isBullet &&
+        (lower.includes('responsibilit') ||
+          lower.includes('what we offer') ||
+          lower.includes('benefit'))
       ) {
         inQualifications = false;
       }
 
-      if (
-        inQualifications &&
-        (trimmed.startsWith('-') || trimmed.startsWith('•') || trimmed.startsWith('*'))
-      ) {
+      if (inQualifications && isBullet) {
         qualifications.push(trimmed.replace(/^[-•*]\s*/, ''));
       }
     }
@@ -385,13 +403,7 @@ export abstract class BaseScraper {
       const { createAIProvider } = await import('../ai/provider');
       const { answerApplicationQuestion } = await import('../ai/cover-letter');
       const provider = createAIProvider();
-      const answer = await answerApplicationQuestion(
-        provider,
-        profile,
-        jobData,
-        label,
-        options
-      );
+      const answer = await answerApplicationQuestion(provider, profile, jobData, label, options);
       return answer?.trim() || null;
     } catch {
       return null;
@@ -494,7 +506,12 @@ export abstract class BaseScraper {
         // Take screenshot for records
         const { takeScreenshotIfEnabled } = await import('./helpers');
         const { getAutoplyDir } = await import('../db');
-        const screenshotPath = await takeScreenshotIfEnabled(this.page, `filled_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
+        const screenshotPath = await takeScreenshotIfEnabled(
+          this.page,
+          `filled_${this.platform}`,
+          configRepository.loadAppConfig,
+          getAutoplyDir
+        );
 
         return {
           success: true,
@@ -520,7 +537,12 @@ export abstract class BaseScraper {
       // Take screenshot for records
       const { takeScreenshotIfEnabled } = await import('./helpers');
       const { getAutoplyDir } = await import('../db');
-      const screenshotPath = await takeScreenshotIfEnabled(this.page, `submission_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
+      const screenshotPath = await takeScreenshotIfEnabled(
+        this.page,
+        `submission_${this.platform}`,
+        configRepository.loadAppConfig,
+        getAutoplyDir
+      );
 
       return {
         success: confirmationResult.success,
@@ -625,7 +647,12 @@ export abstract class BaseScraper {
       // Take screenshot for records
       const { takeScreenshotIfEnabled } = await import('./helpers');
       const { getAutoplyDir } = await import('../db');
-      const screenshotPath = await takeScreenshotIfEnabled(this.page, `filled_${this.platform}`, configRepository.loadAppConfig, getAutoplyDir);
+      const screenshotPath = await takeScreenshotIfEnabled(
+        this.page,
+        `filled_${this.platform}`,
+        configRepository.loadAppConfig,
+        getAutoplyDir
+      );
 
       // Do NOT submit — leave browser open for user to review
       // Do NOT call cleanup — keep the browser alive
@@ -744,7 +771,9 @@ export abstract class BaseScraper {
     }
 
     // Check for required fields that are empty
-    const requiredInputs = await this.page.$$('input[required], textarea[required], select[required]');
+    const requiredInputs = await this.page.$$(
+      'input[required], textarea[required], select[required]'
+    );
     for (const input of requiredInputs) {
       const value = await input.inputValue().catch(() => '');
       if (!value) {
@@ -758,7 +787,9 @@ export abstract class BaseScraper {
     return { valid: errors.length === 0, errors };
   }
 
-  protected async validateProfileIntegrity(profile: Profile): Promise<{ valid: boolean; errors: string[] }> {
+  protected async validateProfileIntegrity(
+    profile: Profile
+  ): Promise<{ valid: boolean; errors: string[] }> {
     const liveFormFields = await this.extractFormFields();
     const candidateFields = new Map<IdentityAssertionKey, FormField>();
 
@@ -874,7 +905,9 @@ export abstract class BaseScraper {
               await this.humanDelay(true); // Wait a bit after solving
               return true;
             } catch (waitError) {
-              logger.warning('Timed out waiting for CAPTCHA to be solved manually. Continuing anyway...');
+              logger.warning(
+                'Timed out waiting for CAPTCHA to be solved manually. Continuing anyway...'
+              );
               return false;
             }
           }
@@ -916,7 +949,7 @@ export abstract class BaseScraper {
       ];
 
       // Wait for page to stabilize after submit
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
       await this.humanDelay();
 
       // Check for success indicators
@@ -959,12 +992,19 @@ export abstract class BaseScraper {
 
       // Check if URL changed (common after successful submission)
       const currentUrl = this.page.url();
-      if (currentUrl.includes('thank') || currentUrl.includes('success') || currentUrl.includes('confirm')) {
+      if (
+        currentUrl.includes('thank') ||
+        currentUrl.includes('success') ||
+        currentUrl.includes('confirm')
+      ) {
         return { success: true, message: 'Application submitted (URL indicates success)' };
       }
 
       // No clear indicator found
-      return { success: false, message: 'Could not confirm submission status (no clear success or error indicators found)' };
+      return {
+        success: false,
+        message: 'Could not confirm submission status (no clear success or error indicators found)',
+      };
     } catch (error) {
       return {
         success: false,
@@ -983,7 +1023,12 @@ export abstract class BaseScraper {
     customQuestions: CustomQuestion[]
   ): Promise<FillResult> {
     if (!this.page) {
-      return { success: false, filledFields: [], skippedFields: [], errors: ['Page not initialized'] };
+      return {
+        success: false,
+        filledFields: [],
+        skippedFields: [],
+        errors: ['Page not initialized'],
+      };
     }
 
     const totalResult: FillResult = {
@@ -1017,7 +1062,7 @@ export abstract class BaseScraper {
       if (nextButton) {
         await this.humanDelay(true);
         await nextButton.click();
-        await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+        await this.page.waitForLoadState('domcontentloaded').catch(() => {});
         await this.humanDelay(true);
       } else {
         hasNextButton = false;
@@ -1075,9 +1120,8 @@ export abstract class BaseScraper {
     if (!this.page) return false;
 
     // Determine selectors based on file type
-    const patterns = type === 'resume'
-      ? ['resume', 'cv', 'curriculum']
-      : ['cover', 'letter', 'motivation'];
+    const patterns =
+      type === 'resume' ? ['resume', 'cv', 'curriculum'] : ['cover', 'letter', 'motivation'];
 
     try {
       // Try to find specific file input
@@ -1107,7 +1151,9 @@ export abstract class BaseScraper {
       }
 
       // Try dropzone
-      const dropzones = await this.page.$$('[class*="dropzone"], [class*="upload"], [class*="drop-area"]');
+      const dropzones = await this.page.$$(
+        '[class*="dropzone"], [class*="upload"], [class*="drop-area"]'
+      );
       for (const dropzone of dropzones) {
         const text = await dropzone.textContent();
         const isMatch = patterns.some((p) => text?.toLowerCase().includes(p));
@@ -1135,7 +1181,11 @@ export abstract class BaseScraper {
    * Override in subclass.
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected async postFormFill(options: SubmissionOptions, filler: FormFiller, errors: string[]): Promise<void> {
+  protected async postFormFill(
+    _options: SubmissionOptions,
+    _filler: FormFiller,
+    _errors: string[]
+  ): Promise<void> {
     // Override in platform-specific scrapers
   }
 
@@ -1144,11 +1194,11 @@ export abstract class BaseScraper {
    * Override in subclass.
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected async preSubmitActions(options: SubmissionOptions, errors: string[]): Promise<void> {
+  protected async preSubmitActions(_options: SubmissionOptions, _errors: string[]): Promise<void> {
     // Override in platform-specific scrapers
   }
 }
 
 export interface ScraperConstructor {
-  new(): BaseScraper;
+  new (): BaseScraper;
 }

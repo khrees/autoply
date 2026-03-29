@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import { configRepository } from '../../db/repositories/config';
+import { credentialStore } from '../../db/repositories/secure-credentials';
 import { logger, chalk } from '../../utils/logger';
 import { getAvailableProviders, testProvider, createAIProvider } from '../../ai/provider';
 
-export const configCommand = new Command('config')
-  .description('Manage configuration');
+export const configCommand = new Command('config').description('Manage configuration');
 
 configCommand
   .command('set <key> <value>')
@@ -14,7 +14,9 @@ configCommand
       configRepository.setConfigValue(key, value);
       logger.success(`Set ${key} = ${value}`);
     } catch (error) {
-      logger.error(`Failed to set config: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Failed to set config: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   });
 
@@ -59,7 +61,9 @@ configCommand
     );
     logger.keyValue(
       '  Patchright Platforms',
-      config.browser.patchrightPlatforms.length > 0 ? config.browser.patchrightPlatforms.join(', ') : 'None'
+      config.browser.patchrightPlatforms.length > 0
+        ? config.browser.patchrightPlatforms.join(', ')
+        : 'None'
     );
 
     logger.newline();
@@ -133,6 +137,75 @@ configCommand
         logger.error(`AI provider test failed: ${result.error}`);
       }
     } catch (error) {
-      logger.error(`Failed to test provider: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Failed to test provider: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   });
+
+const credentialsCommand = new Command('credentials').description(
+  'Manage API credentials securely (stored in macOS Keychain / Windows Credential Manager)'
+);
+
+credentialsCommand
+  .command('set')
+  .description('Store API key securely (e.g., autoply credentials set anthropic sk-ant-...)')
+  .argument('<provider>', 'Provider: openai, anthropic, or google')
+  .argument('<apiKey>', 'API key to store securely')
+  .action(async (provider: string, apiKey: string) => {
+    if (!['openai', 'anthropic', 'google'].includes(provider)) {
+      logger.error('Provider must be: openai, anthropic, or google');
+      return;
+    }
+
+    const success = await credentialStore.setApiKey(
+      provider as 'openai' | 'anthropic' | 'google',
+      apiKey
+    );
+
+    if (success) {
+      logger.success(`API key for ${provider} stored securely in keychain`);
+    } else {
+      logger.error('Failed to store API key');
+    }
+  });
+
+credentialsCommand
+  .command('delete')
+  .description('Remove stored API key from keychain')
+  .argument('<provider>', 'Provider: openai, anthropic, or google')
+  .action(async (provider: string) => {
+    if (!['openai', 'anthropic', 'google'].includes(provider)) {
+      logger.error('Provider must be: openai, anthropic, or google');
+      return;
+    }
+
+    const success = await credentialStore.deleteApiKey(
+      provider as 'openai' | 'anthropic' | 'google'
+    );
+
+    if (success) {
+      logger.success(`API key for ${provider} removed from keychain`);
+    } else {
+      logger.error('Failed to delete API key');
+    }
+  });
+
+credentialsCommand
+  .command('status')
+  .description('Check which API keys are stored')
+  .action(async () => {
+    const keys = await credentialStore.getAllApiKeys();
+
+    logger.header('Stored Credentials');
+
+    logger.keyValue('  OpenAI', keys.openai ? '✓ Stored' : '✗ Not set');
+    logger.keyValue('  Anthropic', keys.anthropic ? '✓ Stored' : '✗ Not set');
+    logger.keyValue('  Google', keys.google ? '✓ Stored' : '✗ Not set');
+
+    logger.newline();
+    logger.info('Credentials are stored securely in your OS keychain');
+    logger.info('(macOS: Keychain, Windows: Credential Manager)');
+  });
+
+export { credentialsCommand };

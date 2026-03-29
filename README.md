@@ -132,6 +132,69 @@ A browser window opens — log in manually, and the session is saved for future 
 | SmartRecruiters | `jobs.smartrecruiters.com/*` |
 | Pinpoint | `*.pinpointhq.com/*` |
 | Teamtailor | `*.teamtailor.com/*` |
+| Workable | `apply.workable.com/*` |
+| BambooHR | `*.bamboohr.com/careers/*` |
+
+---
+
+## Browser Extension
+
+Autoply includes a browser extension that provides autofill assistance directly on job application pages. No web store required.
+
+### Installation
+
+#### Chrome / Chromium-based browsers
+
+1. Build the extension:
+   ```bash
+   bun run extension:build
+   ```
+
+2. Open `chrome://extensions/`
+
+3. Enable **Developer mode** (toggle in top right)
+
+4. Click **Load unpacked** and select `dist/extension/chrome`
+
+5. Pin the extension for easy access (click the puzzle piece icon → pin)
+
+#### Firefox
+
+1. Build the extension:
+   ```bash
+   bun run extension:build:firefox
+   ```
+
+2. Open `about:debugging#/runtime/this-firefox`
+
+3. Click **Load Temporary Add-on...**
+
+4. Select `dist/extension/firefox/manifest.json`
+
+Note: Firefox temporary add-ons are removed when you close Firefox. For permanent installation, you need to sign the extension at [Firefox Add-ons](https://addons.mozilla.org/).
+
+### Usage
+
+1. Start the Autoply API server:
+   ```bash
+   bun run api
+   ```
+   The API server runs on port **8088** by default.
+
+2. Navigate to any supported job application page
+
+3. Click the Autoply extension icon
+
+4. The extension will:
+   - Detect form fields on the page
+   - Pull your profile data from the API
+   - Fill in available fields automatically
+
+### Configuration
+
+The extension communicates with the Autoply API server. By default, it connects to `http://localhost:8088`.
+
+To change the server URL, edit `src/extension/sidepanel.tsx` and modify the `API_BASE` constant, then rebuild the extension.
 
 ---
 
@@ -211,6 +274,7 @@ autoply config providers         # List AI providers
 | `application.fillOptionalFields` | `false` | Fill optional fields and questions instead of leaving them blank |
 | `application.saveScreenshots` | `true` | Save screenshots on submission |
 | `application.retryAttempts` | `3` | Retry count for failed operations |
+| `application.rateLimitDelay` | `0` | Delay in seconds between bulk applications |
 
 Example targeted stealth setup:
 
