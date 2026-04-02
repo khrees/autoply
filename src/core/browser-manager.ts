@@ -281,7 +281,6 @@ class BrowserManager {
     const browser = await automation.chromium.launch({
       headless: config.browser.headless,
       args: launchArgs,
-      executablePath: await chromium.executablePath(),
     });
 
     const createdBrowser: PooledBrowser = {

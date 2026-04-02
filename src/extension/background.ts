@@ -7,16 +7,38 @@ if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
 }
 
 const JOB_BOARD_URLS = [
+  // Major ATS platforms
   'greenhouse.io',
   'lever.co',
-  'linkedin.com/jobs',
   'ashbyhq.com',
   'smartrecruiters.com',
   'jobvite.com',
   'myworkdayjobs.com',
   'teamtailor.com',
   'pinpointhq.com',
-  'bamboohr.com'
+  'bamboohr.com',
+  // Additional ATS platforms
+  'workable.com',
+  'icims.com',
+  'breezy.hr',
+  'recruitee.com',
+  'jazz.co',
+  'applytojob.com',
+  'rippling.com',
+  'oracle.com/taleo',
+  'successfactors.com',
+  'taleo.net',
+  'kronos.com',
+  'paylocity.com',
+  // Job boards
+  'linkedin.com/jobs',
+  'indeed.com/viewjob',
+  'glassdoor.com/job',
+  'ziprecruiter.com/jobs',
+  'monster.com/job',
+  'dice.com/jobs',
+  'wellfound.com/jobs',
+  'ycombinator.com/jobs',
 ];
 
 async function updateSidePanelForTab(tabId: number, url: string): Promise<void> {

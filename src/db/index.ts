@@ -142,6 +142,49 @@ function runMigrations(database: Database): void {
         }
       },
     },
+    {
+      name: '005_create_saved_answers',
+      sql: `
+        CREATE TABLE IF NOT EXISTS saved_answers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          profile_id INTEGER NOT NULL,
+          question_hash TEXT NOT NULL,
+          question TEXT NOT NULL,
+          answer TEXT NOT NULL,
+          used_count INTEGER DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
+          UNIQUE(profile_id, question_hash)
+        )
+      `,
+    },
+    {
+      name: '006_create_applications_indexes',
+      sql: `
+        CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status);
+        CREATE INDEX IF NOT EXISTS idx_applications_platform ON applications(platform);
+        CREATE INDEX IF NOT EXISTS idx_applications_applied_at ON applications(applied_at);
+        CREATE INDEX IF NOT EXISTS idx_applications_profile_id ON applications(profile_id);
+      `,
+    },
+    {
+      name: '007_create_job_postings',
+      sql: `
+        CREATE TABLE IF NOT EXISTS job_postings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          url TEXT NOT NULL UNIQUE,
+          platform TEXT NOT NULL,
+          title TEXT NOT NULL,
+          company TEXT NOT NULL,
+          description TEXT,
+          requirements TEXT DEFAULT '[]',
+          qualifications TEXT DEFAULT '[]',
+          location TEXT,
+          scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `,
+    },
   ];
 
   const appliedMigrations = database

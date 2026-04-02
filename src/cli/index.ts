@@ -9,6 +9,8 @@ import { historyCommand } from './commands/history';
 import { loginCommand } from './commands/login';
 import { statusCommand } from './commands/status';
 import { importCommand } from './commands/import';
+import { chatCommand } from './commands/chat';
+import { serviceCommand } from './commands/service';
 import { closeDb } from '../db';
 import { setVerbose } from '../utils/logger';
 import { browserManager } from '../core/browser-manager';
@@ -39,6 +41,8 @@ program.addCommand(historyCommand);
 program.addCommand(loginCommand);
 program.addCommand(statusCommand);
 program.addCommand(importCommand);
+program.addCommand(chatCommand);
+program.addCommand(serviceCommand);
 
 // Cleanup on exit
 process.on('exit', () => {

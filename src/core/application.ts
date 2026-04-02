@@ -10,6 +10,7 @@ export type { JobFitResult } from '../ai/job-matcher';
 import { profileRepository } from '../db/repositories/profile';
 import { applicationRepository } from '../db/repositories/application';
 import { configRepository } from '../db/repositories/config';
+import { savedAnswersRepository } from '../db/repositories/saved-answers';
 import { ApplicationQueue } from './queue';
 import {
   requiresHumanAnswer,
@@ -39,6 +40,13 @@ export interface GeneratedDocumentPaths {
 export interface PassiveProcessResult extends ApplicationResult {
   jobData?: JobData;
   fillPlan?: Record<string, string>;
+  profileData?: Record<string, string>;
+}
+
+export interface DetectedFormField {
+  key: string;
+  type: string;
+  label: string;
 }
 
 export interface ApplyOptions {
@@ -227,6 +235,19 @@ export class ApplicationOrchestrator {
             })
         );
 
+        // Check saved answers first — reuse past answers for similar questions
+        const stillNeedingAI: typeof aiAnswerableQuestions = [];
+        for (const q of aiAnswerableQuestions) {
+          const savedMatches = savedAnswersRepository.findSimilar(profile.id || 0, q.question, 1);
+          if (savedMatches.length > 0) {
+            q.answer = savedMatches[0].answer;
+          } else {
+            stillNeedingAI.push(q);
+          }
+        }
+        // Replace the list so only unanswered questions go to AI
+        aiAnswerableQuestions.splice(0, aiAnswerableQuestions.length, ...stillNeedingAI);
+
         // Get previous answers from DB for few-shot learning
         const previousApps = applicationRepository.findAll({
           profile_id: profile.id,
@@ -257,6 +278,12 @@ export class ApplicationOrchestrator {
           for (const q of aiAnswerableQuestions) {
             if (!q.answer) {
               q.answer = answers.get(q.question);
+            }
+          }
+          // Persist answers for future reuse
+          for (const q of aiAnswerableQuestions) {
+            if (q.answer) {
+              savedAnswersRepository.upsert(profile.id || 0, q.question, q.answer);
             }
           }
         }
@@ -404,9 +431,11 @@ export class ApplicationOrchestrator {
       await mkdir(docsDir, { recursive: true });
 
       const resumePdfPath =
-        resumePath ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
+        resumePath ??
+        join(docsDir, generateDocumentFilename(profile.name, 'resume', jobData.company));
       const coverLetterPdfPath =
-        coverLetterPath ?? join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
+        coverLetterPath ??
+        join(docsDir, generateDocumentFilename(profile.name, 'cover_letter', jobData.company));
 
       // Generate PDFs for uploading if they don't exist
       if (!resumePath) {
@@ -515,10 +544,11 @@ export class ApplicationOrchestrator {
     const resumeMdPath = join(docsDir, `${application.id}_resume.md`);
     const coverLetterMdPath = join(docsDir, `${application.id}_cover_letter.md`);
     const resumePdfPath =
-      resumePathOverride ?? join(docsDir, generateDocumentFilename(profile.name, 'resume'));
+      resumePathOverride ??
+      join(docsDir, generateDocumentFilename(profile.name, 'resume', jobData.company));
     const coverLetterPdfPath =
       coverLetterPathOverride ??
-      join(docsDir, generateDocumentFilename(profile.name, 'cover_letter'));
+      join(docsDir, generateDocumentFilename(profile.name, 'cover_letter', jobData.company));
 
     // Save markdown versions
     await Bun.write(resumeMdPath, documents.resume);
@@ -595,7 +625,10 @@ export class ApplicationOrchestrator {
       spinner.start('Generating tailored resume...');
       try {
         const resume = await tailorResume(provider, profile, jobData);
-        const resumePath = join(outputDir, generateDocumentFilename(profile.name, 'resume'));
+        const resumePath = join(
+          outputDir,
+          generateDocumentFilename(profile.name, 'resume', jobData.company)
+        );
         await generateResumePdf(resume, resumePath, profile.name);
         result.resumePath = resumePath;
         spinner.succeed(`Resume saved to: ${resumePath}`);
@@ -611,7 +644,7 @@ export class ApplicationOrchestrator {
         const coverLetter = await generateCoverLetter(provider, profile, jobData);
         const coverLetterPath = join(
           outputDir,
-          generateDocumentFilename(profile.name, 'cover_letter')
+          generateDocumentFilename(profile.name, 'cover_letter', jobData.company)
         );
         await generateCoverLetterPdf(coverLetter, coverLetterPath, profile.name);
         result.coverLetterPath = coverLetterPath;
@@ -631,7 +664,8 @@ export class ApplicationOrchestrator {
     html: string,
     url: string,
     platform: Platform,
-    options: ApplyOptions = {}
+    options: ApplyOptions = {},
+    detectedFields?: Array<{ key: string; type: string; label: string }>
   ): Promise<PassiveProcessResult> {
     const profile = options.profile ?? profileRepository.findFirst();
     if (!profile) {
@@ -700,26 +734,85 @@ export class ApplicationOrchestrator {
         },
       });
 
-      // 5. Calculate Fill Plan (Field mappings)
+      // 5. Build profile data map for extension to use
+      const profileData: Record<string, string> = {
+        firstName: profile.name.split(' ')[0] || '',
+        lastName: profile.name.split(' ').slice(1).join(' ') || '',
+        fullName: profile.name,
+        email: profile.email,
+        phone: profile.phone || '',
+        location: profile.location || '',
+        linkedin: profile.linkedin_url || '',
+        github: profile.github_url || '',
+        portfolio: profile.portfolio_url || '',
+      };
+
+      // 6. Calculate Fill Plan (Field mappings)
       const fillPlan: Record<string, string> = {};
 
-      // Deterministic fields
-      for (const field of jobData.form_fields || []) {
-        const value = getDeterministicFieldValue(profile, field);
-        if (value) fillPlan[field.name || field.label || ''] = value;
+      // If we have detected fields from the live form, build fillPlan from those
+      if (detectedFields && detectedFields.length > 0) {
+        for (const field of detectedFields) {
+          const fieldKey = field.key || field.label;
+
+          // Try to match detected field to profile data
+          const normalizedFieldKey = fieldKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+          for (const [profileKey, profileValue] of Object.entries(profileData)) {
+            const normalizedProfileKey = profileKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (
+              normalizedFieldKey.includes(normalizedProfileKey) ||
+              normalizedProfileKey.includes(normalizedFieldKey) ||
+              normalizedFieldKey === normalizedProfileKey
+            ) {
+              if (profileValue) {
+                fillPlan[fieldKey] = profileValue;
+              }
+              break;
+            }
+          }
+
+          // Try to get value using deterministic field value logic
+          if (!fillPlan[fieldKey]) {
+            const value = getDeterministicFieldValue(profile, {
+              label: field.label,
+              name: field.key,
+              type: field.type as 'text' | 'select' | 'checkbox' | 'radio',
+            });
+            if (value) {
+              fillPlan[fieldKey] = value;
+            }
+          }
+        }
+      } else {
+        // Fall back to using jobData.form_fields (from job listing page)
+        for (const field of jobData.form_fields || []) {
+          const value = getDeterministicFieldValue(profile, field);
+          if (value) fillPlan[field.name || field.label || ''] = value;
+        }
       }
 
-      // AI questions
+      // AI questions - check saved answers first, then call AI for the rest
       if (jobData.custom_questions && jobData.custom_questions.length > 0) {
-        const answers = await answerAllQuestions(
-          provider,
-          profile,
-          jobData,
-          jobData.custom_questions,
-          []
-        );
-        for (const [q, a] of answers.entries()) {
-          fillPlan[q] = a;
+        const unanswered = jobData.custom_questions.filter((q) => !q.answer);
+        const needsAI: typeof unanswered = [];
+
+        for (const q of unanswered) {
+          const saved = savedAnswersRepository.findSimilar(profile.id || 0, q.question, 1);
+          if (saved.length > 0) {
+            fillPlan[q.question] = saved[0].answer;
+          } else {
+            needsAI.push(q);
+          }
+        }
+
+        if (needsAI.length > 0) {
+          const answers = await answerAllQuestions(provider, profile, jobData, needsAI, []);
+          for (const [q, a] of answers.entries()) {
+            fillPlan[q] = a;
+            // Persist for future reuse
+            savedAnswersRepository.upsert(profile.id || 0, q, a);
+          }
         }
       }
 
@@ -730,6 +823,7 @@ export class ApplicationOrchestrator {
         fitResult,
         jobData,
         fillPlan,
+        profileData,
       };
     } catch (error) {
       return {

@@ -127,6 +127,14 @@ export class WorkdayScraper extends BaseScraper {
         }
       }
 
+      // Check for field-level validation errors before advancing
+      const hasErrors = await this.checkWorkdayValidationErrors();
+      if (hasErrors) {
+        errors.push('Validation errors on current step — some required fields may not have been filled');
+        // Do not advance; break out so the caller knows something is wrong
+        break;
+      }
+
       // Next button
       const nextButton = await this.page.$('[data-automation-id="bottom-navigation-next-button"], button:has-text("Next")');
       if (nextButton) {
@@ -278,6 +286,29 @@ export class WorkdayScraper extends BaseScraper {
     return name
       .replace(/-/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  private async checkWorkdayValidationErrors(): Promise<boolean> {
+    if (!this.page) return false;
+    try {
+      const errorSelectors = [
+        '[data-automation-id*="error"]:not([style*="display: none"])',
+        '.css-1or5op7', // Workday inline error class
+        '[class*="WDAI_Error"]:not([style*="display: none"])',
+        '[aria-invalid="true"]',
+        '.wd-error',
+      ];
+      for (const selector of errorSelectors) {
+        const errorEl = await this.page.$(selector);
+        if (errorEl) {
+          const isVisible = await errorEl.isVisible().catch(() => false);
+          if (isVisible) return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   private async extractCustomQuestions(): Promise<CustomQuestion[]> {

@@ -1,6 +1,9 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { applicationRepository } from '../db/repositories/application';
 import { profileRepository } from '../db/repositories/profile';
 import { configRepository } from '../db/repositories/config';
@@ -11,6 +14,43 @@ import { applicationQueue } from '../core/queue';
 import type { Platform, Profile, AppConfig, ApplicationStatus, AIConfig } from '../types';
 
 const DEFAULT_API_PORT = 8088;
+const TEMP_DOC_DIR = join(tmpdir(), 'autoply-extension');
+const TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+// Simple in-memory rate limiter for document generation
+const docGenRateLimit = new Map<string, { count: number; resetAt: number }>();
+const DOC_GEN_LIMIT = 10; // max requests per window
+const DOC_GEN_WINDOW_MS = 60 * 1000; // 1 minute
+
+function checkDocGenRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = docGenRateLimit.get(ip);
+  if (!entry || now > entry.resetAt) {
+    docGenRateLimit.set(ip, { count: 1, resetAt: now + DOC_GEN_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= DOC_GEN_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+function cleanupTempDocs(): void {
+  if (!existsSync(TEMP_DOC_DIR)) return;
+  const now = Date.now();
+  try {
+    for (const file of readdirSync(TEMP_DOC_DIR)) {
+      const filePath = join(TEMP_DOC_DIR, file);
+      try {
+        const { mtimeMs } = statSync(filePath);
+        if (now - mtimeMs > TEMP_FILE_MAX_AGE_MS) unlinkSync(filePath);
+      } catch {
+        // ignore individual file errors
+      }
+    }
+  } catch {
+    // ignore cleanup errors
+  }
+}
 
 const fastify = Fastify({
   logger: true,
@@ -19,9 +59,7 @@ const fastify = Fastify({
 
 // Plugins
 fastify.register(cors, {
-  origin: (origin, callback) => {
-    // Allow all origins for development (extension runs on chrome-extension://)
-    // In production, you might want to restrict this
+  origin: (_origin, callback) => {
     callback(null, true);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -194,6 +232,13 @@ interface ApplicationQueryParams {
 fastify.get('/applications', async (request) => {
   const { status, company } = request.query as ApplicationQueryParams;
   return applicationRepository.findAll({ status, company });
+});
+
+fastify.post('/applications/cleanup', async (request) => {
+  const { hours } = request.body as { hours?: number };
+  const staleHours = hours || 24;
+  const count = applicationRepository.markStaleAsFailed(staleHours);
+  return { success: true, cleaned: count };
 });
 
 fastify.delete<{ Params: { id: string } }>('/applications/:id', async (request, reply) => {
@@ -369,9 +414,20 @@ fastify.get('/queue/stats', async () => {
 
 // --- Scraper & Action Routes ---
 fastify.post('/jobs/passive-process', async (request, reply) => {
-  const { html, url, platform } = request.body as { html: string; url: string; platform: Platform };
+  const { html, url, platform, detectedFields } = request.body as {
+    html: string;
+    url: string;
+    platform: Platform;
+    detectedFields?: Array<{ key: string; type: string; label: string }>;
+  };
   try {
-    const result = await applicationOrchestrator.processJobPassively(html, url, platform);
+    const result = await applicationOrchestrator.processJobPassively(
+      html,
+      url,
+      platform,
+      {},
+      detectedFields
+    );
     return result;
   } catch (error) {
     return reply.status(500).send({ error: (error as Error).message });
@@ -388,6 +444,132 @@ fastify.post('/jobs/scrape', async (request, reply) => {
   }
 });
 
+// --- Profile Field Mapping (lightweight, no AI) ---
+fastify.post('/profile/map-fields', async (request, reply) => {
+  const { fields } = request.body as {
+    fields: Array<{ key: string; type: string; label: string }>;
+  };
+
+  if (!Array.isArray(fields) || fields.length === 0) {
+    return reply.status(400).send({ error: 'fields must be a non-empty array' });
+  }
+
+  const profile = profileRepository.findFirst();
+  if (!profile) {
+    return reply.status(400).send({ error: 'No profile found' });
+  }
+
+  const { getDeterministicFieldValue } = await import('../core/form-filler');
+
+  const profileData: Record<string, string> = {
+    firstName: profile.name.split(' ')[0] || '',
+    lastName: profile.name.split(' ').slice(1).join(' ') || '',
+    fullName: profile.name,
+    email: profile.email,
+    phone: profile.phone || '',
+    location: profile.location || '',
+    linkedin: profile.linkedin_url || '',
+    github: profile.github_url || '',
+    portfolio: profile.portfolio_url || '',
+  };
+
+  const fillPlan: Record<string, string> = {};
+
+  for (const field of fields) {
+    const fieldKey = field.key || field.label;
+    const normalized = fieldKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Direct profile key match
+    for (const [profileKey, profileValue] of Object.entries(profileData)) {
+      const normalizedProfileKey = profileKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (
+        normalized.includes(normalizedProfileKey) ||
+        normalizedProfileKey.includes(normalized) ||
+        normalized === normalizedProfileKey
+      ) {
+        if (profileValue) {
+          fillPlan[fieldKey] = profileValue;
+          break;
+        }
+      }
+    }
+
+    // Fallback: deterministic field matching
+    if (!fillPlan[fieldKey]) {
+      const value = getDeterministicFieldValue(profile, {
+        label: field.label,
+        name: field.key,
+        type: field.type as 'text' | 'select' | 'checkbox' | 'radio',
+      });
+      if (value) fillPlan[fieldKey] = value;
+    }
+  }
+
+  return { fillPlan };
+});
+
+// --- Document Generation Routes ---
+
+fastify.post('/documents/generate', async (request, reply) => {
+  const { url, type } = request.body as { url: string; type: 'resume' | 'cover-letter' | 'both' };
+
+  if (!url) {
+    return reply.status(400).send({ error: 'URL is required' });
+  }
+
+  const ip = request.ip || 'unknown';
+  if (!checkDocGenRateLimit(ip)) {
+    return reply
+      .status(429)
+      .send({ error: 'Too many document generation requests. Try again in a minute.' });
+  }
+
+  const profile = profileRepository.findFirst();
+  if (!profile) {
+    return reply.status(400).send({
+      error: 'No profile found. Please set up your profile first.',
+    });
+  }
+
+  try {
+    cleanupTempDocs();
+    if (!existsSync(TEMP_DOC_DIR)) {
+      mkdirSync(TEMP_DOC_DIR, { recursive: true });
+    }
+    const result = await applicationOrchestrator.generateDocuments(
+      url,
+      TEMP_DOC_DIR,
+      type ?? 'both'
+    );
+    return reply.send({
+      success: true,
+      resumePath: result.resumePath,
+      coverLetterPath: result.coverLetterPath,
+    });
+  } catch (error) {
+    return reply.status(500).send({ error: (error as Error).message });
+  }
+});
+
+fastify.get('/documents/download/:filename', async (request, reply) => {
+  const { filename } = request.params as { filename: string };
+  const filePath = join(TEMP_DOC_DIR, filename);
+
+  try {
+    if (!existsSync(filePath)) {
+      return reply.status(404).send({ error: 'File not found' });
+    }
+
+    const fs = await import('fs');
+    const stream = fs.createReadStream(filePath);
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return reply.send(stream);
+  } catch (error) {
+    return reply.status(500).send({ error: (error as Error).message });
+  }
+});
+
 // --- Start Server ---
 const start = async () => {
   try {
@@ -397,6 +579,11 @@ const start = async () => {
     await fastify.listen({ port, host });
     const displayHost = host === '0.0.0.0' ? 'localhost' : host;
     console.log(`Autoply API server running at http://${displayHost}:${port}`);
+    // Auto-cleanup stale pending applications on startup
+    const cleaned = applicationRepository.markStaleAsFailed(24);
+    if (cleaned > 0) {
+      console.log(`Auto-cleaned ${cleaned} stale application(s)`);
+    }
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

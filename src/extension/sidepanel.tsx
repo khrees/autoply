@@ -32,23 +32,18 @@ import {
   Linkedin,
   Github,
   Globe,
+  Link2,
+  Search,
+  Play,
+  Pause,
+  ArrowRight,
+  Download,
+  Edit3,
 } from 'lucide-react';
 import type { Profile, AppConfig, Application } from '../types';
 import { detectPlatform } from '../utils/url-parser';
 
 const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
-
-const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-  <h4 className="text-[10px] uppercase font-bold tracking-[0.25em] text-zinc-500 mb-5 px-1">
-    {children}
-  </h4>
-);
-
-const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-});
 
 const NON_SCRIPTABLE_PROTOCOLS = [
   'chrome:',
@@ -69,12 +64,21 @@ function sortApplications(applications: Application[]): Application[] {
 
 function getApplicationDate(application: Application): string {
   const rawDate = application.applied_at || application.created_at;
-  if (!rawDate) {
-    return 'Date unavailable';
-  }
+  if (!rawDate) return 'Unknown date';
 
   const timestamp = Date.parse(rawDate);
-  return Number.isNaN(timestamp) ? 'Date unavailable' : DATE_FORMATTER.format(timestamp);
+  if (Number.isNaN(timestamp)) return 'Unknown date';
+
+  const now = new Date();
+  const date = new Date(timestamp);
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
 }
 
 function isProfile(value: unknown): value is Profile {
@@ -82,268 +86,1355 @@ function isProfile(value: unknown): value is Profile {
 }
 
 function getUnsupportedTabMessage(url?: string): string | null {
-  if (!url) {
-    return 'Open a job application page before running Autofill.';
-  }
+  if (!url) return 'Open a job application page before running Autofill.';
 
   try {
     const parsed = new URL(url);
     if (NON_SCRIPTABLE_PROTOCOLS.includes(parsed.protocol)) {
-      return `Autofill cannot run on ${parsed.protocol}// pages. Open a normal job application tab first.`;
+      return `Autofill cannot run on ${parsed.protocol} pages. Open a normal job application tab first.`;
     }
-
     if (parsed.hostname === 'chromewebstore.google.com') {
-      return 'Autofill cannot run on Chrome Web Store pages. Open a job application page first.';
+      return 'Autofill cannot run on Chrome Web Store pages.';
     }
   } catch {
     return 'Open a valid job application page before running Autofill.';
   }
-
   return null;
 }
 
-// Profile Form Components
-const ProfileField = ({
-  icon,
-  label,
-  value,
+const SkeletonLine = ({
+  width = '100%',
+  height = '1rem',
+  className = '',
 }: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
+  width?: string;
+  height?: string;
+  className?: string;
+}) => <div className={`skeleton ${className}`} style={{ width, height }} />;
+
+const SkeletonCard = () => (
+  <div className="card">
+    <div className="flex items-center gap-4 mb-4">
+      <div className="skeleton w-12 h-12 rounded-lg" />
+      <div className="flex-1">
+        <SkeletonLine width="60%" height="1rem" />
+        <SkeletonLine width="40%" height="0.75rem" className="mt-2" />
+      </div>
+    </div>
+    <SkeletonLine width="100%" height="3rem" />
+  </div>
+);
+
+const LoadingState = () => (
+  <div className="flex flex-col items-center justify-center h-full gap-4">
+    <div className="w-10 h-10 border-2 border-zinc-800 border-t-blue-500 rounded-full animate-spin" />
+    <p className="text-sm text-zinc-500">Connecting to Autoply…</p>
+  </div>
+);
+
+const ConnectionBanner = ({ connected }: { connected: boolean }) => (
+  <div
+    className={`px-4 py-2 flex items-center justify-between text-xs font-medium ${
+      connected
+        ? 'bg-emerald-500/10 text-emerald-400 border-b border-emerald-500/20'
+        : 'bg-rose-500/10 text-rose-400 border-b border-rose-500/20'
+    }`}
+  >
+    <span className="flex items-center gap-2">
+      <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+      {connected ? 'Engine Ready' : 'Engine Offline'}
+    </span>
+    {!connected && <span className="text-rose-300/70">Run `bun run api`</span>}
+  </div>
+);
+
+const Header = ({ connected }: { connected: boolean }) => (
+  <header className="flex items-center px-5 py-4 border-b border-[var(--border-subtle)]">
+    <div className="flex items-center gap-3">
+      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
+        <Zap className="w-5 h-5 text-white" />
+      </div>
+      <div>
+        <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)]">Autoply</h1>
+        <p className="text-[0.6875rem] text-[var(--text-tertiary)]">Job Application Automator</p>
+      </div>
+    </div>
+  </header>
+);
+
+const ActionCard = ({
+  onApply,
+  isApplying,
+  connected,
+  error,
+  onRetry,
+  onDismissError,
+}: {
+  onApply: () => void;
+  isApplying: boolean;
+  connected: boolean;
+  error: string | null;
+  onRetry?: () => void;
+  onDismissError?: () => void;
 }) => (
-  <div className="flex items-center gap-3">
-    <div className="text-zinc-500">{icon}</div>
-    <div>
-      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{label}: </span>
-      <span className="text-sm text-zinc-200">{value}</span>
+  <div className="card relative overflow-hidden group">
+    <div className="absolute top-0 right-0 p-6 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity pointer-events-none">
+      <Sparkles className="w-20 h-20 text-white" />
+    </div>
+
+    <div className="relative z-10 space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20">
+          <Shield className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">Apply Instantly</h2>
+          <p className="text-xs text-[var(--text-tertiary)]">AI-powered form autofill</p>
+        </div>
+      </div>
+
+      <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+        Our AI scans the current page, detects form fields, and maps your profile data
+        automatically.
+      </p>
+
+      {error && (
+        <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-start gap-2 text-xs text-rose-300">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p>{error}</p>
+            {error.includes('connection') && onRetry && (
+              <button onClick={onRetry} className="mt-2 text-rose-200 underline">
+                Retry connection
+              </button>
+            )}
+          </div>
+          {onDismissError && (
+            <button
+              onClick={onDismissError}
+              className="p-1 rounded hover:bg-rose-500/20 text-rose-300"
+              aria-label="Dismiss error"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={onApply}
+        disabled={!connected || isApplying}
+        className="btn btn-primary btn-lg w-full shadow-lg shadow-blue-500/20"
+      >
+        {isApplying ? (
+          <>
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span>Analyzing form…</span>
+          </>
+        ) : !connected ? (
+          <>
+            <AlertCircle className="w-5 h-5" />
+            <span>Server Offline</span>
+          </>
+        ) : (
+          <>
+            <Zap className="w-5 h-5" />
+            <span>Fill Application</span>
+            <ArrowRight className="w-4 h-4" />
+          </>
+        )}
+      </button>
     </div>
   </div>
 );
 
-const InputField = ({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  placeholder,
+const GenerateDocumentsCard = ({
+  currentUrl,
+  onGenerate,
+  isGenerating,
+  generatedDocs,
+  connected,
 }: {
-  label: string;
-  value?: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
+  currentUrl: string | undefined;
+  onGenerate: (type: 'resume' | 'cover-letter' | 'both') => void;
+  isGenerating: boolean;
+  generatedDocs: { resume?: string; coverLetter?: string } | null;
+  connected: boolean;
 }) => {
-  const [localValue, setLocalValue] = React.useState(value || '');
+  const isValidJobUrl =
+    currentUrl && !NON_SCRIPTABLE_PROTOCOLS.some((p) => currentUrl.startsWith(p));
 
-  React.useEffect(() => {
-    setLocalValue(value || '');
-  }, [value]);
+  if (!isValidJobUrl) {
+    return null;
+  }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalValue(e.target.value);
-    onChange(e.target.value);
+  const handleDownload = async (filename: string) => {
+    const apiBase = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
+    const link = document.createElement('a');
+    link.href = `${apiBase}/documents/download/${encodeURIComponent(filename)}`;
+    link.download = filename;
+    link.click();
   };
 
   return (
-    <div className="space-y-2">
-      <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-        {label}
-      </label>
-      <input
-        type={type}
-        value={localValue}
-        onChange={handleChange}
-        placeholder={placeholder}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        className="w-full bg-zinc-950 border border-white/10 rounded-[12px] px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:ring-1 focus:ring-navy-blue outline-none"
-      />
+    <div className="card space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500 border border-purple-500/20">
+          <FileText className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-[var(--text-primary)]">Generate Documents</h2>
+          <p className="text-xs text-[var(--text-tertiary)]">AI-tailored for this job</p>
+        </div>
+      </div>
+
+      {generatedDocs ? (
+        <div className="space-y-2">
+          {generatedDocs.resume && (
+            <button
+              onClick={() => handleDownload(generatedDocs.resume!)}
+              className="btn btn-secondary w-full justify-between"
+            >
+              <span className="flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Resume
+              </span>
+              <Download className="w-4 h-4" />
+            </button>
+          )}
+          {generatedDocs.coverLetter && (
+            <button
+              onClick={() => handleDownload(generatedDocs.coverLetter!)}
+              className="btn btn-secondary w-full justify-between"
+            >
+              <span className="flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Cover Letter
+              </span>
+              <Download className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={() => onGenerate('both')}
+            disabled={isGenerating}
+            className="btn btn-primary w-full"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating…
+              </>
+            ) : (
+              <>
+                <RefreshCcw className="w-4 h-4" />
+                Regenerate
+              </>
+            )}
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => onGenerate('resume')}
+            disabled={!connected || isGenerating}
+            className="btn btn-secondary"
+          >
+            {isGenerating ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileText className="w-4 h-4" />
+            )}
+            Resume
+          </button>
+          <button
+            onClick={() => onGenerate('cover-letter')}
+            disabled={!connected || isGenerating}
+            className="btn btn-secondary"
+          >
+            {isGenerating ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FileText className="w-4 h-4" />
+            )}
+            Cover Letter
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
-const SkillTextarea = ({
+const StatCard = ({
+  label,
   value,
-  onChange,
+  suffix = '',
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  label: string;
+  value: number | string;
+  suffix?: string;
+}) => (
+  <div className="card p-4 flex flex-col gap-1">
+    <span className="stat-label">{label}</span>
+    <span className="stat-value text-[var(--text-primary)]">
+      {value}
+      {suffix && (
+        <span className="text-sm font-normal text-[var(--text-tertiary)] ml-0.5">{suffix}</span>
+      )}
+    </span>
+  </div>
+);
+
+const StatusBadge = ({ status }: { status: string }) => {
+  const statusConfig: Record<string, { class: string; label: string }> = {
+    submitted: { class: 'badge-success', label: 'Submitted' },
+    filled: { class: 'badge-info', label: 'Filled' },
+    pending: { class: 'badge-warning', label: 'Pending' },
+    failed: { class: 'badge-error', label: 'Failed' },
+  };
+  const config = statusConfig[status] || statusConfig.pending;
+  return <span className={`badge ${config.class}`}>{config.label}</span>;
+};
+
+const ApplicationCard = ({
+  application,
+  onDelete,
+  onPreview,
+}: {
+  application: Application;
+  onDelete: () => void;
+  onPreview?: () => void;
 }) => {
-  const [localValue, setLocalValue] = React.useState(value);
-
-  React.useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setLocalValue(e.target.value);
-    onChange(e.target.value);
+  const statusIcon = {
+    submitted: <CheckCircle className="w-4 h-4 text-emerald-400" />,
+    filled: <FileText className="w-4 h-4 text-blue-400" />,
+    pending: <Clock className="w-4 h-4 text-amber-400" />,
+    failed: <AlertCircle className="w-4 h-4 text-rose-400" />,
   };
 
   return (
-    <textarea
-      value={localValue}
-      onChange={handleChange}
-      placeholder="React, TypeScript, Node.js, Python..."
-      autoComplete="off"
-      autoCorrect="off"
-      autoCapitalize="off"
-      spellCheck={false}
-      className="w-full h-24 bg-zinc-950 border border-white/10 rounded-[12px] px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:ring-1 focus:ring-navy-blue outline-none resize-none"
-    />
+    <div className="card card-interactive p-4 flex items-center gap-4 group">
+      <div className="w-10 h-10 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center text-[var(--text-tertiary)] group-hover:bg-blue-500/10 group-hover:text-blue-400 transition-colors">
+        {statusIcon[application.status as keyof typeof statusIcon] || statusIcon.pending}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <h4 className="text-sm font-semibold text-[var(--text-primary)] truncate">
+          {application.company || 'Unknown Company'}
+        </h4>
+        <p className="text-xs text-[var(--text-tertiary)] truncate">
+          {application.job_title || 'Untitled position'}
+        </p>
+      </div>
+
+      <StatusBadge status={application.status} />
+
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {onPreview && application.generated_resume && (
+          <button
+            onClick={onPreview}
+            className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label="Preview documents"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        )}
+        <button
+          onClick={() => {
+            if (confirm(`Delete "${application.company}" application?`)) {
+              onDelete();
+            }
+          }}
+          className="p-2 rounded-lg hover:bg-rose-500/10 text-[var(--text-tertiary)] hover:text-rose-400 transition-colors"
+          aria-label="Delete application"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
   );
 };
 
-interface ProfileFormProps {
-  initialData: Partial<Profile>;
-  onChange: (data: Partial<Profile>) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  onImport: () => void;
-  isSaving: boolean;
-}
+const EmptyState = ({
+  icon: Icon,
+  title,
+  description,
+  action,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) => (
+  <div className="empty-state">
+    <div className="empty-state-icon">
+      <Icon className="w-6 h-6" />
+    </div>
+    <h3 className="empty-state-title">{title}</h3>
+    <p className="empty-state-description">{description}</p>
+    {action && <div className="mt-4">{action}</div>}
+  </div>
+);
 
-const ProfileForm = ({
-  initialData,
+const ProfileCard = ({
+  profile,
+  onEdit,
+  onDelete,
+}: {
+  profile: Profile | null;
+  onEdit: () => void;
+  onDelete?: () => void;
+}) => {
+  if (!profile) {
+    return (
+      <div className="card">
+        <EmptyState
+          icon={User}
+          title="No profile set up"
+          description="Add your details to autofill applications faster"
+          action={
+            <button onClick={onEdit} className="btn btn-primary btn-sm">
+              <Plus className="w-4 h-4" />
+              Create Profile
+            </button>
+          }
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="card space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-blue-500/25">
+            {profile.name?.charAt(0)?.toUpperCase() || '?'}
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-[var(--text-primary)]">{profile.name}</h3>
+            <p className="text-xs text-[var(--text-tertiary)]">{profile.email}</p>
+          </div>
+        </div>
+        <button onClick={onEdit} className="btn btn-secondary btn-sm">
+          Edit
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 pt-2">
+        {profile.phone && (
+          <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            <Phone className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+            <span className="truncate">{profile.phone}</span>
+          </div>
+        )}
+        {profile.location && (
+          <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            <MapPin className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+            <span className="truncate">{profile.location}</span>
+          </div>
+        )}
+      </div>
+
+      {(profile.linkedin_url || profile.github_url || profile.portfolio_url) && (
+        <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)]">
+          {profile.linkedin_url && (
+            <a
+              href={profile.linkedin_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+              aria-label="LinkedIn profile"
+            >
+              <Linkedin className="w-4 h-4" />
+            </a>
+          )}
+          {profile.github_url && (
+            <a
+              href={profile.github_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+              aria-label="GitHub profile"
+            >
+              <Github className="w-4 h-4" />
+            </a>
+          )}
+          {profile.portfolio_url && (
+            <a
+              href={profile.portfolio_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+              aria-label="Portfolio"
+            >
+              <Globe className="w-4 h-4" />
+            </a>
+          )}
+        </div>
+      )}
+
+      {profile.skills && profile.skills.length > 0 && (
+        <div className="pt-2 border-t border-[var(--border-subtle)]">
+          <p className="text-[0.6875rem] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-2">
+            Skills
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {profile.skills.slice(0, 10).map((skill, i) => (
+              <span
+                key={i}
+                className="px-2 py-1 rounded-md bg-[var(--bg-tertiary)] text-xs text-[var(--text-secondary)] border border-[var(--border-subtle)]"
+              >
+                {skill}
+              </span>
+            ))}
+            {profile.skills.length > 10 && (
+              <span className="px-2 py-1 text-xs text-[var(--text-tertiary)]">
+                +{profile.skills.length - 10} more
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Phone = ({ className }: { className?: string }) => (
+  <svg
+    className={className}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+  </svg>
+);
+
+const QuickStats = ({
+  timeSaved,
+  applicationsCount,
+}: {
+  timeSaved: number;
+  applicationsCount: number;
+}) => (
+  <div className="grid grid-cols-2 gap-3">
+    <StatCard label="Time Saved" value={timeSaved} suffix="min" />
+    <StatCard label="Applications" value={applicationsCount} />
+  </div>
+);
+
+const FilterTabs = ({
+  active,
   onChange,
+}: {
+  active: string;
+  onChange: (filter: string) => void;
+}) => {
+  const filters = ['all', 'pending', 'filled', 'submitted', 'failed'];
+  return (
+    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide pb-1 -mx-2 px-2">
+      {filters.map((filter) => (
+        <button
+          key={filter}
+          onClick={() => onChange(filter)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+            active === filter
+              ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]'
+              : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+          }`}
+        >
+          {filter.charAt(0).toUpperCase() + filter.slice(1)}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+const BulkSection = ({
+  urls,
+  onUrlsChange,
+  onAdd,
+  onProcess,
+  stats,
+  isProcessing,
+}: {
+  urls: string;
+  onUrlsChange: (urls: string) => void;
+  onAdd: () => void;
+  onProcess: () => void;
+  stats: { pending: number; completed: number; failed: number } | null;
+  isProcessing: boolean;
+}) => (
+  <div className="card space-y-4">
+    <div className="flex items-center gap-2">
+      <Link2 className="w-4 h-4 text-[var(--text-tertiary)]" />
+      <h3 className="text-sm font-semibold text-[var(--text-primary)]">Bulk Apply</h3>
+    </div>
+
+    <textarea
+      value={urls}
+      onChange={(e) => onUrlsChange(e.target.value)}
+      placeholder="Paste job URLs here (one per line)…"
+      className="input h-24 resize-none"
+      aria-label="Job URLs for bulk application"
+    />
+
+    <div className="flex gap-2">
+      <button onClick={onAdd} className="btn btn-secondary flex-1">
+        <Plus className="w-4 h-4" />
+        Add to Queue
+      </button>
+      <button
+        onClick={onProcess}
+        disabled={isProcessing || !stats || stats.pending === 0}
+        className="btn btn-primary flex-1"
+      >
+        {isProcessing ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Processing…
+          </>
+        ) : (
+          <>
+            <Play className="w-4 h-4" />
+            Process Queue
+          </>
+        )}
+      </button>
+    </div>
+
+    {stats && (stats.pending > 0 || stats.completed > 0 || stats.failed > 0) && (
+      <div className="flex items-center justify-center gap-4 text-xs">
+        <span className="text-[var(--text-tertiary)]">
+          Pending: <span className="font-semibold text-amber-400">{stats.pending}</span>
+        </span>
+        <span className="text-[var(--text-tertiary)]">
+          Done: <span className="font-semibold text-emerald-400">{stats.completed}</span>
+        </span>
+        <span className="text-[var(--text-tertiary)]">
+          Failed: <span className="font-semibold text-rose-400">{stats.failed}</span>
+        </span>
+      </div>
+    )}
+  </div>
+);
+
+const SettingsSection = ({
+  config,
+  onUpdate,
+}: {
+  config: AppConfig | null;
+  onUpdate: (config: Partial<AppConfig>) => void;
+}) => {
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  if (!config) return null;
+
+  const aiProviders = [
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'anthropic', label: 'Anthropic' },
+    { value: 'google', label: 'Google' },
+    { value: 'ollama', label: 'Ollama (Local)' },
+    { value: 'lmstudio', label: 'LM Studio (Local)' },
+  ];
+
+  const handleTestConnection = async () => {
+    setTestStatus('testing');
+    setTestMessage('');
+    try {
+      const res = await fetch(`${API_BASE}/config/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ai: config.ai }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestStatus('success');
+        setTestMessage('Connected successfully');
+      } else {
+        setTestStatus('error');
+        setTestMessage(data.error || 'Connection failed');
+      }
+    } catch {
+      setTestStatus('error');
+      setTestMessage('Failed to connect to API');
+    }
+    setTimeout(() => setTestStatus('idle'), 3000);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-blue-500" />
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI Configuration</h3>
+        </div>
+
+        <div className="space-y-3">
+          <label className="label">Provider</label>
+          <select
+            value={config.ai.provider}
+            onChange={(e) => onUpdate({ ai: { ...config.ai, provider: e.target.value as any } })}
+            className="input appearance-none cursor-pointer"
+            aria-label="AI provider"
+          >
+            {aiProviders.map((provider) => (
+              <option key={provider.value} value={provider.value}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {['openai', 'anthropic', 'google'].includes(config.ai.provider) && (
+          <div className="space-y-3">
+            <label className="label">API Key</label>
+            <input
+              type="password"
+              value={config.ai.apiKey || ''}
+              onChange={(e) => onUpdate({ ai: { ...config.ai, apiKey: e.target.value } })}
+              placeholder={`Enter ${config.ai.provider.toUpperCase()} API key…`}
+              className="input font-mono"
+              aria-label="API key"
+            />
+          </div>
+        )}
+
+        {['ollama', 'lmstudio'].includes(config.ai.provider) && (
+          <div className="space-y-3">
+            <label className="label">Local Endpoint</label>
+            <input
+              type="text"
+              value={config.ai.baseUrl || ''}
+              onChange={(e) => onUpdate({ ai: { ...config.ai, baseUrl: e.target.value } })}
+              placeholder={
+                config.ai.provider === 'ollama' ? 'http://localhost:11434' : 'http://localhost:1234'
+              }
+              className="input font-mono"
+              aria-label="Local endpoint URL"
+            />
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <label className="label">Model</label>
+          <input
+            type="text"
+            value={config.ai.model || ''}
+            onChange={(e) => onUpdate({ ai: { ...config.ai, model: e.target.value } })}
+            placeholder="e.g., gpt-4, claude-3, llama3"
+            className="input"
+            aria-label="AI model"
+          />
+        </div>
+
+        <button
+          onClick={handleTestConnection}
+          disabled={testStatus === 'testing'}
+          className={`btn w-full ${
+            testStatus === 'success'
+              ? 'btn-primary bg-emerald-500 hover:bg-emerald-600'
+              : testStatus === 'error'
+                ? 'btn-secondary border-rose-500/50 text-rose-400'
+                : 'btn-secondary'
+          }`}
+        >
+          {testStatus === 'testing' ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Testing…
+            </>
+          ) : testStatus === 'success' ? (
+            <>
+              <CheckCircle className="w-4 h-4" />
+              Connected
+            </>
+          ) : testStatus === 'error' ? (
+            <>
+              <AlertCircle className="w-4 h-4" />
+              {testMessage}
+            </>
+          ) : (
+            <>
+              <CheckCircle className="w-4 h-4" />
+              Test Connection
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Preferences</h3>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-[var(--text-primary)]">Auto-submit</p>
+              <p className="text-xs text-[var(--text-tertiary)]">
+                Automatically submit after filling
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={config.application.autoSubmit}
+              onClick={() =>
+                onUpdate({
+                  application: {
+                    ...config.application,
+                    autoSubmit: !config.application.autoSubmit,
+                  },
+                })
+              }
+              className="toggle"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-[var(--text-primary)]">Vault Encryption</p>
+              <p className="text-xs text-[var(--text-tertiary)]">AES-256 profile protection</p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={config.application.vaultEncryption}
+              onClick={() =>
+                onUpdate({
+                  application: {
+                    ...config.application,
+                    vaultEncryption: !config.application.vaultEncryption,
+                  },
+                })
+              }
+              className="toggle"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PreviewModal = ({ app, onClose }: { app: Application; onClose: () => void }) => (
+  <div
+    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in overscroll-contain"
+    onClick={(e) => e.target === e.currentTarget && onClose()}
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="preview-title"
+  >
+    <div className="bg-[var(--bg-secondary)] w-full sm:max-w-lg sm:rounded-xl rounded-t-xl h-[85vh] sm:h-auto sm:max-h-[85vh] flex flex-col animate-slide-up sm:animate-scale-in">
+      <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)] shrink-0">
+        <div>
+          <h3 id="preview-title" className="text-base font-semibold text-[var(--text-primary)]">
+            Generated Documents
+          </h3>
+          <p className="text-xs text-[var(--text-tertiary)]">{app.company}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] transition-colors"
+          aria-label="Close preview"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {app.generated_resume && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+              <FileText className="w-4 h-4" />
+              Resume
+            </div>
+            <div className="p-3 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-subtle)]">
+              <pre className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto">
+                {app.generated_resume}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        {app.generated_cover_letter && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+              <FileText className="w-4 h-4" />
+              Cover Letter
+            </div>
+            <div className="p-3 bg-[var(--bg-primary)] rounded-lg border border-[var(--border-subtle)]">
+              <pre className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto">
+                {app.generated_cover_letter}
+              </pre>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+const ProfileFormModal = ({
+  profile,
   onSave,
   onCancel,
   onImport,
   isSaving,
-}: ProfileFormProps) => {
-  const data = initialData || {};
+}: {
+  profile: Partial<Profile> | null;
+  onSave: () => void;
+  onCancel: () => void;
+  onImport: () => void;
+  isSaving: boolean;
+}) => {
+  const [form, setForm] = useState<Partial<Profile>>(profile || {});
+
+  const updateField = (field: keyof Profile, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="glass rounded-[24px] p-6 border-white/5">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-white">
-            {data.name ? 'Edit Profile' : 'Create Profile'}
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in overscroll-contain">
+      <div className="bg-[var(--bg-secondary)] w-full sm:max-w-lg sm:rounded-xl rounded-t-xl h-[85vh] sm:h-auto sm:max-h-[85vh] flex flex-col animate-slide-up sm:animate-scale-in">
+        <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)] shrink-0">
+          <h3 className="text-base font-semibold text-[var(--text-primary)]">
+            {profile?.name ? 'Edit Profile' : 'Create Profile'}
           </h3>
           <button
-            onClick={onImport}
-            disabled={isSaving}
-            className="flex items-center gap-2 px-4 py-2 rounded-[12px] border border-white/10 bg-white/[0.03] text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-200 hover:bg-white/[0.08] transition-all disabled:opacity-50"
-          >
-            <Upload className="w-4 h-4" />
-            Import Resume
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <InputField
-              label="Full Name"
-              value={data.name}
-              onChange={(v) => onChange({ ...data, name: v })}
-              placeholder="John Doe"
-            />
-            <InputField
-              label="Email"
-              value={data.email}
-              onChange={(v) => onChange({ ...data, email: v })}
-              type="email"
-              placeholder="john@example.com"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <InputField
-              label="Phone"
-              value={data.phone}
-              onChange={(v) => onChange({ ...data, phone: v })}
-              type="tel"
-              placeholder="+1 (555) 123-4567"
-            />
-            <InputField
-              label="Location"
-              value={data.location}
-              onChange={(v) => onChange({ ...data, location: v })}
-              placeholder="San Francisco, CA"
-            />
-          </div>
-
-          <InputField
-            label="LinkedIn URL"
-            value={data.linkedin_url}
-            onChange={(v) => onChange({ ...data, linkedin_url: v })}
-            placeholder="https://linkedin.com/in/johndoe"
-          />
-
-          <InputField
-            label="GitHub URL"
-            value={data.github_url}
-            onChange={(v) => onChange({ ...data, github_url: v })}
-            placeholder="https://github.com/johndoe"
-          />
-
-          <InputField
-            label="Portfolio URL"
-            value={data.portfolio_url}
-            onChange={(v) => onChange({ ...data, portfolio_url: v })}
-            placeholder="https://johndoe.com"
-          />
-        </div>
-      </div>
-
-      {/* Skills Input */}
-      <div className="glass rounded-[24px] p-6 border-white/5">
-        <div className="flex items-center gap-2 mb-4">
-          <Code className="w-4 h-4 text-zinc-500" />
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-            Skills
-          </label>
-        </div>
-        <SkillTextarea
-          value={(data.skills as unknown as string[])?.join(', ') || ''}
-          onChange={(v) => {
-            const skills = v
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean);
-            onChange({ ...data, skills });
-          }}
-        />
-        <p className="text-[10px] text-zinc-600 mt-2">Separate skills with commas</p>
-      </div>
-
-      <div className="flex gap-3">
-        <button
-          onClick={onSave}
-          disabled={isSaving || !data.name || !data.email}
-          className="flex-1 py-4 rounded-[14px] bg-[#002e5d] text-white text-[12px] font-bold uppercase tracking-[0.1em] hover:bg-[#003d7a] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-navy-blue/30"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4" />
-              Save Profile
-            </>
-          )}
-        </button>
-        {data.name && (
-          <button
             onClick={onCancel}
-            disabled={isSaving}
-            className="px-6 py-4 rounded-[14px] border border-white/10 text-zinc-400 text-[12px] font-bold uppercase tracking-[0.1em] hover:text-white hover:border-white/20 transition-all"
+            className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] transition-colors"
+            aria-label="Close form"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
-        )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label htmlFor="name" className="label">
+                Full Name
+              </label>
+              <input
+                id="name"
+                type="text"
+                value={form.name || ''}
+                onChange={(e) => updateField('name', e.target.value)}
+                placeholder="John Doe"
+                className="input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="label">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={form.email || ''}
+                onChange={(e) => updateField('email', e.target.value)}
+                placeholder="john@example.com"
+                className="input"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label htmlFor="phone" className="label">
+                Phone
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                value={form.phone || ''}
+                onChange={(e) => updateField('phone', e.target.value)}
+                placeholder="+1 (555) 123-4567"
+                className="input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="location" className="label">
+                Location
+              </label>
+              <input
+                id="location"
+                type="text"
+                value={form.location || ''}
+                onChange={(e) => updateField('location', e.target.value)}
+                placeholder="San Francisco, CA"
+                className="input"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="linkedin" className="label">
+              LinkedIn URL
+            </label>
+            <input
+              id="linkedin"
+              type="url"
+              value={form.linkedin_url || ''}
+              onChange={(e) => updateField('linkedin_url', e.target.value)}
+              placeholder="https://linkedin.com/in/johndoe"
+              className="input"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="github" className="label">
+              GitHub URL
+            </label>
+            <input
+              id="github"
+              type="url"
+              value={form.github_url || ''}
+              onChange={(e) => updateField('github_url', e.target.value)}
+              placeholder="https://github.com/johndoe"
+              className="input"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="portfolio" className="label">
+              Portfolio URL
+            </label>
+            <input
+              id="portfolio"
+              type="url"
+              value={form.portfolio_url || ''}
+              onChange={(e) => updateField('portfolio_url', e.target.value)}
+              placeholder="https://johndoe.com"
+              className="input"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="skills" className="label">
+              Skills (comma-separated)
+            </label>
+            <textarea
+              id="skills"
+              value={(form.skills as unknown as string[])?.join(', ') || ''}
+              onChange={(e) => {
+                const skills = e.target.value
+                  .split(',')
+                  .map((s) => s.trim())
+                  .filter(Boolean);
+                updateField('skills' as keyof Profile, skills as any);
+              }}
+              placeholder="React, TypeScript, Node.js…"
+              className="input h-20 resize-none"
+            />
+          </div>
+        </div>
+
+        <div className="p-4 border-t border-[var(--border-subtle)] flex gap-3 shrink-0">
+          <button onClick={onImport} className="btn btn-secondary flex-1" disabled={isSaving}>
+            <Upload className="w-4 h-4" />
+            Import
+          </button>
+          <button
+            onClick={onSave}
+            className="btn btn-primary flex-1"
+            disabled={isSaving || !form.name || !form.email}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                Save Profile
+              </>
+            )}
+          </button>
+        </div>
       </div>
+    </div>
+  );
+};
+
+const FILL_DISPLAY_NAMES: Record<string, string> = {
+  firstName: 'First name',
+  lastName: 'Last name',
+  fullName: 'Full name',
+  email: 'Email',
+  phone: 'Phone',
+  linkedin: 'LinkedIn',
+  linkedinUrl: 'LinkedIn',
+  github: 'GitHub',
+  portfolio: 'Portfolio',
+  location: 'Location',
+  resume_upload: 'Resume file',
+};
+
+const FillReportCard = ({
+  report,
+  onDismiss,
+  onRefill,
+}: {
+  report: { filled: Array<{ key: string; value: string }>; skipped: number };
+  onDismiss: () => void;
+  onRefill: (fieldKey: string, value: string) => Promise<boolean>;
+}) => {
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [refillState, setRefillState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+
+  if (report.filled.length === 0) return null;
+
+  const startEdit = (key: string, value: string) => {
+    if (key === 'resume_upload') return;
+    setEditingKey(key);
+    setEditValue(value);
+    setRefillState('idle');
+  };
+
+  const cancelEdit = () => {
+    setEditingKey(null);
+    setEditValue('');
+    setRefillState('idle');
+  };
+
+  const commitRefill = async () => {
+    if (!editingKey || !editValue.trim()) return;
+    setRefillState('loading');
+    const success = await onRefill(editingKey, editValue.trim());
+    setRefillState(success ? 'success' : 'error');
+    if (success) {
+      setTimeout(() => {
+        setEditingKey(null);
+        setEditValue('');
+        setRefillState('idle');
+      }, 1200);
+    }
+  };
+
+  return (
+    <div className="card space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-emerald-400" />
+          <span className="text-sm font-semibold text-[var(--text-primary)]">
+            {report.filled.length} field{report.filled.length !== 1 ? 's' : ''} filled
+          </span>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]"
+          aria-label="Dismiss"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {report.filled.map(({ key, value }) => {
+          const isEditing = editingKey === key;
+          const isResume = key === 'resume_upload';
+          return (
+            <button
+              key={key}
+              onClick={() => startEdit(key, value)}
+              disabled={isResume}
+              title={isResume ? undefined : 'Click to correct'}
+              className={`px-2 py-0.5 rounded-full text-xs border transition-colors flex items-center gap-1 ${
+                isEditing
+                  ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                  : isResume
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 cursor-default'
+                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-blue-500/10 hover:text-blue-300 hover:border-blue-500/30'
+              }`}
+            >
+              {FILL_DISPLAY_NAMES[key] || key}
+              {!isResume && <Edit3 className="w-2.5 h-2.5 opacity-50" />}
+            </button>
+          );
+        })}
+      </div>
+
+      {editingKey && (
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-2">
+          <p className="text-xs text-[var(--text-tertiary)]">
+            Correct{' '}
+            <span className="text-blue-300 font-medium">
+              {FILL_DISPLAY_NAMES[editingKey] || editingKey}
+            </span>
+          </p>
+          <input
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRefill();
+              if (e.key === 'Escape') cancelEdit();
+            }}
+            className="input text-sm py-1.5"
+            autoFocus
+            disabled={refillState === 'loading'}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={cancelEdit}
+              disabled={refillState === 'loading'}
+              className="btn btn-secondary btn-sm flex-1"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={commitRefill}
+              disabled={refillState === 'loading' || !editValue.trim()}
+              className={`btn btn-sm flex-1 ${
+                refillState === 'success'
+                  ? 'btn-primary bg-emerald-500 hover:bg-emerald-600'
+                  : refillState === 'error'
+                    ? 'btn-secondary border-rose-500/50 text-rose-400'
+                    : 'btn-primary'
+              }`}
+            >
+              {refillState === 'loading' ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Filling…
+                </>
+              ) : refillState === 'success' ? (
+                <>
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Done
+                </>
+              ) : refillState === 'error' ? (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Failed
+                </>
+              ) : (
+                <>
+                  <RefreshCcw className="w-3.5 h-3.5" />
+                  Re-fill
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {report.skipped > 0 && (
+        <p className="text-xs text-[var(--text-tertiary)]">
+          {report.skipped} field{report.skipped !== 1 ? 's' : ''} may need manual review
+        </p>
+      )}
+    </div>
+  );
+};
+
+const AnalyticsSection = ({ applications }: { applications: Application[] }) => {
+  if (applications.length === 0) {
+    return (
+      <div className="card">
+        <EmptyState
+          icon={Target}
+          title="No data yet"
+          description="Apply to some jobs to see your analytics"
+        />
+      </div>
+    );
+  }
+
+  const total = applications.length;
+  const submitted = applications.filter((a) => a.status === 'submitted').length;
+  const failed = applications.filter((a) => a.status === 'failed').length;
+  const pending = applications.filter((a) => a.status === 'pending').length;
+  const filled = applications.filter((a) => a.status === 'filled').length;
+  const successRate = total > 0 ? Math.round((submitted / total) * 100) : 0;
+
+  // Platform breakdown
+  const platformCounts: Record<string, number> = {};
+  for (const app of applications) {
+    platformCounts[app.platform] = (platformCounts[app.platform] || 0) + 1;
+  }
+  const topPlatforms = Object.entries(platformCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  // Last 7 days
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const recentCount = applications.filter(
+    (a) => Date.parse(a.applied_at || a.created_at || '') > sevenDaysAgo
+  ).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="card text-center space-y-1">
+          <p className="text-2xl font-bold text-[var(--text-primary)]">{total}</p>
+          <p className="text-xs text-[var(--text-tertiary)]">Total Applied</p>
+        </div>
+        <div className="card text-center space-y-1">
+          <p className="text-2xl font-bold text-emerald-400">{successRate}%</p>
+          <p className="text-xs text-[var(--text-tertiary)]">Submitted Rate</p>
+        </div>
+        <div className="card text-center space-y-1">
+          <p className="text-2xl font-bold text-blue-400">{recentCount}</p>
+          <p className="text-xs text-[var(--text-tertiary)]">Last 7 Days</p>
+        </div>
+        <div className="card text-center space-y-1">
+          <p className="text-2xl font-bold text-rose-400">{failed}</p>
+          <p className="text-xs text-[var(--text-tertiary)]">Failed</p>
+        </div>
+      </div>
+
+      <div className="card space-y-3">
+        <h4 className="text-sm font-semibold text-[var(--text-primary)]">Status Breakdown</h4>
+        {[
+          { label: 'Submitted', count: submitted, color: 'bg-emerald-400' },
+          { label: 'Filled', count: filled, color: 'bg-blue-400' },
+          { label: 'Pending', count: pending, color: 'bg-amber-400' },
+          { label: 'Failed', count: failed, color: 'bg-rose-400' },
+        ].map(({ label, count, color }) => (
+          <div key={label} className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-[var(--text-secondary)]">{label}</span>
+              <span className="text-[var(--text-tertiary)]">{count}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
+              <div
+                className={`h-full rounded-full ${color}`}
+                style={{ width: total > 0 ? `${(count / total) * 100}%` : '0%' }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {topPlatforms.length > 0 && (
+        <div className="card space-y-3">
+          <h4 className="text-sm font-semibold text-[var(--text-primary)]">Top Platforms</h4>
+          {topPlatforms.map(([platform, count]) => (
+            <div key={platform} className="flex justify-between items-center text-xs">
+              <span className="text-[var(--text-secondary)] capitalize">{platform}</span>
+              <span className="px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">
+                {count}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'analytics' | 'profile' | 'settings'>(
+    'dashboard'
+  );
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -351,13 +1442,10 @@ const App = () => {
   const [timeSaved, setTimeSaved] = useState(0);
   const [applications, setApplications] = useState<Application[]>([]);
   const [recentApps, setRecentApps] = useState<Application[]>([]);
-  const [recentFilter, setRecentFilter] = useState<
-    'all' | 'pending' | 'filled' | 'submitted' | 'failed'
-  >('all');
+  const [recentFilter, setRecentFilter] = useState<string>('all');
   const [isApplying, setIsApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editForm, setEditForm] = useState<Partial<Profile>>({});
+  const [showProfileForm, setShowProfileForm] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [bulkUrls, setBulkUrls] = useState('');
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
@@ -367,6 +1455,16 @@ const App = () => {
     failed: number;
   } | null>(null);
   const [previewApp, setPreviewApp] = useState<Application | null>(null);
+  const [isGeneratingDocs, setIsGeneratingDocs] = useState(false);
+  const [generatedDocs, setGeneratedDocs] = useState<{
+    resume?: string;
+    coverLetter?: string;
+  } | null>(null);
+  const [currentTabUrl, setCurrentTabUrl] = useState<string | undefined>();
+  const [fillReport, setFillReport] = useState<{
+    filled: Array<{ key: string; value: string }>;
+    skipped: number;
+  } | null>(null);
 
   const checkConnection = useCallback(async () => {
     try {
@@ -388,24 +1486,71 @@ const App = () => {
     checkConnection();
   }, [checkConnection]);
 
-  const updateAppConfig = async (newConfig: any) => {
+  useEffect(() => {
+    const getTabUrl = async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab?.url) {
+          setCurrentTabUrl(tab.url);
+        }
+      } catch {
+        // Extension context not available
+      }
+    };
+    getTabUrl();
+
+    const interval = setInterval(getTabUrl, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleGenerateDocuments = async (type: 'resume' | 'cover-letter' | 'both') => {
+    if (!currentTabUrl) {
+      setError('No active job URL detected');
+      return;
+    }
+
+    if (!connected) {
+      setError('API server not connected. Make sure to run "bun run api".');
+      return;
+    }
+
+    setIsGeneratingDocs(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/documents/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: currentTabUrl, type }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGeneratedDocs({
+          resume: data.resumePath?.split('/').pop(),
+          coverLetter: data.coverLetterPath?.split('/').pop(),
+        });
+      } else {
+        setError(data.error || 'Failed to generate documents');
+      }
+    } catch (err) {
+      setError('Failed to connect to API server. Make sure "bun run api" is running.');
+    } finally {
+      setIsGeneratingDocs(false);
+    }
+  };
+
+  const updateAppConfig = async (newConfig: Partial<AppConfig>) => {
     if (!config) return;
 
-    // Deep-ish merge helper for the common 2-level config structure
-    const updated = { ...config };
-    for (const key in newConfig) {
-      if (
-        typeof newConfig[key] === 'object' &&
-        newConfig[key] !== null &&
-        !Array.isArray(newConfig[key])
-      ) {
-        updated[key as keyof AppConfig] = {
-          ...(updated[key as keyof AppConfig] as any),
-          ...newConfig[key],
-        } as any;
-      } else {
-        updated[key as keyof AppConfig] = newConfig[key];
-      }
+    const updated: AppConfig = { ...config };
+
+    if (newConfig.ai) {
+      updated.ai = { ...config.ai, ...newConfig.ai };
+    }
+    if (newConfig.application) {
+      updated.application = { ...config.application, ...newConfig.application };
+    }
+    if (newConfig.browser) {
+      updated.browser = { ...config.browser, ...newConfig.browser };
     }
 
     setConfig(updated);
@@ -422,6 +1567,12 @@ const App = () => {
 
   const loadData = async () => {
     try {
+      fetch(`${API_BASE}/applications/cleanup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hours: 24 }),
+      }).catch(() => {});
+
       const [configRes, profileRes, appsRes, queueRes] = await Promise.all([
         fetch(`${API_BASE}/config`),
         fetch(`${API_BASE}/profile`),
@@ -430,14 +1581,13 @@ const App = () => {
       ]);
 
       if (!configRes.ok || !profileRes.ok || !appsRes.ok) {
-        throw new Error('Failed to load extension data from the local API');
+        throw new Error('Failed to load extension data');
       }
 
       const configData = (await configRes.json()) as AppConfig;
       const profileData = await profileRes.json();
       const appsData = sortApplications((await appsRes.json()) as Application[]);
 
-      // Load queue stats if available
       if (queueRes?.ok) {
         const queueData = await queueRes.json();
         setBulkStats({
@@ -458,22 +1608,21 @@ const App = () => {
     }
   };
 
-  const saveProfile = async () => {
+  const saveProfile = async (formData: Partial<Profile>) => {
     setIsSavingProfile(true);
     try {
       const res = await fetch(`${API_BASE}/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...editForm,
+          ...formData,
           id: profile?.id,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setProfile(data.profile || data);
-        setIsEditingProfile(false);
-        setEditForm({});
+        setShowProfileForm(false);
       } else {
         setError(data.error || 'Failed to save profile');
       }
@@ -486,9 +1635,7 @@ const App = () => {
 
   const deleteApplication = async (id: number) => {
     try {
-      const res = await fetch(`${API_BASE}/applications/${id}`, {
-        method: 'DELETE',
-      });
+      const res = await fetch(`${API_BASE}/applications/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setApplications((prev) => prev.filter((app) => app.id !== id));
         setRecentApps((prev) => prev.filter((app) => app.id !== id));
@@ -517,8 +1664,7 @@ const App = () => {
         const data = await res.json();
         if (res.ok) {
           setProfile(data.profile);
-          setEditForm({});
-          setIsEditingProfile(false);
+          setShowProfileForm(false);
         } else {
           setError(data.error || 'Failed to import profile');
         }
@@ -556,10 +1702,10 @@ const App = () => {
         }));
         setBulkUrls('');
       } else {
-        setError(data.error || 'Failed to add URLs to queue');
+        setError(data.error || 'Failed to add URLs');
       }
     } catch {
-      setError('Failed to add URLs to queue');
+      setError('Failed to add URLs');
     }
   };
 
@@ -582,7 +1728,7 @@ const App = () => {
           completed: data.stats.completed,
           failed: data.stats.failed,
         });
-        await loadData(); // Refresh applications list
+        await loadData();
       } else {
         setError(data.error || 'Bulk processing failed');
       }
@@ -607,8 +1753,12 @@ const App = () => {
         }
 
         try {
+          // Inject into main frame
+          await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+
+          // Also inject into all frames (handles Ashby and other iframe-based forms)
           await chrome.scripting.executeScript({
-            target: { tabId },
+            target: { tabId, allFrames: true },
             files: ['content.js'],
           });
 
@@ -619,9 +1769,8 @@ const App = () => {
             typeof injectionError?.message === 'string'
               ? injectionError.message
               : 'Unknown injection error';
-
           throw new Error(
-            `Could not attach to the current page. Reload the tab and try again. (${injectionMessage})`
+            `Could not attach to the page. Reload and try again. (${injectionMessage})`
           );
         }
       }
@@ -630,52 +1779,149 @@ const App = () => {
   };
 
   const handleAutofill = async () => {
-    if (!connected || isApplying) return;
+    if (isApplying) return;
     setIsApplying(true);
     setError(null);
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab.id) throw new Error('No active tab found');
+
       const unsupportedTabMessage = getUnsupportedTabMessage(tab.url);
       if (unsupportedTabMessage) {
         throw new Error(unsupportedTabMessage);
       }
 
-      // 1. Get HTML from page
-      const pageData = await sendMessageToTab(tab.id, { type: 'GET_PAGE_DATA' }, tab.url);
-      if (!pageData?.html || !pageData?.url) {
-        throw new Error('Unable to inspect the active page');
+      // Step 1: Get profile (fast, local API call)
+      const profileRes = await fetch(`${API_BASE}/profile`);
+      if (!profileRes.ok) {
+        throw new Error('Failed to load profile');
       }
-      const { html, url } = pageData;
+      const profileData = await profileRes.json();
 
-      // Determine platform
-      const platform = detectPlatform(url) ?? 'generic';
-
-      // 2. Process passively
-      const res = await fetch(`${API_BASE}/jobs/passive-process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html, url, platform }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to process job data');
+      if (!profileData || !profileData.name) {
+        throw new Error('No profile found. Please set up your profile first.');
       }
 
-      const result = await res.json();
-      if (!result.success) throw new Error(result.error || 'Processing failed');
+      // Step 1.5: Detect form fields and get AI-backed fill plan as fallback
+      let fillPlan: Record<string, string> = {};
+      try {
+        const detectedFields = await sendMessageToTab(tab.id, { type: 'GET_FORM_FIELDS' }, tab.url);
+        if (detectedFields?.fields?.length > 0) {
+          const mapRes = await fetch(`${API_BASE}/profile/map-fields`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: detectedFields.fields }),
+          });
+          if (mapRes.ok) {
+            const mapped = await mapRes.json();
+            fillPlan = mapped.fillPlan || {};
+          }
+        }
+      } catch {
+        // fillPlan is optional; proceed without it
+      }
 
-      // 3. Trigger local autofill
-      await sendMessageToTab(
-        tab.id,
-        {
-          type: 'AUTOFILL_FORM',
-          fillPlan: result.fillPlan,
-          documents: result.documents,
-        },
-        tab.url
-      );
+      // Step 1.6: Fetch resume PDF as base64 if already generated (for file upload fields)
+      let resumeBase64: string | undefined;
+      let resumeFilename: string | undefined;
+      if (generatedDocs?.resume) {
+        try {
+          const resumeRes = await fetch(`${API_BASE}/documents/download/${encodeURIComponent(generatedDocs.resume)}`);
+          if (resumeRes.ok) {
+            const blob = await resumeRes.blob();
+            resumeBase64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+            resumeFilename = generatedDocs.resume;
+          }
+        } catch {
+          // resume upload is optional, continue without it
+        }
+      }
+
+      // Step 2: Send profile directly to content script - it fills instantly using autocomplete
+      try {
+        const profilePayload = {
+          type: 'AUTOFILL_WITH_PROFILE',
+          fillPlan,
+          documents: resumeBase64 ? { resume: resumeBase64, resumeFilename } : undefined,
+          profile: {
+            firstName: profileData.name?.split(' ')[0] || '',
+            lastName: profileData.name?.split(' ').slice(1).join(' ') || '',
+            fullName: profileData.name || '',
+            email: profileData.email || '',
+            phone: profileData.phone || '',
+            location: profileData.location || '',
+            linkedin: profileData.linkedin_url || '',
+            linkedinUrl: profileData.linkedin_url || '',
+            github: profileData.github_url || '',
+            portfolio: profileData.portfolio_url || '',
+            // Workable/Ashby fields
+            address: profileData.address || profileData.location || '',
+            city: profileData.city || '',
+            postcode: profileData.postcode || profileData.zip || '',
+            country: profileData.country || '',
+            state: profileData.state || '',
+            headline: profileData.headline || profileData.name || '',
+          },
+        };
+
+        // Send to main frame first
+        const fillResult = await sendMessageToTab(tab.id, profilePayload, tab.url);
+
+        // For Ashby and other iframe-based platforms, also try to send to all frames
+        try {
+          const frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id });
+          console.log(
+            'Autoply: Found frames:',
+            frames?.map((f) => ({ id: f.frameId, url: f.url?.slice(0, 50) }))
+          );
+
+          for (const frame of frames || []) {
+            if (frame.frameId !== 0) {
+              try {
+                console.log('Autoply: Trying to send to frame', frame.frameId);
+                await chrome.tabs.sendMessage(tab.id, profilePayload, { frameId: frame.frameId });
+                console.log('Autoply: Successfully sent to frame', frame.frameId);
+              } catch (e) {
+                console.log('Autoply: Could not send to frame', frame.frameId, e);
+              }
+            }
+          }
+        } catch (e) {
+          console.log('Autoply: webNavigation error:', e);
+        }
+
+        if (fillResult?.success) {
+          console.log('Autoply: Filled', fillResult.filled?.length || 0, 'fields');
+          const profileKeyToValue: Record<string, string> = {
+            firstName: profileData.name?.split(' ')[0] || '',
+            lastName: profileData.name?.split(' ').slice(1).join(' ') || '',
+            fullName: profileData.name || '',
+            email: profileData.email || '',
+            phone: profileData.phone || '',
+            linkedin: profileData.linkedin_url || '',
+            linkedinUrl: profileData.linkedin_url || '',
+            github: profileData.github_url || '',
+            portfolio: profileData.portfolio_url || '',
+            location: profileData.location || '',
+            resume_upload: '',
+          };
+          const filledArr: string[] = fillResult?.filled || [];
+          setFillReport({
+            filled: filledArr.map((key) => ({ key, value: profileKeyToValue[key] ?? '' })),
+            skipped: filledArr.length === 0 ? 0 : Math.max(0, 8 - filledArr.length),
+          });
+        } else if (fillResult?.error) {
+          throw new Error(fillResult.error);
+        }
+      } catch (fillError: any) {
+        console.error('Fill execution failed:', fillError);
+        throw new Error(fillError.message || 'Form fill failed');
+      }
+
       await loadData();
     } catch (err: any) {
       console.error('Autofill failed', err);
@@ -685,260 +1931,118 @@ const App = () => {
     }
   };
 
-  if (loading)
+  const handleRefillField = async (fieldKey: string, value: string): Promise<boolean> => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab.id) return false;
+      const result = await sendMessageToTab(tab.id, { type: 'REFILL_FIELD', fieldKey, value }, tab.url);
+      if (result?.success) {
+        setFillReport((prev) =>
+          prev
+            ? { ...prev, filled: prev.filled.map((f) => (f.key === fieldKey ? { ...f, value } : f)) }
+            : prev
+        );
+      }
+      return result?.success === true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleRetry = async () => {
+    setError(null);
+    setIsApplying(true);
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab.id) {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+        setConnected(true);
+      } catch (e: any) {
+        setError(`Re-injection failed: ${e.message}`);
+      }
+    }
+    setIsApplying(false);
+  };
+
+  if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#050505] text-center px-6">
-        <div className="w-8 h-8 border-2 border-zinc-800 border-t-blue-500 rounded-full animate-spin mb-4"></div>
-        <p className="text-sm text-zinc-500">Connecting to Autoply...</p>
+      <div className="h-screen bg-[var(--bg-primary)]">
+        <LoadingState />
       </div>
     );
+  }
+
+  const filteredApps =
+    recentFilter === 'all'
+      ? applications.slice(0, 10)
+      : applications.filter((app) => app.status === recentFilter);
 
   return (
-    <div className="relative flex flex-col h-screen bg-[#050505] text-white font-sans selection:bg-navy-blue/30 overflow-hidden">
-      {/* Top Header */}
-      <header className="px-6 py-6 flex items-center justify-between z-10">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 flex items-center justify-center">
-            <img src="assets/icon128.png" alt="Autoply Logo" className="w-9 h-9 object-contain" />
-          </div>
-          <div className="flex flex-col">
-            <h1 className="text-xl font-bold tracking-tight font-display text-white">Autoply</h1>
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]' : 'bg-rose-500'}`}
-              />
-              <span className="text-[9px] uppercase font-bold tracking-[0.15em] text-zinc-500">
-                {connected ? 'Engine Ready' : 'Engine Offline'}
-              </span>
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={() => setActiveTab(activeTab === 'settings' ? 'dashboard' : 'settings')}
-          className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/[0.03] transition-all text-zinc-500 hover:text-white border border-transparent hover:border-white/10"
-        >
-          <SettingsIcon
-            className={`w-5 h-5 transition-transform duration-700 ${activeTab === 'settings' ? 'rotate-180' : ''}`}
-          />
-        </button>
-      </header>
+    <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
+      <ConnectionBanner connected={connected} />
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto px-6 py-2 space-y-6 custom-scrollbar pb-24">
+      <Header connected={connected} />
+
+      <main className="flex-1 overflow-y-auto px-4 py-4 pb-24 space-y-4">
         {activeTab === 'dashboard' && (
-          <div className="space-y-6 animate-fade-in">
-            {/* Action Section */}
-            <div className="glass rounded-[24px] p-7 relative overflow-hidden group border-white/5">
-              <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
-                <Sparkles className="w-16 h-16 text-white" />
-              </div>
+          <div className="space-y-4">
+            <ActionCard
+              onApply={handleAutofill}
+              isApplying={isApplying}
+              connected={connected}
+              error={error}
+              onRetry={handleRetry}
+              onDismissError={() => setError(null)}
+            />
 
-              <div className="space-y-6 relative z-10">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-navy-blue/10 flex items-center justify-center text-navy-blue border border-navy-blue/10">
-                    <Shield className="w-5 h-5" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
-                      Intelligent Autofill
-                    </span>
-                  </div>
-                </div>
+            {fillReport && (
+              <FillReportCard
+                report={fillReport}
+                onDismiss={() => setFillReport(null)}
+                onRefill={handleRefillField}
+              />
+            )}
 
-                <div>
-                  <h2 className="text-2xl font-bold font-display mb-2 leading-tight">
-                    Apply Instantly
-                  </h2>
-                  <p className="text-sm text-zinc-400 leading-relaxed font-medium">
-                    Our AI scans the current page, detects form fields, and maps your profile data
-                    automatically.
-                  </p>
-                </div>
+            <GenerateDocumentsCard
+              currentUrl={currentTabUrl}
+              onGenerate={handleGenerateDocuments}
+              isGenerating={isGeneratingDocs}
+              generatedDocs={generatedDocs}
+              connected={connected}
+            />
 
-                {error && (
-                  <div className="animate-fade-in space-y-4">
-                    <div className="p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl flex gap-3 text-xs text-rose-400">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                      <p className="font-medium leading-relaxed">{error}</p>
-                    </div>
-                    {error.includes('connection') && (
-                      <button
-                        onClick={async () => {
-                          setError(null);
-                          setIsApplying(true);
-                          const [tab] = await chrome.tabs.query({
-                            active: true,
-                            currentWindow: true,
-                          });
-                          if (tab.id) {
-                            try {
-                              await chrome.scripting.executeScript({
-                                target: { tabId: tab.id },
-                                files: ['content.js'],
-                              });
-                              setConnected(true);
-                            } catch (e: any) {
-                              setError(`Re-injection failed: ${e.message}`);
-                            }
-                          }
-                          setIsApplying(false);
-                        }}
-                        className="w-full py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-white hover:text-navy-blue transition-colors flex items-center justify-center gap-2 border border-white/5 rounded-lg hover:bg-white"
-                      >
-                        <RefreshCcw className="w-3 h-3" />
-                        Force Repair Connection
-                      </button>
-                    )}
-                  </div>
-                )}
+            <QuickStats timeSaved={timeSaved} applicationsCount={applications.length} />
 
-                <button
-                  onClick={handleAutofill}
-                  disabled={!connected || isApplying}
-                  className={`btn-primary w-full py-4 text-sm flex items-center justify-center gap-3 shadow-navy-blue/40 shadow-xl ${isApplying || !connected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {isApplying ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      <span className="tracking-wide">Analyzing Form...</span>
-                    </>
-                  ) : !connected ? (
-                    <>
-                      <AlertCircle className="w-4 h-4" />
-                      <span className="tracking-wide">Server Offline</span>
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="w-4 h-4 fill-current" />
-                      <span className="tracking-wide">Fill Application</span>
-                    </>
-                  )}
-                </button>
-
-                {!connected && (
-                  <p className="text-[10px] text-zinc-500 text-center mt-2">
-                    Start the API server:{' '}
-                    <code className="bg-zinc-800 px-1 rounded">bun run api</code>
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Stats Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="glass rounded-[20px] p-5 flex flex-col gap-2 border-white/5">
-                <div className="flex items-center gap-2 text-zinc-500">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.15em]">
-                    Time Saved
-                  </span>
-                </div>
-                <div className="text-3xl font-display font-bold text-white tabular-nums tracking-tighter">
-                  {timeSaved}
-                  <span className="text-sm font-medium text-zinc-500 ml-1">m</span>
-                </div>
-              </div>
-              <div className="glass rounded-[20px] p-5 flex flex-col gap-2 border-white/5">
-                <div className="flex items-center gap-2 text-zinc-500">
-                  <Target className="w-3.5 h-3.5" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.15em]">Success</span>
-                </div>
-                <div className="text-3xl font-display font-bold text-white tabular-nums tracking-tighter">
-                  98.2<span className="text-sm font-medium text-zinc-500 ml-1">%</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Recent Activity */}
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <SectionTitle>Recent Activity</SectionTitle>
-                <div className="flex gap-1">
-                  {(['all', 'pending', 'filled', 'submitted', 'failed'] as const).map((filter) => (
-                    <button
-                      key={filter}
-                      onClick={() => setRecentFilter(filter)}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-[0.1em] transition-all ${
-                        recentFilter === filter
-                          ? filter === 'all'
-                            ? 'bg-white/10 text-white'
-                            : filter === 'pending'
-                              ? 'bg-amber-500/20 text-amber-300'
-                              : filter === 'filled'
-                                ? 'bg-sky-500/20 text-sky-300'
-                                : filter === 'submitted'
-                                  ? 'bg-emerald-500/20 text-emerald-300'
-                                  : 'bg-rose-500/20 text-rose-300'
-                          : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
-                      }`}
-                    >
-                      {filter}
-                    </button>
-                  ))}
-                </div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  Recent Activity
+                </h3>
               </div>
-              <div className="space-y-3">
-                {recentApps.filter((app) => recentFilter === 'all' || app.status === recentFilter)
-                  .length > 0 ? (
-                  recentApps
-                    .filter((app) => recentFilter === 'all' || app.status === recentFilter)
-                    .map((app, i) => (
-                      <div
-                        key={app.id}
-                        className="flex items-center justify-between p-4 rounded-xl border border-white/[0.03] bg-white/[0.02] hover:bg-white/[0.04] transition-all cursor-pointer group"
-                        style={{ animationDelay: `${i * 50}ms` }}
-                      >
-                        <div className="flex items-center gap-4 min-w-0">
-                          <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-500 group-hover:bg-[#002e5d] group-hover:text-white group-hover:border-navy-blue transition-all duration-500">
-                            {app.status === 'submitted' ? (
-                              <CheckCircle className="w-5 h-5 text-emerald-400" />
-                            ) : app.status === 'failed' ? (
-                              <AlertCircle className="w-5 h-5 text-rose-400" />
-                            ) : app.status === 'filled' ? (
-                              <FileText className="w-5 h-5 text-sky-400" />
-                            ) : (
-                              <Clock className="w-5 h-5 text-amber-400" />
-                            )}
-                          </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-sm font-bold text-zinc-200 truncate group-hover:text-white transition-colors">
-                              {app.company}
-                            </span>
-                            <span className="text-[11px] text-zinc-500 font-medium">
-                              {getApplicationDate(app)}
-                            </span>
-                          </div>
-                        </div>
-                        <span
-                          className={`text-[10px] font-bold uppercase tracking-[0.1em] px-2 py-1 rounded-full ${
-                            app.status === 'submitted'
-                              ? 'bg-emerald-500/10 text-emerald-300'
-                              : app.status === 'failed'
-                                ? 'bg-rose-500/10 text-rose-300'
-                                : app.status === 'filled'
-                                  ? 'bg-sky-500/10 text-sky-300'
-                                  : 'bg-amber-500/10 text-amber-300'
-                          }`}
-                        >
-                          {app.status}
-                        </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (app.id && confirm(`Delete "${app.company}" application?`)) {
-                              deleteApplication(app.id);
-                            }
-                          }}
-                          className="p-2 rounded-lg text-zinc-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))
+              <FilterTabs active={recentFilter} onChange={setRecentFilter} />
+
+              <div className="space-y-2">
+                {filteredApps.length > 0 ? (
+                  filteredApps.map((app, i) => (
+                    <div
+                      key={app.id}
+                      className="animate-fade-in"
+                      style={{ animationDelay: `${i * 50}ms` }}
+                    >
+                      <ApplicationCard
+                        application={app}
+                        onDelete={() => app.id && deleteApplication(app.id)}
+                        onPreview={() => setPreviewApp(app)}
+                      />
+                    </div>
+                  ))
                 ) : (
-                  <div className="text-center py-10 rounded-2xl border border-dashed border-white/10 text-[11px] font-medium text-zinc-600 tracking-wide uppercase">
-                    No {recentFilter === 'all' ? '' : recentFilter} applications yet
+                  <div className="card">
+                    <EmptyState
+                      icon={History}
+                      title="No applications yet"
+                      description="Your application history will appear here"
+                    />
                   </div>
                 )}
               </div>
@@ -947,596 +2051,127 @@ const App = () => {
         )}
 
         {activeTab === 'history' && (
-          <div className="space-y-5 animate-fade-in pb-10">
-            <SectionTitle>Application History</SectionTitle>
-            <div className="glass rounded-[24px] border-white/5 overflow-hidden divide-y divide-white/[0.04]">
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+              Application History
+            </h3>
+            <div className="space-y-2">
               {applications.length > 0 ? (
-                applications.map((app) => {
-                  const statusClasses =
-                    app.status === 'submitted'
-                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/10'
-                      : app.status === 'failed'
-                        ? 'bg-rose-500/10 text-rose-300 border-rose-500/10'
-                        : app.status === 'filled'
-                          ? 'bg-sky-500/10 text-sky-300 border-sky-500/10'
-                          : 'bg-amber-500/10 text-amber-300 border-amber-500/10';
-
-                  return (
-                    <div key={app.id ?? `${app.url}-${app.created_at}`} className="p-5 space-y-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0 space-y-1">
-                          <p className="text-sm font-bold text-white truncate">
-                            {app.job_title || 'Untitled role'}
-                          </p>
-                          <div className="flex items-center gap-2 text-[11px] text-zinc-500 font-medium">
-                            <span className="truncate">{app.company || 'Unknown company'}</span>
-                            <span className="text-zinc-700">/</span>
-                            <span>{getApplicationDate(app)}</span>
-                          </div>
-                        </div>
-                        <span
-                          className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${statusClasses}`}
-                        >
-                          {app.status}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        <span className="truncate">{app.platform}</span>
-                        {app.status === 'filled' && (
-                          <>
-                            <span className="text-zinc-700">/</span>
-                            <span>Ready for manual review</span>
-                          </>
-                        )}
-                      </div>
-
-                      {app.error_message && (
-                        <div className="rounded-xl border border-rose-500/10 bg-rose-500/5 px-4 py-3 text-[11px] text-rose-300 leading-relaxed">
-                          {app.error_message}
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-3">
-                        {(app.generated_resume || app.generated_cover_letter) && (
-                          <button
-                            onClick={() => setPreviewApp(app)}
-                            className="rounded-[14px] border border-white/10 bg-white/[0.03] px-4 py-3 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-200 transition-all hover:bg-white/[0.08]"
-                          >
-                            <span className="flex items-center justify-center gap-2">
-                              <FileText className="w-3.5 h-3.5" />
-                              Preview
-                            </span>
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            void chrome.tabs.create({ url: app.url });
-                          }}
-                          className="flex-1 rounded-[14px] border border-white/10 bg-white/[0.03] px-4 py-3 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-200 transition-all hover:bg-white/[0.08]"
-                        >
-                          <span className="flex items-center justify-center gap-2">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            Open Listing
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => setActiveTab('dashboard')}
-                          className="rounded-[14px] border border-white/10 px-4 py-3 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-400 transition-all hover:border-white/20 hover:text-white"
-                        >
-                          <span className="flex items-center gap-2">
-                            <Eye className="w-3.5 h-3.5" />
-                            Return
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
+                applications.map((app, i) => (
+                  <div
+                    key={app.id ?? `${app.url}-${app.created_at}`}
+                    className="animate-fade-in"
+                    style={{ animationDelay: `${i * 30}ms` }}
+                  >
+                    <ApplicationCard
+                      application={app}
+                      onDelete={() => app.id && deleteApplication(app.id)}
+                      onPreview={() => setPreviewApp(app)}
+                    />
+                  </div>
+                ))
               ) : (
-                <div className="px-6 py-12 text-center space-y-3">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-zinc-500">
-                    <History className="w-5 h-5" />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-bold text-zinc-200">No applications tracked yet</p>
-                    <p className="text-[11px] font-medium text-zinc-500">
-                      Run an application from the CLI or use the fill action on a supported job
-                      page.
-                    </p>
-                  </div>
+                <div className="card">
+                  <EmptyState
+                    icon={History}
+                    title="No applications tracked"
+                    description="Use autofill on a job page to start tracking"
+                  />
                 </div>
               )}
             </div>
-
-            {profile && (
-              <div className="glass rounded-[20px] p-5 border-white/5">
-                <div className="flex items-center gap-3 text-zinc-500 mb-3">
-                  <ShieldCheck className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.16em]">
-                    Active Profile
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-bold text-white">{profile.name}</p>
-                  <p className="text-[11px] text-zinc-500 font-medium">{profile.email}</p>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
-        {/* Profile Tab */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Analytics</h3>
+            <AnalyticsSection applications={applications} />
+          </div>
+        )}
+
         {activeTab === 'profile' && (
-          <div className="space-y-6 animate-fade-in pb-10">
-            {!profile || isEditingProfile ? (
-              <ProfileForm
-                initialData={profile || editForm}
-                onChange={setEditForm}
-                onSave={saveProfile}
-                onCancel={() => {
-                  setIsEditingProfile(false);
-                  setEditForm({});
-                }}
-                onImport={importProfileFromResume}
-                isSaving={isSavingProfile}
-              />
-            ) : (
-              <>
-                <div className="glass rounded-[24px] p-6 border-white/5">
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-[#002e5d] flex items-center justify-center">
-                        <User className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-bold text-white">{profile.name}</h3>
-                        <p className="text-xs text-zinc-500">{profile.email}</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setEditForm(profile);
-                        setIsEditingProfile(true);
-                      }}
-                      className="px-4 py-2 rounded-[12px] border border-white/10 bg-white/[0.03] text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-200 hover:bg-white/[0.08] transition-all"
-                    >
-                      Edit
-                    </button>
-                  </div>
+          <div className="space-y-4">
+            <ProfileCard profile={profile} onEdit={() => setShowProfileForm(true)} />
 
-                  <div className="space-y-4">
-                    {profile.phone && (
-                      <ProfileField
-                        icon={<Clock className="w-4 h-4" />}
-                        label="Phone"
-                        value={profile.phone}
-                      />
-                    )}
-                    {profile.location && (
-                      <ProfileField
-                        icon={<MapPin className="w-4 h-4" />}
-                        label="Location"
-                        value={profile.location}
-                      />
-                    )}
-                    {profile.linkedin_url && (
-                      <ProfileField
-                        icon={<Linkedin className="w-4 h-4" />}
-                        label="LinkedIn"
-                        value={profile.linkedin_url}
-                      />
-                    )}
-                    {profile.github_url && (
-                      <ProfileField
-                        icon={<Github className="w-4 h-4" />}
-                        label="GitHub"
-                        value={profile.github_url}
-                      />
-                    )}
-                    {profile.portfolio_url && (
-                      <ProfileField
-                        icon={<Globe className="w-4 h-4" />}
-                        label="Portfolio"
-                        value={profile.portfolio_url}
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {profile.experience && profile.experience.length > 0 && (
-                  <div className="glass rounded-[24px] p-6 border-white/5">
-                    <SectionTitle>Experience</SectionTitle>
-                    <div className="space-y-4">
-                      {profile.experience.slice(0, 3).map((exp, i) => (
-                        <div key={i} className="border-l-2 border-white/10 pl-4">
-                          <div className="flex items-center gap-2">
-                            <Briefcase className="w-4 h-4 text-zinc-500" />
-                            <span className="text-sm font-bold text-white">{exp.title}</span>
-                          </div>
-                          <p className="text-xs text-zinc-400 ml-6">{exp.company}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {profile.skills && profile.skills.length > 0 && (
-                  <div className="glass rounded-[24px] p-6 border-white/5">
-                    <SectionTitle>Skills</SectionTitle>
-                    <div className="flex flex-wrap gap-2">
-                      {profile.skills.slice(0, 15).map((skill, i) => (
-                        <span
-                          key={i}
-                          className="px-3 py-1.5 rounded-full bg-white/5 text-[11px] font-medium text-zinc-300 border border-white/10"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {profile.education && profile.education.length > 0 && (
-                  <div className="glass rounded-[24px] p-6 border-white/5">
-                    <SectionTitle>Education</SectionTitle>
-                    <div className="space-y-3">
-                      {profile.education.map((edu, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <GraduationCap className="w-4 h-4 text-zinc-500" />
-                          <span className="text-sm font-medium text-white">{edu.degree}</span>
-                          <span className="text-xs text-zinc-500">@ {edu.institution}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* Bulk Mode Section */}
-            <div className="glass rounded-[24px] p-6 border-white/5">
-              <SectionTitle>Bulk Apply</SectionTitle>
-              <div className="space-y-4">
-                <textarea
-                  value={bulkUrls}
-                  onChange={(e) => setBulkUrls(e.target.value)}
-                  placeholder="Paste job URLs here (one per line)..."
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  className="w-full h-32 bg-zinc-950 border border-white/10 rounded-[12px] px-4 py-3 text-xs text-zinc-200 placeholder:text-zinc-600 focus:ring-1 focus:ring-navy-blue outline-none resize-none pointer-events-auto"
-                />
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleBulkAdd}
-                    className="flex-1 py-3 rounded-[12px] border border-white/10 bg-white/[0.03] text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-200 hover:bg-white/[0.08] transition-all flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add to Queue
-                  </button>
-                  <button
-                    onClick={handleBulkProcess}
-                    disabled={isBulkProcessing || !bulkStats || bulkStats.pending === 0}
-                    className="flex-1 py-3 rounded-[12px] bg-[#002e5d] text-white text-[10px] font-bold uppercase tracking-[0.1em] hover:bg-[#003d7a] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isBulkProcessing ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Zap className="w-4 h-4" />
-                        Process Queue
-                      </>
-                    )}
-                  </button>
-                </div>
-                {bulkStats &&
-                  (bulkStats.pending > 0 || bulkStats.completed > 0 || bulkStats.failed > 0) && (
-                    <div className="flex justify-center gap-6 text-[11px]">
-                      <span className="text-zinc-500">
-                        Pending:{' '}
-                        <span className="text-amber-400 font-bold">{bulkStats.pending}</span>
-                      </span>
-                      <span className="text-zinc-500">
-                        Done:{' '}
-                        <span className="text-emerald-400 font-bold">{bulkStats.completed}</span>
-                      </span>
-                      <span className="text-zinc-500">
-                        Failed: <span className="text-rose-400 font-bold">{bulkStats.failed}</span>
-                      </span>
-                    </div>
-                  )}
-              </div>
-            </div>
+            <BulkSection
+              urls={bulkUrls}
+              onUrlsChange={setBulkUrls}
+              onAdd={handleBulkAdd}
+              onProcess={handleBulkProcess}
+              stats={bulkStats}
+              isProcessing={isBulkProcessing}
+            />
           </div>
         )}
 
-        {/* Settings Tab */}
-        {activeTab === 'settings' && (
-          <div className="space-y-8 animate-fade-in pb-10">
-            <div className="flex flex-col gap-8">
-              <div className="space-y-5">
-                <SectionTitle>Engine Intelligence</SectionTitle>
-                <div className="glass rounded-[24px] p-6 space-y-5 border-white/5">
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-bold text-zinc-500 ml-1 uppercase tracking-[0.2em]">
-                      Intelligence Protocol
-                    </label>
-                    <div className="relative group">
-                      <select
-                        value={config?.ai.provider || 'ollama'}
-                        onChange={(e) =>
-                          updateAppConfig({
-                            ai: { ...config?.ai!, provider: e.target.value as any },
-                          })
-                        }
-                        className="w-full bg-zinc-950 border border-white/10 rounded-[14px] px-5 py-4 text-xs focus:ring-1 focus:ring-navy-blue outline-none appearance-none cursor-pointer hover:border-white/20 transition-all font-medium"
-                      >
-                        <option value="openai">OpenAI (SOTA)</option>
-                        <option value="anthropic">Anthropic (Claude)</option>
-                        <option value="google">Google (Gemini)</option>
-                        <option value="ollama">Ollama (Local)</option>
-                        <option value="lmstudio">LM Studio (Local)</option>
-                      </select>
-                      <ChevronRight className="w-4 h-4 text-zinc-600 absolute right-5 top-1/2 -translate-y-1/2 rotate-90 pointer-events-none group-hover:text-zinc-400 transition-colors" />
-                    </div>
-                  </div>
-
-                  {/* API Key for Cloud Providers */}
-                  {config?.ai.provider &&
-                    ['openai', 'anthropic', 'google'].includes(config.ai.provider) && (
-                      <div className="space-y-3 animate-fade-in">
-                        <label className="text-[10px] font-bold text-zinc-500 ml-1 uppercase tracking-[0.2em]">
-                          Secure Access Key
-                        </label>
-                        <input
-                          type="password"
-                          value={config.ai.apiKey || ''}
-                          onChange={(e) =>
-                            updateAppConfig({ ai: { ...config.ai, apiKey: e.target.value } })
-                          }
-                          placeholder={`Enter ${config.ai.provider.toUpperCase()} key...`}
-                          autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          spellCheck={false}
-                          className="w-full bg-zinc-950 border border-white/10 rounded-[14px] px-5 py-4 text-xs focus:ring-1 focus:ring-navy-blue outline-none hover:border-white/20 transition-all font-mono pointer-events-auto"
-                        />
-                      </div>
-                    )}
-
-                  {/* Base URL for Local Models */}
-                  {config?.ai.provider && ['ollama', 'lmstudio'].includes(config.ai.provider) && (
-                    <div className="space-y-3 animate-fade-in">
-                      <label className="text-[10px] font-bold text-zinc-500 ml-1 uppercase tracking-[0.2em]">
-                        Node Endpoint
-                      </label>
-                      <input
-                        type="text"
-                        value={config.ai.baseUrl || ''}
-                        onChange={(e) =>
-                          updateAppConfig({ ai: { ...config.ai, baseUrl: e.target.value } })
-                        }
-                        placeholder={
-                          config.ai.provider === 'ollama'
-                            ? 'http://localhost:11434'
-                            : 'http://localhost:1234'
-                        }
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        className="w-full bg-zinc-950 border border-white/10 rounded-[14px] px-5 py-4 text-xs focus:ring-1 focus:ring-navy-blue outline-none hover:border-white/20 transition-all font-mono pointer-events-auto"
-                      />
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-bold text-zinc-500 ml-1 uppercase tracking-[0.2em]">
-                      Active Compute Node
-                    </label>
-                    <input
-                      type="text"
-                      value={config?.ai.model || ''}
-                      onChange={(e) =>
-                        updateAppConfig({ ai: { ...config?.ai!, model: e.target.value } })
-                      }
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      className="w-full bg-zinc-950 border border-white/10 rounded-[14px] px-5 py-4 text-xs focus:ring-1 focus:ring-navy-blue outline-none hover:border-white/20 transition-all font-mono tracking-tight pointer-events-auto"
-                    />
-                  </div>
-
-                  <div className="pt-2">
-                    <button
-                      onClick={async () => {
-                        if (!config) return;
-                        try {
-                          const res = await fetch(`${API_BASE}/config/test`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ ai: config.ai }),
-                          });
-                          const data = await res.json();
-                          if (data.success) {
-                            alert('Protocol Verified: Secure Link Established');
-                          } else {
-                            alert(`Node Error: ${data.error}`);
-                          }
-                        } catch (err) {
-                          alert('System Error: Local Gateway Unresponsive');
-                        }
-                      }}
-                      className="w-full py-4 px-5 rounded-[14px] border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-[10px] font-bold uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 group"
-                    >
-                      <div className="w-1.5 h-1.5 rounded-full bg-navy-blue group-hover:animate-pulse"></div>
-                      Verify Intelligence Node
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-5">
-                <SectionTitle>Security & Guardrails</SectionTitle>
-                <div className="glass rounded-[24px] overflow-hidden divide-y divide-white/[0.03] border-white/5">
-                  <div className="p-5 flex items-center justify-between hover:bg-white/[0.01] transition-colors group">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-sm font-bold text-zinc-200 group-hover:text-white transition-colors">
-                        Autonomous Submission
-                      </span>
-                      <span className="text-[11px] text-zinc-500 font-medium">
-                        Auto-pilot mode for applications
-                      </span>
-                    </div>
-                    <div
-                      onClick={() =>
-                        updateAppConfig({
-                          application: { autoSubmit: !config?.application.autoSubmit },
-                        })
-                      }
-                      className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all duration-500 ${config?.application.autoSubmit ? 'bg-[#002e5d] shadow-[0_0_15px_rgba(0,46,93,0.4)]' : 'bg-zinc-800'}`}
-                    >
-                      <div
-                        className={`bg-white w-4 h-4 rounded-full shadow-lg transition-transform duration-500 ${config?.application.autoSubmit ? 'translate-x-6' : 'translate-x-0'}`}
-                      />
-                    </div>
-                  </div>
-                  <div className="p-5 flex items-center justify-between hover:bg-white/[0.01] transition-colors group">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-sm font-bold text-zinc-200 group-hover:text-white transition-colors">
-                        Vault Encryption
-                      </span>
-                      <span className="text-[11px] text-zinc-500 font-medium">
-                        AES-256 profile protection
-                      </span>
-                    </div>
-                    <div
-                      onClick={() =>
-                        updateAppConfig({
-                          application: { vaultEncryption: !config?.application.vaultEncryption },
-                        })
-                      }
-                      className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all duration-500 ${config?.application.vaultEncryption ? 'bg-[#002e5d] shadow-[0_0_15px_rgba(0,46,93,0.4)]' : 'bg-zinc-800'}`}
-                    >
-                      <div
-                        className={`bg-white w-4 h-4 rounded-full shadow-lg transition-transform duration-500 ${config?.application.vaultEncryption ? 'translate-x-6' : 'translate-x-0'}`}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === 'settings' && <SettingsSection config={config} onUpdate={updateAppConfig} />}
       </main>
 
-      {/* Bottom Nav */}
-      <footer className="absolute bottom-0 left-0 right-0 px-6 py-8 bg-gradient-to-t from-black via-black/95 to-transparent z-20">
-        <div className="bg-zinc-900/80 border border-white/10 backdrop-blur-xl rounded-[24px] p-2 flex items-center justify-around shadow-2xl shadow-black">
+      <nav className="fixed bottom-0 left-0 right-0 bg-[var(--bg-secondary)]/95 backdrop-blur-xl border-t border-[var(--border-subtle)] safe-area-bottom">
+        <div className="flex items-center justify-around px-2 py-2">
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`flex-1 py-3 rounded-[18px] flex items-center justify-center gap-2 transition-all duration-500 ${activeTab === 'dashboard' ? 'bg-[#002e5d] text-white shadow-2xl shadow-navy-blue/30' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03]'}`}
+            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+            aria-label="Dashboard"
+            aria-current={activeTab === 'dashboard' ? 'page' : undefined}
           >
-            <LayoutDashboard
-              className={`w-5 h-5 ${activeTab === 'dashboard' ? 'fill-current' : ''}`}
-            />
-            {activeTab === 'dashboard' && (
-              <span className="text-xs font-bold tracking-tight">Console</span>
-            )}
+            <LayoutDashboard className="w-5 h-5" />
+            <span>Home</span>
           </button>
 
           <button
             onClick={() => setActiveTab('history')}
-            className={`flex-1 py-3 rounded-[18px] flex items-center justify-center gap-2 transition-all duration-500 ${activeTab === 'history' ? 'bg-[#002e5d] text-white shadow-2xl shadow-navy-blue/30' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03]'}`}
+            className={`nav-item ${activeTab === 'history' ? 'active' : ''}`}
+            aria-label="History"
+            aria-current={activeTab === 'history' ? 'page' : undefined}
           >
             <History className="w-5 h-5" />
-            {activeTab === 'history' && (
-              <span className="text-xs font-bold tracking-tight">History</span>
-            )}
+            <span>History</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
+            aria-label="Analytics"
+            aria-current={activeTab === 'analytics' ? 'page' : undefined}
+          >
+            <Target className="w-5 h-5" />
+            <span>Stats</span>
           </button>
 
           <button
             onClick={() => setActiveTab('profile')}
-            className={`flex-1 py-3 rounded-[18px] flex items-center justify-center gap-2 transition-all duration-500 ${activeTab === 'profile' ? 'bg-[#002e5d] text-white shadow-2xl shadow-navy-blue/30' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03]'}`}
+            className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`}
+            aria-label="Profile"
+            aria-current={activeTab === 'profile' ? 'page' : undefined}
           >
-            <User className={`w-5 h-5 ${activeTab === 'profile' ? 'fill-current' : ''}`} />
-            {activeTab === 'profile' && (
-              <span className="text-xs font-bold tracking-tight">Profile</span>
-            )}
+            <User className="w-5 h-5" />
+            <span>Profile</span>
           </button>
 
           <button
             onClick={() => setActiveTab('settings')}
-            className={`flex-1 py-3 rounded-[18px] flex items-center justify-center gap-2 transition-all duration-500 ${activeTab === 'settings' ? 'bg-[#002e5d] text-white shadow-2xl shadow-navy-blue/30' : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03]'}`}
+            className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+            aria-label="Settings"
+            aria-current={activeTab === 'settings' ? 'page' : undefined}
           >
             <SettingsIcon className="w-5 h-5" />
-            {activeTab === 'settings' && (
-              <span className="text-xs font-bold tracking-tight">Settings</span>
-            )}
+            <span>Settings</span>
           </button>
         </div>
-      </footer>
+      </nav>
 
-      {previewApp && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="glass rounded-[24px] w-full max-w-2xl max-h-[80vh] overflow-hidden border border-white/10">
-            <div className="flex items-center justify-between p-6 border-b border-white/5">
-              <div>
-                <h3 className="text-lg font-bold text-white">Generated Documents</h3>
-                <p className="text-xs text-zinc-500">
-                  {previewApp.company} - {previewApp.job_title}
-                </p>
-              </div>
-              <button
-                onClick={() => setPreviewApp(null)}
-                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors"
-              >
-                <X className="w-5 h-5 text-zinc-400" />
-              </button>
-            </div>
+      {previewApp && <PreviewModal app={previewApp} onClose={() => setPreviewApp(null)} />}
 
-            <div className="p-6 overflow-y-auto max-h-[60vh] space-y-6">
-              {previewApp.generated_resume && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-navy-blue" />
-                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                      Resume
-                    </h4>
-                  </div>
-                  <div className="bg-zinc-950 rounded-[12px] p-4 border border-white/5">
-                    <pre className="text-xs text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
-                      {previewApp.generated_resume}
-                    </pre>
-                  </div>
-                </div>
-              )}
-
-              {previewApp.generated_cover_letter && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-navy-blue" />
-                    <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                      Cover Letter
-                    </h4>
-                  </div>
-                  <div className="bg-zinc-950 rounded-[12px] p-4 border border-white/5">
-                    <pre className="text-xs text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
-                      {previewApp.generated_cover_letter}
-                    </pre>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      {showProfileForm && (
+        <ProfileFormModal
+          profile={profile}
+          onSave={() => saveProfile(profile || {})}
+          onCancel={() => setShowProfileForm(false)}
+          onImport={importProfileFromResume}
+          isSaving={isSavingProfile}
+        />
       )}
     </div>
   );
