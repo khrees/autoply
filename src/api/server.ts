@@ -570,6 +570,61 @@ fastify.get('/documents/download/:filename', async (request, reply) => {
   }
 });
 
+// --- Scraping Browser Routes ---
+// A lightweight local alternative to Bright Data's Scraping Browser.
+// Launches stealth-configured browser instances and exposes them via
+// Playwright's WebSocket protocol so callers can connect with:
+//   const browser = await playwright.chromium.connect(wsEndpoint)
+{
+  const { scrapingBrowserPool, STEALTH_INIT_SCRIPT, USER_AGENTS } = await import(
+    '../scraping-browser/index'
+  );
+
+  fastify.get('/scraping-browser/sessions', async () => {
+    return {
+      sessions: scrapingBrowserPool.listSessions(),
+      count: scrapingBrowserPool.count,
+    };
+  });
+
+  fastify.post('/scraping-browser/sessions', async (request, reply) => {
+    const { ttlMs, headless } = (request.body as {
+      ttlMs?: number;
+      headless?: boolean;
+    }) ?? {};
+
+    try {
+      const session = await scrapingBrowserPool.createSession({ ttlMs, headless });
+      return { success: true, ...session };
+    } catch (error) {
+      return reply.status(503).send({ success: false, error: (error as Error).message });
+    }
+  });
+
+  fastify.delete('/scraping-browser/sessions/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const destroyed = await scrapingBrowserPool.destroySession(id);
+    if (!destroyed) {
+      return reply.status(404).send({ success: false, error: 'Session not found' });
+    }
+    return { success: true };
+  });
+
+  fastify.delete('/scraping-browser/sessions', async () => {
+    await scrapingBrowserPool.destroyAll();
+    return { success: true };
+  });
+
+  // Returns the JS stealth init-script and a random user-agent so callers can
+  // apply them to every new BrowserContext:
+  //   await context.addInitScript(initScript)
+  //   await context.setExtraHTTPHeaders({ 'User-Agent': userAgent })
+  fastify.get('/scraping-browser/stealth', async () => {
+    const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+    return { initScript: STEALTH_INIT_SCRIPT, userAgent };
+  });
+}
+
 // --- Start Server ---
 const start = async () => {
   try {
