@@ -5,6 +5,10 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { AIProvider, AIProviderType, AIConfig } from '../types';
 import { configRepository } from '../db/repositories/config';
 import { credentialStore } from '../db/repositories/secure-credentials';
+import { withRetry } from '../utils/retry';
+import { circuitBreakers } from '../utils/retry';
+import { aiRateLimiter, withRateLimit } from '../utils/rate-limiter';
+import { logger } from '../utils/logger';
 
 // Model mappings for each provider
 const MODEL_DEFAULTS: Record<AIProviderType, string> = {
@@ -150,16 +154,34 @@ class UnifiedAIProvider implements AIProvider {
   }
 
   async generateText(prompt: string, systemPrompt?: string): Promise<string> {
-    const model = await createModel(this.config);
-
-    const result = await generateText({
-      model,
-      system: systemPrompt,
-      prompt,
-      temperature: this.config.temperature ?? 0.7,
+    return withRateLimit(aiRateLimiter, async () => {
+      return circuitBreakers.ai.execute(async () => {
+        return withRetry(
+          async () => {
+            const model = await createModel(this.config);
+            const result = await generateText({
+              model,
+              system: systemPrompt,
+              prompt,
+              temperature: this.config.temperature ?? 0.7,
+            });
+            return result.text;
+          },
+          {
+            maxRetries: 3,
+            minTimeout: 1000,
+            maxTimeout: 15000,
+            operationName: `AI generateText (${this.name})`,
+            onRetry: (error, attempt) => {
+              logger.warn(`AI call retry ${attempt}/3: ${error.message}`, {
+                provider: this.name,
+                attempt,
+              }, 'ai');
+            },
+          }
+        );
+      });
     });
-
-    return result.text;
   }
 }
 

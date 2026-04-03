@@ -18,7 +18,9 @@ import {
   getDeterministicFieldValue,
 } from './form-filler';
 import { generateResumePdf, generateCoverLetterPdf, generateDocumentFilename } from './document';
-import { logger, createSpinner } from '../utils/logger';
+import { logger, createSpinner, withCorrelationId, generateCorrelationId } from '../utils/logger';
+import { validateJobData, validateGeneratedDocuments } from '../utils/validation';
+import { scraperRateLimiter, withRateLimit } from '../utils/rate-limiter';
 import { join } from 'path';
 import { mkdir } from 'fs/promises';
 import { getAutoplyDir, ensureAutoplyDir } from '../db';
@@ -49,11 +51,25 @@ export interface DetectedFormField {
   label: string;
 }
 
+/**
+ * Explicit automation behaviour flags — replaces the ambiguous `autoMode: boolean`.
+ * Each flag controls one specific behaviour independently.
+ */
+export interface AutoModeOptions {
+  /** Skip interactive stdin prompts (answer required fields from profile only) */
+  skipPrompts: boolean;
+  /** Let AI answer optional custom questions (salary, visa, etc.) */
+  useAIForOptionalQuestions: boolean;
+  /** Submit the form without asking the user to confirm */
+  submitWithoutConfirmation: boolean;
+}
+
 export interface ApplyOptions {
   dryRun?: boolean;
   profile?: Profile;
   generateOnly?: boolean;
-  autoMode?: boolean;
+  /** Fine-grained automation flags. Pass `true` as a shorthand to enable all three. */
+  autoMode?: boolean | Partial<AutoModeOptions>;
   resumePath?: string;
   coverLetterPath?: string;
 }
@@ -77,6 +93,12 @@ export function summarizeSubmissionFailure(
   return message;
 }
 
+function resolveAutoMode(autoMode: ApplyOptions['autoMode']): AutoModeOptions {
+  if (!autoMode) return { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false };
+  if (autoMode === true) return { skipPrompts: true, useAIForOptionalQuestions: true, submitWithoutConfirmation: true };
+  return { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false, ...autoMode };
+}
+
 export class ApplicationOrchestrator {
   private queue: ApplicationQueue;
 
@@ -85,13 +107,26 @@ export class ApplicationOrchestrator {
   }
 
   async applyToJob(url: string, options: ApplyOptions = {}): Promise<ApplicationResult> {
+    const correlationId = generateCorrelationId();
+
+    return withCorrelationId(correlationId, async () => {
+      return this._applyToJobInner(url, options, correlationId);
+    });
+  }
+
+  private async _applyToJobInner(
+    url: string,
+    options: ApplyOptions,
+    correlationId: string
+  ): Promise<ApplicationResult> {
     const {
       dryRun = false,
       generateOnly = false,
-      autoMode = false,
       resumePath,
       coverLetterPath,
     } = options;
+
+    const autoOpts = resolveAutoMode(options.autoMode);
 
     // Validate URL
     const parsedUrl = parseJobUrl(url);
@@ -105,13 +140,15 @@ export class ApplicationOrchestrator {
       return { success: false, error: 'No profile found. Run "autoply init" to create one.' };
     }
 
+    logger.debug('Starting application', { url, platform: parsedUrl.platform, correlationId }, 'cli');
+
     const spinner = createSpinner(`Scraping job from ${parsedUrl.platform}...`);
     spinner.start();
 
     let jobData: JobData;
     try {
       logger.debug(`Scraping ${parsedUrl.platform} job at ${url}`);
-      jobData = await scrapeJob(url, parsedUrl.platform);
+      jobData = await withRateLimit(scraperRateLimiter, () => scrapeJob(url, parsedUrl.platform));
       spinner.succeed(`Scraped: ${jobData.title} at ${jobData.company}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -120,6 +157,12 @@ export class ApplicationOrchestrator {
         success: false,
         error: `[${parsedUrl.platform}] Scraping failed for ${url}: ${msg}. Check that the URL is accessible in a browser.`,
       };
+    }
+
+    // Validate scraped job data against schema
+    const jobValidation = validateJobData(jobData);
+    if (!jobValidation.success) {
+      logger.warn('Scraped job data has issues', { errors: jobValidation.errors, correlationId }, 'scraper');
     }
 
     // Don't submit applications with unknown job titles
@@ -169,7 +212,18 @@ export class ApplicationOrchestrator {
       const isAvailable = await provider.isAvailable();
       if (!isAvailable) {
         spinner.fail('AI provider not available');
-        return { success: false, error: 'AI provider is not running or configured' };
+        const config = configRepository.loadAppConfig();
+        const providerName = config.ai.provider;
+        const hint =
+          providerName === 'ollama'
+            ? 'Run "ollama serve" and ensure your model is pulled (ollama pull llama3.2).'
+            : providerName === 'lmstudio'
+              ? 'Open LM Studio and start a local server on port 1234.'
+              : `Set the ${providerName.toUpperCase()}_API_KEY environment variable or run "autoply config" to store it securely.`;
+        return {
+          success: false,
+          error: `AI provider "${providerName}" is not available. ${hint}`,
+        };
       }
 
       const resume = await tailorResume(provider, profile, jobData);
@@ -180,12 +234,24 @@ export class ApplicationOrchestrator {
       spinner.succeed('Cover letter generated');
 
       documents = { resume, coverLetter };
+
+      // Quality gate — warn on issues, don't hard-fail
+      const docCheck = validateGeneratedDocuments(documents, { checkQuality: true });
+      if (docCheck.qualityIssues && docCheck.qualityIssues.length > 0) {
+        logger.warn('Generated documents have quality issues', {
+          issues: docCheck.qualityIssues,
+          correlationId,
+        }, 'ai');
+        for (const issue of docCheck.qualityIssues) {
+          spinner.warn(`Quality check: ${issue}`);
+        }
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       spinner.fail(`Document generation failed for ${url}`);
       return {
         success: false,
-        error: `[${parsedUrl.platform}] AI generation failed for ${url}: ${msg}. Check your AI provider is running ("ollama serve" or API key set).`,
+        error: `[${parsedUrl.platform}] AI generation failed: ${msg}. Check your AI provider is running ("ollama serve" or set OPENAI_API_KEY / ANTHROPIC_API_KEY).`,
       };
     }
 
@@ -322,7 +388,8 @@ export class ApplicationOrchestrator {
       try {
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           logger.debug(
-            `Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`
+            `Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`,
+            { correlationId }
           );
           spinner.start(
             attempt === 1
@@ -330,7 +397,7 @@ export class ApplicationOrchestrator {
               : `Retrying submission (attempt ${attempt}/${maxRetries})...`
           );
           // Stop spinner so interactive prompts for unfillable fields can display on stdin
-          if (!autoMode) {
+          if (!autoOpts.skipPrompts) {
             spinner.info(
               attempt === 1
                 ? 'Filling application form...'
@@ -344,7 +411,7 @@ export class ApplicationOrchestrator {
               jobData,
               profile,
               documents,
-              autoMode,
+              autoOpts,
               resumePath,
               coverLetterPath,
               scraper
@@ -454,7 +521,7 @@ export class ApplicationOrchestrator {
           resumePath: resumePdfPath,
           coverLetterPath: coverLetterPdfPath,
           answeredQuestions: jobData.custom_questions,
-          autoMode,
+          autoMode: autoOpts.skipPrompts,
           fillOnly: true,
         });
 
@@ -527,7 +594,7 @@ export class ApplicationOrchestrator {
     jobData: JobData,
     profile: Profile,
     documents: GeneratedDocuments,
-    autoMode = false,
+    autoOpts: AutoModeOptions = { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false },
     resumePathOverride?: string,
     coverLetterPathOverride?: string,
     scraperOverride?: BaseScraper
@@ -576,7 +643,7 @@ export class ApplicationOrchestrator {
       resumePath: resumePdfPath,
       coverLetterPath: coverLetterPdfPath,
       answeredQuestions,
-      autoMode,
+      autoMode: autoOpts.skipPrompts,
     });
 
     return result;
@@ -677,10 +744,22 @@ export class ApplicationOrchestrator {
       return { success: false, error: 'AI provider not available' };
     }
 
+    // Strip HTML tags before sending to the LLM to prevent prompt injection
+    // embedded in page content (e.g. <!-- ignore previous instructions -->)
+    const safeText = html
+      .replace(/<!--[\s\S]*?-->/g, '')          // remove HTML comments first
+      .replace(/<script[\s\S]*?<\/script>/gi, '') // strip script blocks
+      .replace(/<style[\s\S]*?<\/style>/gi, '')   // strip style blocks
+      .replace(/<[^>]+>/g, ' ')                   // remove remaining tags
+      .replace(/&[a-z]+;/gi, ' ')                 // decode common entities roughly
+      .replace(/\s{2,}/g, ' ')                    // collapse whitespace
+      .trim()
+      .slice(0, 100_000);                         // hard cap at 100k chars
+
     try {
-      // 1. Extract job data from HTML using AI
+      // 1. Extract job data from page text using AI
       const { extractJobDataWithAI, mergeJobData } = await import('../ai/job-extractor');
-      const extracted = await extractJobDataWithAI(provider, html, url);
+      const extracted = await extractJobDataWithAI(provider, safeText, url);
 
       // Create full JobData with defaults
       const jobData: JobData = mergeJobData(

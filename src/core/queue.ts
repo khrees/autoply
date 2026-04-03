@@ -10,6 +10,7 @@ export class ApplicationQueue {
   private items: Map<string, QueueItem> = new Map();
   private processing = false;
   private persistPath: string;
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(persistPath = join(getAutoplyDir(), QUEUE_FILE)) {
     this.persistPath = persistPath;
@@ -58,7 +59,7 @@ export class ApplicationQueue {
     if (item) {
       item.status = status;
       if (error) item.error = error;
-      this.persist();
+      this.debouncedPersist();
     }
   }
 
@@ -66,13 +67,13 @@ export class ApplicationQueue {
     const item = this.items.get(id);
     if (item) {
       item.result = result;
-      this.persist();
+      this.debouncedPersist();
     }
   }
 
   remove(id: string): boolean {
     const result = this.items.delete(id);
-    if (result) this.persist();
+    if (result) this.debouncedPersist();
     return result;
   }
 
@@ -113,14 +114,28 @@ export class ApplicationQueue {
     completed: number;
     failed: number;
   } {
-    const all = this.getAll();
-    return {
-      total: all.length,
-      pending: all.filter((i) => i.status === 'pending').length,
-      processing: all.filter((i) => i.status === 'processing').length,
-      completed: all.filter((i) => i.status === 'completed').length,
-      failed: all.filter((i) => i.status === 'failed').length,
-    };
+    const counts = { pending: 0, processing: 0, completed: 0, failed: 0 };
+    for (const item of this.items.values()) {
+      if (item.status in counts) counts[item.status as keyof typeof counts]++;
+    }
+    return { total: this.items.size, ...counts };
+  }
+
+  private debouncedPersist(): void {
+    if (this.persistTimer) clearTimeout(this.persistTimer);
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this.persist();
+    }, 500);
+  }
+
+  /** Flush any pending debounced persist immediately. Useful in tests. */
+  flushPersist(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    this.persist();
   }
 
   persist(): void {

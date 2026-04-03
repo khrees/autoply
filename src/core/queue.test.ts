@@ -339,6 +339,7 @@ describe('ApplicationQueue', () => {
       const item = queue.add('https://example.com/job1');
       queue.persist(); // initial persist
       queue.updateStatus(item.id, 'completed');
+      queue.flushPersist(); // flush debounce immediately
 
       const newQueue = new ApplicationQueue(join(tempDir, 'queue.json'));
       newQueue.load();
