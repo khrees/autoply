@@ -1,0 +1,210 @@
+import React, { useState } from 'react';
+import {
+  Sparkles,
+  ShieldCheck,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+} from 'lucide-react';
+import type { AppConfig } from '../../types';
+
+const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
+
+export const SettingsSection = ({
+  config,
+  onUpdate,
+}: {
+  config: AppConfig | null;
+  onUpdate: (config: Partial<AppConfig>) => void;
+}) => {
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  if (!config) return null;
+
+  const aiProviders = [
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'anthropic', label: 'Anthropic' },
+    { value: 'google', label: 'Google' },
+    { value: 'ollama', label: 'Ollama (Local)' },
+    { value: 'lmstudio', label: 'LM Studio (Local)' },
+  ];
+
+  const handleTestConnection = async () => {
+    setTestStatus('testing');
+    setTestMessage('');
+    try {
+      const res = await fetch(`${API_BASE}/config/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ai: config.ai }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestStatus('success');
+        setTestMessage('Connected successfully');
+      } else {
+        setTestStatus('error');
+        setTestMessage(data.error || 'Connection failed');
+      }
+    } catch {
+      setTestStatus('error');
+      setTestMessage('Failed to connect to API');
+    }
+    setTimeout(() => setTestStatus('idle'), 3000);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-blue-500" />
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI Configuration</h3>
+        </div>
+
+        <div className="space-y-3">
+          <label className="label">Provider</label>
+          <select
+            value={config.ai.provider}
+            onChange={(e) => onUpdate({ ai: { ...config.ai, provider: e.target.value as any } })}
+            className="input appearance-none cursor-pointer"
+            aria-label="AI provider"
+          >
+            {aiProviders.map((provider) => (
+              <option key={provider.value} value={provider.value}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {['openai', 'anthropic', 'google'].includes(config.ai.provider) && (
+          <div className="space-y-3">
+            <label className="label">API Key</label>
+            <input
+              type="password"
+              value={config.ai.apiKey || ''}
+              onChange={(e) => onUpdate({ ai: { ...config.ai, apiKey: e.target.value } })}
+              placeholder={`Enter ${config.ai.provider.toUpperCase()} API key…`}
+              className="input font-mono"
+              aria-label="API key"
+            />
+          </div>
+        )}
+
+        {['ollama', 'lmstudio'].includes(config.ai.provider) && (
+          <div className="space-y-3">
+            <label className="label">Local Endpoint</label>
+            <input
+              type="text"
+              value={config.ai.baseUrl || ''}
+              onChange={(e) => onUpdate({ ai: { ...config.ai, baseUrl: e.target.value } })}
+              placeholder={
+                config.ai.provider === 'ollama' ? 'http://localhost:11434' : 'http://localhost:1234'
+              }
+              className="input font-mono"
+              aria-label="Local endpoint URL"
+            />
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <label className="label">Model</label>
+          <input
+            type="text"
+            value={config.ai.model || ''}
+            onChange={(e) => onUpdate({ ai: { ...config.ai, model: e.target.value } })}
+            placeholder="e.g., gpt-4, claude-3, llama3"
+            className="input"
+            aria-label="AI model"
+          />
+        </div>
+
+        <button
+          onClick={handleTestConnection}
+          disabled={testStatus === 'testing'}
+          className={`btn w-full ${
+            testStatus === 'success'
+              ? 'btn-primary bg-emerald-500 hover:bg-emerald-600'
+              : testStatus === 'error'
+                ? 'btn-secondary border-rose-500/50 text-rose-400'
+                : 'btn-secondary'
+          }`}
+        >
+          {testStatus === 'testing' ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Testing…
+            </>
+          ) : testStatus === 'success' ? (
+            <>
+              <CheckCircle className="w-4 h-4" />
+              Connected
+            </>
+          ) : testStatus === 'error' ? (
+            <>
+              <AlertCircle className="w-4 h-4" />
+              {testMessage}
+            </>
+          ) : (
+            <>
+              <CheckCircle className="w-4 h-4" />
+              Test Connection
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Preferences</h3>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-[var(--text-primary)]">Auto-submit</p>
+              <p className="text-xs text-[var(--text-tertiary)]">
+                Automatically submit after filling
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={config.application.autoSubmit}
+              onClick={() =>
+                onUpdate({
+                  application: {
+                    ...config.application,
+                    autoSubmit: !config.application.autoSubmit,
+                  },
+                })
+              }
+              className="toggle"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-[var(--text-primary)]">Vault Encryption</p>
+              <p className="text-xs text-[var(--text-tertiary)]">AES-256 profile protection</p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={config.application.vaultEncryption}
+              onClick={() =>
+                onUpdate({
+                  application: {
+                    ...config.application,
+                    vaultEncryption: !config.application.vaultEncryption,
+                  },
+                })
+              }
+              className="toggle"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

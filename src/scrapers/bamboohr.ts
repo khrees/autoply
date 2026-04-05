@@ -775,7 +775,7 @@ ${pageText.slice(0, 6000)}`,
 
     const radioPatterns = [
       { pattern: /authorized.*work|legally.*work/i, answer: 'yes' },
-      { pattern: /sponsor|visa.*sponsor|require.*sponsor|H-1B/i, answer: 'yes' },
+      { pattern: /sponsor|visa.*sponsor|require.*sponsor|H-1B/i, answer: 'no' },
       { pattern: /comfortable.*part.?time|part.?time.*capacity/i, answer: 'yes' },
       { pattern: /18.*years|legal.*age/i, answer: 'yes' },
       { pattern: /background.*check/i, answer: 'yes' },

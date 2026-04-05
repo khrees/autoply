@@ -127,6 +127,7 @@ export class ApplicationOrchestrator {
     } = options;
 
     const autoOpts = resolveAutoMode(options.autoMode);
+    const config = configRepository.loadAppConfig();
 
     // Validate URL
     const parsedUrl = parseJobUrl(url);
@@ -191,7 +192,6 @@ export class ApplicationOrchestrator {
         }
 
         // Check minimum fit score threshold
-        const config = configRepository.loadAppConfig();
         if (config.application.minFitScore && fitResult.score < config.application.minFitScore) {
           logger.warning(
             `Skipping: fit score ${fitResult.score}% below threshold ${config.application.minFitScore}%`
@@ -212,7 +212,6 @@ export class ApplicationOrchestrator {
       const isAvailable = await provider.isAvailable();
       if (!isAvailable) {
         spinner.fail('AI provider not available');
-        const config = configRepository.loadAppConfig();
         const providerName = config.ai.provider;
         const hint =
           providerName === 'ollama'
@@ -226,12 +225,12 @@ export class ApplicationOrchestrator {
         };
       }
 
-      const resume = await tailorResume(provider, profile, jobData);
-      spinner.succeed('Resume generated');
-
-      spinner.start('Generating cover letter...');
-      const coverLetter = await generateCoverLetter(provider, profile, jobData);
-      spinner.succeed('Cover letter generated');
+      spinner.start('Generating resume and cover letter...');
+      const [resume, coverLetter] = await Promise.all([
+        tailorResume(provider, profile, jobData),
+        generateCoverLetter(provider, profile, jobData),
+      ]);
+      spinner.succeed('Resume and cover letter generated');
 
       documents = { resume, coverLetter };
 
@@ -284,10 +283,10 @@ export class ApplicationOrchestrator {
 
     // Answer custom questions
     if (jobData.custom_questions.length > 0) {
-      spinner.start(`Answering ${jobData.custom_questions.length} custom questions...`);
+      const totalQuestions = jobData.custom_questions.length;
+      spinner.start(`Answering custom questions (0/${totalQuestions})...`);
       try {
         const provider = createAIProvider();
-        const config = configRepository.loadAppConfig();
         const aiAnswerableQuestions = jobData.custom_questions.filter(
           (question) =>
             !question.answer &&
@@ -302,11 +301,14 @@ export class ApplicationOrchestrator {
         );
 
         // Check saved answers first — reuse past answers for similar questions
+        let fromCache = 0;
         const stillNeedingAI: typeof aiAnswerableQuestions = [];
         for (const q of aiAnswerableQuestions) {
           const savedMatches = savedAnswersRepository.findSimilar(profile.id || 0, q.question, 1);
           if (savedMatches.length > 0) {
             q.answer = savedMatches[0].answer;
+            fromCache++;
+            spinner.start(`Answering custom questions (${fromCache}/${totalQuestions} from cache)...`);
           } else {
             stillNeedingAI.push(q);
           }
@@ -334,6 +336,7 @@ export class ApplicationOrchestrator {
         }
 
         if (aiAnswerableQuestions.length > 0) {
+          spinner.start(`Answering custom questions (${fromCache} cached, asking AI for ${aiAnswerableQuestions.length})...`);
           const answers = await answerAllQuestions(
             provider,
             profile,
@@ -353,9 +356,17 @@ export class ApplicationOrchestrator {
             }
           }
         }
-        spinner.succeed('Custom questions answered');
+
+        const answeredCount = jobData.custom_questions.filter((q) => q.answer).length;
+        const skippedCount = totalQuestions - answeredCount;
+        spinner.succeed(
+          skippedCount > 0
+            ? `Custom questions answered (${answeredCount}/${totalQuestions}, ${skippedCount} skipped)`
+            : `Custom questions answered (${answeredCount}/${totalQuestions})`
+        );
       } catch (error) {
-        spinner.warn('Some questions could not be auto-answered');
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        spinner.warn(`Some questions could not be auto-answered: ${msg}`);
       }
     }
 
@@ -376,10 +387,9 @@ export class ApplicationOrchestrator {
     });
 
     // Check if auto-submit is enabled
-    const config = configRepository.loadAppConfig();
     if (config.application.autoSubmit) {
       const maxRetries = Math.max(1, config.application.retryAttempts ?? 3);
-      let lastError = '';
+      const attemptErrors: string[] = [];
       let lastScreenshotPath: string | undefined;
       // Create scraper once for reuse in retries
       const scraper = createScraper(application.platform);
@@ -446,9 +456,10 @@ export class ApplicationOrchestrator {
               );
             }
 
-            lastError = summarizeSubmissionFailure(submissionResult, verification);
+            const attemptError = summarizeSubmissionFailure(submissionResult, verification);
+            attemptErrors.push(`attempt ${attempt}: ${attemptError}`);
             spinner.warn(
-              `Submission not confirmed (attempt ${attempt}/${maxRetries}): ${lastError}`
+              `Submission not confirmed (attempt ${attempt}/${maxRetries}): ${attemptError}`
             );
 
             if (attempt < maxRetries) {
@@ -456,8 +467,9 @@ export class ApplicationOrchestrator {
               await new Promise((r) => setTimeout(r, 2000)); // Wait before retry
             }
           } catch (error) {
-            lastError = error instanceof Error ? error.message : 'Unknown error';
-            spinner.warn(`Submission attempt ${attempt} failed: ${lastError}`);
+            const attemptError = error instanceof Error ? error.message : 'Unknown error';
+            attemptErrors.push(`attempt ${attempt}: ${attemptError}`);
+            spinner.warn(`Submission attempt ${attempt} failed: ${attemptError}`);
 
             if (attempt < maxRetries) {
               await new Promise((r) => setTimeout(r, 2000));
@@ -469,21 +481,22 @@ export class ApplicationOrchestrator {
         await scraper.close();
       }
 
-      // All retries exhausted
+      // All retries exhausted — surface the full history so failures are diagnosable
+      const errorSummary = attemptErrors.join(' | ');
       const failedApplication = application.id
         ? applicationRepository.update(application.id, {
             status: 'failed',
-            error_message: lastError,
+            error_message: errorSummary,
           })
         : undefined;
-      spinner.fail(`Submission failed after ${maxRetries} attempts`);
+      spinner.fail(`Submission failed after ${maxRetries} attempt${maxRetries > 1 ? 's' : ''}`);
       if (lastScreenshotPath) {
         logger.info(`Screenshot saved to: ${lastScreenshotPath}`);
       }
       return {
         success: false,
         application: failedApplication ?? application,
-        error: `[${parsedUrl.platform}] Submission failed after ${maxRetries} attempts: ${lastError}`,
+        error: `[${parsedUrl.platform}] Submission failed after ${maxRetries} attempt${maxRetries > 1 ? 's' : ''}: ${errorSummary}`,
         documents,
         fitResult,
       };

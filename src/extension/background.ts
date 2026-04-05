@@ -68,7 +68,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // Listener for messages from content scripts or sidepanel
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'CHECK_CONNECTION') {
-    fetch(`${__API_BASE__}/health`)
+    fetch(`${__API_BASE__}/health`, { signal: AbortSignal.timeout(5000) })
       .then(res => res.json())
       .then(data => sendResponse({ connected: true, data }))
       .catch(() => sendResponse({ connected: false }));

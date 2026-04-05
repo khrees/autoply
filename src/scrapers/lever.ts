@@ -2,6 +2,7 @@ import { BaseScraper, type SubmissionOptions, type SubmissionResult } from './ba
 import type { JobData, CustomQuestion, Platform } from '../types';
 import { FormFiller, normalizeLocationInput } from '../core/form-filler';
 import { configRepository } from '../db/repositories/config';
+import { logger } from '../utils/logger';
 
 const LEVER_URL_FIELD_PATTERNS = [
   /linkedin/i,
@@ -455,10 +456,10 @@ export class LeverScraper extends BaseScraper {
         const isVisible = await input.isVisible().catch(() => false);
         if (!isVisible) continue;
 
-        await input.click().catch(() => { });
-        await input.fill('').catch(() => { });
-        await input.type(normalizedLocation, { delay: 40 }).catch(() => { });
-        await this.page.waitForTimeout(800);
+        await input.click().catch((e: unknown) => { logger.debug(`Location click failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
+        await input.fill('').catch((e: unknown) => { logger.debug(`Location clear failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
+        await input.type(normalizedLocation, { delay: 40 }).catch((e: unknown) => { logger.debug(`Location type failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
+        await this.page.waitForSelector('[role="listbox"] [role="option"], [role="option"], [class*="autocomplete"] li, [class*="suggestion"]', { timeout: 2000 }).catch(() => {});
 
         const optionSelectors = [
           '[role="listbox"] [role="option"]',
@@ -475,7 +476,7 @@ export class LeverScraper extends BaseScraper {
           const optionVisible = await option.isVisible().catch(() => false);
           if (!optionVisible) continue;
 
-          await option.click().catch(() => { });
+          await option.click().catch((e: unknown) => { logger.debug(`Location option click failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
           await this.humanDelay(true);
           return;
         }
