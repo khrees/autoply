@@ -1540,7 +1540,6 @@ export class FormFiller {
     try {
       const { input, select } = await import('@inquirer/prompts');
 
-      console.log('');
 
       if (
         (question.type === 'select' || question.type === 'radio') &&

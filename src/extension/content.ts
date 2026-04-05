@@ -2,6 +2,13 @@
 // Works entirely client-side using Chrome's autocomplete attribute + semantic matching
 // No AI needed for basic form filling - this is how simplify.jobs works
 
+const DEBUG = false;
+function debugLog(...args: unknown[]) {
+  if (DEBUG) {
+    console.log(...args);
+  }
+}
+
 const AUTOCOMPLETE_TO_PROFILE_KEY: Record<string, string> = {
   'given-name': 'firstName',
   'additional-name': 'middleName',
@@ -564,12 +571,12 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
   // Debug: Check for shadow DOMs
   const shadowHosts = Array.from(document.querySelectorAll('*')).filter((el) => el.shadowRoot);
   if (shadowHosts.length > 0) {
-    console.log('Autoply: Shadow DOMs found:', shadowHosts.map((el) => el.tagName).join(', '));
+    debugLog('Autoply: Shadow DOMs found:', shadowHosts.map((el) => el.tagName).join(', '));
   }
 
   // Debug: Check for iframes
   const allIframes = Array.from(document.querySelectorAll('iframe'));
-  console.log('Autoply: iframes on page:', allIframes.length);
+  debugLog('Autoply: iframes on page:', allIframes.length);
 
   // Step 1: Fill using autocomplete attribute (fastest, most reliable)
   for (const autocompleteValue of Object.keys(AUTOCOMPLETE_TO_PROFILE_KEY)) {
@@ -599,7 +606,7 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
 
   // Step 2.5: Fill by name attribute (handles Workable: firstname, lastname, etc.)
   // Debug: log all inputs on page
-  console.log(
+  debugLog(
     'Autoply: All inputs on page:',
     Array.from(document.querySelectorAll('input, select, textarea')).map((el) => ({
       name: (el as HTMLElement).getAttribute('name'),
@@ -621,7 +628,7 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
     const elements = Array.from(document.querySelectorAll(selector));
 
     if (elements.length === 0) {
-      console.log(`Autoply: No element found for [name="${nameAttr}"]`);
+      debugLog(`Autoply: No element found for [name="${nameAttr}"]`);
       continue;
     }
 
@@ -632,13 +639,13 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
       if (shouldSkipField(label)) continue;
 
       const fieldType = (el as HTMLInputElement).type;
-      console.log(
+      debugLog(
         `Autoply: Found [name="${nameAttr}"], type=${fieldType}, trying to fill with "${value}"`
       );
 
       if (fieldType === 'select' || el.tagName === 'SELECT') {
         if (await fillSelect(el, value)) {
-          console.log(`Autoply: SUCCESS filled [name="${nameAttr}"]`);
+          debugLog(`Autoply: SUCCESS filled [name="${nameAttr}"]`);
           filled.push(profileKey);
           break;
         }
@@ -647,11 +654,11 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
           // Verify value was set
           const input = el as HTMLInputElement;
           if (input.value === value || input.value.includes(value)) {
-            console.log(`Autoply: SUCCESS filled [name="${nameAttr}"] = "${input.value}"`);
+            debugLog(`Autoply: SUCCESS filled [name="${nameAttr}"] = "${input.value}"`);
             filled.push(profileKey);
             break;
           } else {
-            console.log(
+            debugLog(
               `Autoply: Fill appeared to work but value is "${input.value}" not "${value}"`
             );
           }
@@ -690,21 +697,21 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
 
   // Step 5: Fill inside iframes (Ashby and other platforms)
   const iframes = Array.from(document.querySelectorAll('iframe'));
-  console.log('Autoply: Trying to fill iframes, count:', iframes.length);
+  debugLog('Autoply: Trying to fill iframes, count:', iframes.length);
 
   for (const iframe of iframes) {
     try {
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
       if (!iframeDoc) {
-        console.log('Autoply: Cannot access iframe doc:', iframe.src);
+        debugLog('Autoply: Cannot access iframe doc:', iframe.src);
         continue;
       }
 
-      console.log('Autoply: Accessing iframe, searching for inputs...');
+      debugLog('Autoply: Accessing iframe, searching for inputs...');
       const iframeInputs = Array.from(
         iframeDoc.querySelectorAll('input[name]')
       ) as HTMLInputElement[];
-      console.log(
+      debugLog(
         'Autoply: Iframe inputs found:',
         iframeInputs.map((i) => i.name)
       );
@@ -722,19 +729,19 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
         if (profileKey) {
           const value = profile[profileKey as keyof Profile];
           if (value) {
-            console.log(
+            debugLog(
               `Autoply: IFRAME - found [name="${name}"] for ${profileKey}, value="${value}"`
             );
             const fieldType = (field as HTMLInputElement).type;
 
             if (fieldType === 'select' || field.tagName === 'SELECT') {
               if (await fillSelect(field, value)) {
-                console.log(`Autoply: IFRAME - SUCCESS filled [name="${name}"]`);
+                debugLog(`Autoply: IFRAME - SUCCESS filled [name="${name}"]`);
                 if (!filled.includes(profileKey)) filled.push(profileKey);
               }
             } else if (fieldType !== 'file') {
               if (await fillTextInput(field, value)) {
-                console.log(`Autoply: IFRAME - SUCCESS filled [name="${name}"]`);
+                debugLog(`Autoply: IFRAME - SUCCESS filled [name="${name}"]`);
                 if (!filled.includes(profileKey)) filled.push(profileKey);
               }
             }
@@ -742,7 +749,7 @@ async function fillAllFields(profile: Profile): Promise<{ filled: string[]; erro
         }
       }
     } catch (e) {
-      console.log('Autoply: Cannot access iframe (cross-origin or error):', e);
+      debugLog('Autoply: Cannot access iframe (cross-origin or error):', e);
     }
   }
 
@@ -820,7 +827,7 @@ async function handleAutofillWithProfile(
   _documents?: { resume?: string; coverLetter?: string },
   fillPlan?: Record<string, string>
 ): Promise<{ success: boolean; filled: string[]; errors: string[] }> {
-  console.log('Autoply: Starting autofill with profile:', Object.keys(profile).join(', '));
+  debugLog('Autoply: Starting autofill with profile:', Object.keys(profile).join(', '));
 
   const result = await fillAllFields(profile);
 
@@ -829,7 +836,7 @@ async function handleAutofillWithProfile(
     const alreadyFilled = new Set(result.filled);
     const planFilled = await fillByFillPlan(fillPlan, alreadyFilled);
     if (planFilled.length > 0) {
-      console.log(`Autoply: fillPlan filled ${planFilled.length} additional fields:`, planFilled.join(', '));
+      debugLog(`Autoply: fillPlan filled ${planFilled.length} additional fields:`, planFilled.join(', '));
       result.filled.push(...planFilled);
     }
   }
@@ -841,10 +848,10 @@ async function handleAutofillWithProfile(
     if (uploaded) result.filled.push('resume_upload');
   }
 
-  console.log(`Autoply: Filled ${result.filled.length} fields:`, result.filled.join(', '));
+  debugLog(`Autoply: Filled ${result.filled.length} fields:`, result.filled.join(', '));
 
   if (result.errors.length > 0) {
-    console.log('Autoply: Errors:', result.errors.join(', '));
+    debugLog('Autoply: Errors:', result.errors.join(', '));
   }
 
   return {
@@ -860,7 +867,7 @@ console.log('Autoply content script loaded');
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Log which frame received the message
   const frameId = sender.frameId ?? 'main';
-  console.log(`Autoply: Message received in frame ${frameId}:`, message.type);
+  debugLog(`Autoply: Message received in frame ${frameId}:`, message.type);
 
   if (message.type === 'PING') {
     sendResponse({ status: 'OK', frameId });
@@ -875,7 +882,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     };
 
     handleAutofillWithProfile(profile, documents, fillPlan).then((result) => {
-      console.log(`Autoply: Frame ${frameId} fill result:`, result.filled.length, 'fields');
+      debugLog(`Autoply: Frame ${frameId} fill result:`, result.filled.length, 'fields');
       sendResponse({ ...result, frameId });
     });
 

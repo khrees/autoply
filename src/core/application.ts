@@ -259,11 +259,8 @@ export class ApplicationOrchestrator {
       if (dryRun) {
         logger.info('Dry run mode - not submitting application');
         logger.newline();
-        logger.header('Generated Resume Preview');
-        console.log(documents.resume.slice(0, 500) + '...');
-        logger.newline();
-        logger.header('Generated Cover Letter Preview');
-        console.log(documents.coverLetter.slice(0, 500) + '...');
+        logger.debug('Generated Resume Preview', { content: documents.resume.slice(0, 500) + '...' });
+        logger.debug('Generated Cover Letter Preview', { content: documents.coverLetter.slice(0, 500) + '...' });
       }
 
       // Create application record

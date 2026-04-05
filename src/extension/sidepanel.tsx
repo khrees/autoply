@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import {
@@ -8,8 +8,25 @@ import {
   User,
   Settings as SettingsIcon,
 } from 'lucide-react';
-import type { Profile, AppConfig, Application } from '../types';
+import type { Profile, Application } from '../types';
 import { detectPlatform } from '../utils/url-parser';
+
+// React Query
+import { useIsMutating } from '@tanstack/react-query';
+import {
+  useExtensionData,
+  useCurrentTabUrl,
+  useGenerateDocuments,
+  useSaveProfile,
+  useImportProfile,
+  useDeleteApplication,
+  useUpdateConfig,
+  useBulkAdd,
+  useBulkProcess,
+  useMapFields,
+  useDownloadDocument,
+} from './hooks';
+import { Providers } from './providers';
 
 // Components
 import { ToastProvider, useToast } from './components/Toast';
@@ -29,8 +46,6 @@ import { GenerateDocumentsCard } from './components/GenerateDocumentsCard';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
 import { VirtualList } from './components/VirtualList';
 
-const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
-
 const NON_SCRIPTABLE_PROTOCOLS = [
   'chrome:',
   'chrome-extension:',
@@ -39,18 +54,6 @@ const NON_SCRIPTABLE_PROTOCOLS = [
   'about:',
   'moz-extension:',
 ];
-
-function sortApplications(applications: Application[]): Application[] {
-  return [...applications].sort((left, right) => {
-    const leftTime = Date.parse(left.applied_at || left.created_at || '') || 0;
-    const rightTime = Date.parse(right.applied_at || right.created_at || '') || 0;
-    return rightTime - leftTime;
-  });
-}
-
-function isProfile(value: unknown): value is Profile {
-  return Boolean(value && typeof value === 'object' && 'name' in value && 'email' in value);
-}
 
 function getUnsupportedTabMessage(url?: string): string | null {
   if (!url) return 'Open a job application page before running Autofill.';
@@ -72,76 +75,57 @@ function getUnsupportedTabMessage(url?: string): string | null {
 const AppContent = () => {
   const toast = useToast();
 
+  // UI State (still useState since it's local UI state)
   const [activeTab, setActiveTab] = useState<'dashboard' | 'history' | 'analytics' | 'profile' | 'settings'>(
     'dashboard'
   );
-  const [connected, setConnected] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [config, setConfig] = useState<AppConfig | null>(null);
-  const [timeSaved, setTimeSaved] = useState(0);
-  const [applications, setApplications] = useState<Application[]>([]);
   const [recentFilter, setRecentFilter] = useState<string>('all');
-  const [isApplying, setIsApplying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showProfileForm, setShowProfileForm] = useState(false);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [bulkUrls, setBulkUrls] = useState('');
-  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
-  const [bulkStats, setBulkStats] = useState<{
-    pending: number;
-    completed: number;
-    failed: number;
-  } | null>(null);
   const [previewApp, setPreviewApp] = useState<Application | null>(null);
-  const [isGeneratingDocs, setIsGeneratingDocs] = useState(false);
-  const [generatedDocs, setGeneratedDocs] = useState<{
-    resume?: string;
-    coverLetter?: string;
-  } | null>(null);
-  const [currentTabUrl, setCurrentTabUrl] = useState<string | undefined>();
   const [fillReport, setFillReport] = useState<{
     filled: Array<{ key: string; value: string }>;
     skipped: number;
   } | null>(null);
   const [importPreviewData, setImportPreviewData] = useState<Partial<Profile> | null>(null);
 
-  const checkConnection = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/extension/status`);
-      if (res.ok) {
-        setConnected(true);
-        await loadData();
-      } else {
-        setConnected(false);
+  // React Query data fetching
+  const { connected, profile, config, applications, queueStats, isLoading, isError } =
+    useExtensionData();
+
+  // Tab URL polling via React Query
+  const { data: currentTabUrl } = useCurrentTabUrl();
+
+  // Derived state
+  const timeSaved = useMemo(
+    () => applications.reduce((acc, app) => acc + (app.time_saved || 0), 0),
+    [applications]
+  );
+
+  const bulkStats = queueStats
+    ? {
+        pending: queueStats.pending || 0,
+        completed: queueStats.completed || 0,
+        failed: queueStats.failed || 0,
       }
-    } catch {
-      setConnected(false);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    : null;
 
-  useEffect(() => {
-    checkConnection();
-  }, [checkConnection]);
+  // Mutations
+  const saveProfileMutation = useSaveProfile();
+  const importProfileMutation = useImportProfile();
+  const deleteApplicationMutation = useDeleteApplication();
+  const updateConfigMutation = useUpdateConfig();
+  const generateDocsMutation = useGenerateDocuments();
+  const bulkAddMutation = useBulkAdd();
+  const bulkProcessMutation = useBulkProcess();
+  const mapFieldsMutation = useMapFields();
+  const downloadDocumentMutation = useDownloadDocument();
 
-  useEffect(() => {
-    const getTabUrl = async () => {
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.url) {
-          setCurrentTabUrl(tab.url);
-        }
-      } catch {
-        // Extension context not available
-      }
-    };
-    getTabUrl();
-
-    const interval = setInterval(getTabUrl, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  // Check if any mutation is running (for loading states)
+  const isAnyMutating = useIsMutating();
+  const isSavingProfile = saveProfileMutation.isPending || importProfileMutation.isPending;
+  const isGeneratingDocs = generateDocsMutation.isPending;
+  const isBulkProcessing = bulkProcessMutation.isPending;
 
   const handleGenerateDocuments = async (type: 'resume' | 'cover-letter' | 'both') => {
     if (!currentTabUrl) {
@@ -154,136 +138,45 @@ const AppContent = () => {
       return;
     }
 
-    setIsGeneratingDocs(true);
     try {
-      const res = await fetch(`${API_BASE}/documents/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: currentTabUrl, type }),
+      const result = await generateDocsMutation.mutateAsync({
+        url: currentTabUrl,
+        type,
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setGeneratedDocs({
-          resume: data.resumePath?.split('/').pop(),
-          coverLetter: data.coverLetterPath?.split('/').pop(),
-        });
-        toast.success('Documents generated successfully');
-      } else {
-        toast.error(data.error || 'Failed to generate documents');
-      }
-    } catch (err) {
-      toast.error('Failed to connect to API server. Make sure "bun run api" is running.');
-    } finally {
-      setIsGeneratingDocs(false);
+      toast.success('Documents generated successfully');
+      return result;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate documents');
     }
   };
 
-  const updateAppConfig = async (newConfig: Partial<AppConfig>) => {
-    if (!config) return;
-
-    const updated: AppConfig = { ...config };
-
-    if (newConfig.ai) {
-      updated.ai = { ...config.ai, ...newConfig.ai };
-    }
-    if (newConfig.application) {
-      updated.application = { ...config.application, ...newConfig.application };
-    }
-    if (newConfig.browser) {
-      updated.browser = { ...config.browser, ...newConfig.browser };
-    }
-
-    setConfig(updated);
+  const updateAppConfig = async (newConfig: Parameters<typeof updateConfigMutation.mutateAsync>[0]) => {
     try {
-      await fetch(`${API_BASE}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      });
+      await updateConfigMutation.mutateAsync(newConfig);
       toast.success('Settings saved');
     } catch (err) {
       toast.error('Failed to save settings');
     }
   };
 
-  const loadData = async () => {
-    try {
-      fetch(`${API_BASE}/applications/cleanup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hours: 24 }),
-      }).catch(() => {});
-
-      const [configRes, profileRes, appsRes, queueRes] = await Promise.all([
-        fetch(`${API_BASE}/config`),
-        fetch(`${API_BASE}/profile`),
-        fetch(`${API_BASE}/applications`),
-        fetch(`${API_BASE}/queue/stats`).catch(() => null),
-      ]);
-
-      if (!configRes.ok || !profileRes.ok || !appsRes.ok) {
-        throw new Error('Failed to load extension data');
-      }
-
-      const configData = (await configRes.json()) as AppConfig;
-      const profileData = await profileRes.json();
-      const appsData = sortApplications((await appsRes.json()) as Application[]);
-
-      if (queueRes?.ok) {
-        const queueData = await queueRes.json();
-        setBulkStats({
-          pending: queueData.pending || 0,
-          completed: queueData.completed || 0,
-          failed: queueData.failed || 0,
-        });
-      }
-
-      setConfig(configData);
-      setProfile(isProfile(profileData) ? profileData : null);
-      setApplications(appsData);
-      setTimeSaved(appsData.reduce((acc, app) => acc + (app.time_saved || 0), 0));
-    } catch (err) {
-      setConnected(false);
-      console.error('Failed to load data', err);
-    }
-  };
-
   const saveProfile = async (formData: Partial<Profile>) => {
-    setIsSavingProfile(true);
     try {
-      const res = await fetch(`${API_BASE}/profile`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          id: profile?.id,
-        }),
+      await saveProfileMutation.mutateAsync({
+        formData,
+        profileId: profile?.id,
       });
-      const data = await res.json();
-      if (res.ok) {
-        setProfile(data.profile || data);
-        setShowProfileForm(false);
-        setImportPreviewData(null);
-        toast.success('Profile saved successfully');
-      } else {
-        toast.error(data.error || 'Failed to save profile');
-      }
-    } catch (err) {
-      toast.error('Failed to save profile');
-    } finally {
-      setIsSavingProfile(false);
+      setShowProfileForm(false);
+      setImportPreviewData(null);
+      toast.success('Profile saved successfully');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save profile');
     }
   };
 
   const deleteApplication = async (id: number) => {
     try {
-      const res = await fetch(`${API_BASE}/applications/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setApplications((prev) => prev.filter((app) => app.id !== id));
-        toast.success('Application deleted');
-      } else {
-        toast.error('Failed to delete application');
-      }
+      await deleteApplicationMutation.mutateAsync(id);
+      toast.success('Application deleted');
     } catch (err) {
       toast.error('Failed to delete application');
     }
@@ -297,27 +190,14 @@ const AppContent = () => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
-      setIsSavingProfile(true);
       try {
         const text = await file.text();
-        const res = await fetch(`${API_BASE}/profile/import`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ resumeText: text }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          // Show preview instead of committing immediately
-          setImportPreviewData(data.profile);
-          setShowProfileForm(false);
-          toast.info('Review the extracted data before saving');
-        } else {
-          toast.error(data.error || 'Failed to import profile');
-        }
-      } catch {
-        toast.error('Failed to import profile');
-      } finally {
-        setIsSavingProfile(false);
+        const data = await importProfileMutation.mutateAsync(text);
+        setImportPreviewData(data);
+        setShowProfileForm(false);
+        toast.info('Review the extracted data before saving');
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to import profile');
       }
     };
     input.click();
@@ -334,55 +214,23 @@ const AppContent = () => {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/queue/add`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setBulkStats((prev) => ({
-          pending: (prev?.pending || 0) + data.added,
-          completed: prev?.completed || 0,
-          failed: prev?.failed || 0,
-        }));
-        setBulkUrls('');
-        toast.success(`${data.added} URL${data.added !== 1 ? 's' : ''} added to queue`);
-      } else {
-        toast.error(data.error || 'Failed to add URLs');
-      }
-    } catch {
-      toast.error('Failed to add URLs');
+      const result = await bulkAddMutation.mutateAsync({ urls });
+      setBulkUrls('');
+      toast.success(`${result.added} URL${result.added !== 1 ? 's' : ''} added to queue`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add URLs');
     }
   };
 
   const handleBulkProcess = async () => {
-    setIsBulkProcessing(true);
     try {
-      const res = await fetch(`${API_BASE}/queue/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          autoSubmit: config?.application.autoSubmit,
-          delaySeconds: config?.application.rateLimitDelay || 0,
-        }),
+      await bulkProcessMutation.mutateAsync({
+        autoSubmit: config?.application.autoSubmit,
+        delaySeconds: config?.application.rateLimitDelay || 0,
       });
-      const data = await res.json();
-      if (res.ok) {
-        setBulkStats({
-          pending: data.stats.pending,
-          completed: data.stats.completed,
-          failed: data.stats.failed,
-        });
-        await loadData();
-        toast.success('Queue processing started');
-      } else {
-        toast.error(data.error || 'Bulk processing failed');
-      }
-    } catch {
-      toast.error('Bulk processing failed');
-    } finally {
-      setIsBulkProcessing(false);
+      toast.success('Queue processing started');
+    } catch (err: any) {
+      toast.error(err.message || 'Bulk processing failed');
     }
   };
 
@@ -426,9 +274,11 @@ const AppContent = () => {
   };
 
   const handleAutofill = async () => {
-    if (isApplying) return;
-    setIsApplying(true);
-    setError(null);
+    if (!connected) {
+      toast.error('API server not connected');
+      return;
+    }
+
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab.id) throw new Error('No active tab found');
@@ -438,135 +288,111 @@ const AppContent = () => {
         throw new Error(unsupportedTabMessage);
       }
 
-      // Step 1: Get profile
-      const profileRes = await fetch(`${API_BASE}/profile`);
-      if (!profileRes.ok) {
-        throw new Error('Failed to load profile');
-      }
-      const profileData = await profileRes.json();
-
-      if (!profileData || !profileData.name) {
+      // Check profile exists
+      if (!profile) {
         throw new Error('No profile found. Please set up your profile first.');
       }
 
-      // Step 1.5: Detect form fields and get AI-backed fill plan
+      // Detect form fields and get AI-backed fill plan
       let fillPlan: Record<string, string> = {};
       try {
         const detectedFields = await sendMessageToTab(tab.id, { type: 'GET_FORM_FIELDS' }, tab.url);
         if (detectedFields?.fields?.length > 0) {
-          const mapRes = await fetch(`${API_BASE}/profile/map-fields`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fields: detectedFields.fields }),
-          });
-          if (mapRes.ok) {
-            const mapped = await mapRes.json();
-            fillPlan = mapped.fillPlan || {};
-          }
+          const result = await mapFieldsMutation.mutateAsync({ fields: detectedFields.fields });
+          fillPlan = result.fillPlan || {};
         }
       } catch {
         // fillPlan is optional
       }
 
-      // Step 1.6: Fetch resume PDF as base64
+      // Fetch resume PDF as base64
       let resumeBase64: string | undefined;
       let resumeFilename: string | undefined;
+      const generatedDocs = generateDocsMutation.data;
       if (generatedDocs?.resume) {
         try {
-          const resumeRes = await fetch(`${API_BASE}/documents/download/${encodeURIComponent(generatedDocs.resume)}`);
-          if (resumeRes.ok) {
-            const blob = await resumeRes.blob();
-            resumeBase64 = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.readAsDataURL(blob);
-            });
-            resumeFilename = generatedDocs.resume;
-          }
+          const blob = await downloadDocumentMutation.mutateAsync(generatedDocs.resume);
+          resumeBase64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+          resumeFilename = generatedDocs.resume;
         } catch {
           // resume upload is optional
         }
       }
 
-      // Step 2: Send profile to content script
+      // Send profile to content script
+      const profilePayload = {
+        type: 'AUTOFILL_WITH_PROFILE',
+        fillPlan,
+        documents: resumeBase64 ? { resume: resumeBase64, resumeFilename } : undefined,
+        profile: {
+          firstName: profile.name?.split(' ')[0] || '',
+          lastName: profile.name?.split(' ').slice(1).join(' ') || '',
+          fullName: profile.name || '',
+          email: profile.email || '',
+          phone: profile.phone || '',
+          location: profile.location || '',
+          linkedin: profile.linkedin_url || '',
+          linkedinUrl: profile.linkedin_url || '',
+          github: profile.github_url || '',
+          portfolio: profile.portfolio_url || '',
+          address: profile.location || '',
+          city: '',
+          postcode: '',
+          country: '',
+          state: '',
+          headline: profile.name || '',
+        },
+      };
+
+      // Send to main frame first
+      const fillResult = await sendMessageToTab(tab.id, profilePayload, tab.url);
+
+      // For Ashby and other iframe-based platforms, also try all frames
       try {
-        const profilePayload = {
-          type: 'AUTOFILL_WITH_PROFILE',
-          fillPlan,
-          documents: resumeBase64 ? { resume: resumeBase64, resumeFilename } : undefined,
-          profile: {
-            firstName: profileData.name?.split(' ')[0] || '',
-            lastName: profileData.name?.split(' ').slice(1).join(' ') || '',
-            fullName: profileData.name || '',
-            email: profileData.email || '',
-            phone: profileData.phone || '',
-            location: profileData.location || '',
-            linkedin: profileData.linkedin_url || '',
-            linkedinUrl: profileData.linkedin_url || '',
-            github: profileData.github_url || '',
-            portfolio: profileData.portfolio_url || '',
-            address: profileData.address || profileData.location || '',
-            city: profileData.city || '',
-            postcode: profileData.postcode || profileData.zip || '',
-            country: profileData.country || '',
-            state: profileData.state || '',
-            headline: profileData.headline || profileData.name || '',
-          },
-        };
-
-        // Send to main frame first
-        const fillResult = await sendMessageToTab(tab.id, profilePayload, tab.url);
-
-        // For Ashby and other iframe-based platforms, also try all frames
-        try {
-          const frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id });
-          for (const frame of frames || []) {
-            if (frame.frameId !== 0) {
-              try {
-                await chrome.tabs.sendMessage(tab.id, profilePayload, { frameId: frame.frameId });
-              } catch {
-                // Not all frames accept messages
-              }
+        const frames = await chrome.webNavigation.getAllFrames({ tabId: tab.id });
+        for (const frame of frames || []) {
+          if (frame.frameId !== 0) {
+            try {
+              await chrome.tabs.sendMessage(tab.id, profilePayload, { frameId: frame.frameId });
+            } catch {
+              // Not all frames accept messages
             }
           }
-        } catch {
-          // webNavigation may not be available
         }
-
-        if (fillResult?.success) {
-          const profileKeyToValue: Record<string, string> = {
-            firstName: profileData.name?.split(' ')[0] || '',
-            lastName: profileData.name?.split(' ').slice(1).join(' ') || '',
-            fullName: profileData.name || '',
-            email: profileData.email || '',
-            phone: profileData.phone || '',
-            linkedin: profileData.linkedin_url || '',
-            linkedinUrl: profileData.linkedin_url || '',
-            github: profileData.github_url || '',
-            portfolio: profileData.portfolio_url || '',
-            location: profileData.location || '',
-            resume_upload: '',
-          };
-          const filledArr: string[] = fillResult?.filled || [];
-          setFillReport({
-            filled: filledArr.map((key) => ({ key, value: profileKeyToValue[key] ?? '' })),
-            skipped: filledArr.length === 0 ? 0 : Math.max(0, 8 - filledArr.length),
-          });
-          toast.success(`${filledArr.length} field${filledArr.length !== 1 ? 's' : ''} filled successfully`);
-        } else if (fillResult?.error) {
-          throw new Error(fillResult.error);
-        }
-      } catch (fillError: any) {
-        throw new Error(fillError.message || 'Form fill failed');
+      } catch {
+        // webNavigation may not be available
       }
 
-      await loadData();
+      if (fillResult?.success) {
+        const profileKeyToValue: Record<string, string> = {
+          firstName: profile.name?.split(' ')[0] || '',
+          lastName: profile.name?.split(' ').slice(1).join(' ') || '',
+          fullName: profile.name || '',
+          email: profile.email || '',
+          phone: profile.phone || '',
+          linkedin: profile.linkedin_url || '',
+          linkedinUrl: profile.linkedin_url || '',
+          github: profile.github_url || '',
+          portfolio: profile.portfolio_url || '',
+          location: profile.location || '',
+          resume_upload: '',
+        };
+        const filledArr: string[] = fillResult?.filled || [];
+        setFillReport({
+          filled: filledArr.map((key) => ({ key, value: profileKeyToValue[key] ?? '' })),
+          skipped: filledArr.length === 0 ? 0 : Math.max(0, 8 - filledArr.length),
+        });
+        toast.success(`${filledArr.length} field${filledArr.length !== 1 ? 's' : ''} filled successfully`);
+      } else if (fillResult?.error) {
+        throw new Error(fillResult.error);
+      }
     } catch (err: any) {
       console.error('Autofill failed', err);
-      setError(err.message || 'Autofill failed unexpectedly');
       toast.error(err.message || 'Autofill failed');
-    } finally {
-      setIsApplying(false);
     }
   };
 
@@ -588,22 +414,7 @@ const AppContent = () => {
     }
   };
 
-  const handleRetry = async () => {
-    setError(null);
-    setIsApplying(true);
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab.id) {
-      try {
-        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-        setConnected(true);
-      } catch (e: any) {
-        setError(`Re-injection failed: ${e.message}`);
-      }
-    }
-    setIsApplying(false);
-  };
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="h-screen bg-[var(--bg-primary)]">
         <LoadingState />
@@ -627,11 +438,11 @@ const AppContent = () => {
           <div className="space-y-4">
             <ActionCard
               onApply={handleAutofill}
-              isApplying={isApplying}
+              isApplying={isAnyMutating > 0}
               connected={connected}
-              error={error}
-              onRetry={handleRetry}
-              onDismissError={() => setError(null)}
+              error={isError ? 'Failed to load extension data' : null}
+              onRetry={() => window.location.reload()}
+              onDismissError={() => {}}
             />
 
             {fillReport && (
@@ -646,7 +457,7 @@ const AppContent = () => {
               currentUrl={currentTabUrl}
               onGenerate={handleGenerateDocuments}
               isGenerating={isGeneratingDocs}
-              generatedDocs={generatedDocs}
+              generatedDocs={generateDocsMutation.data ?? null}
               connected={connected}
             />
 
@@ -834,11 +645,13 @@ const AppContent = () => {
 };
 
 const App = () => (
-  <ToastProvider>
-    <ConfirmProvider>
-      <AppContent />
-    </ConfirmProvider>
-  </ToastProvider>
+  <Providers>
+    <ToastProvider>
+      <ConfirmProvider>
+        <AppContent />
+      </ConfirmProvider>
+    </ToastProvider>
+  </Providers>
 );
 
 const root = createRoot(document.getElementById('root')!);

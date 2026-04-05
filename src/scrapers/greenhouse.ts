@@ -230,9 +230,9 @@ export class GreenhouseScraper extends BaseScraper {
           });
           return results;
         });
-        console.log('[Greenhouse Debug] Empty fields before submit:', JSON.stringify(emptyFields, null, 2));
+        logger.debug('Greenhouse empty fields before submit', { emptyFields }, 'scraper');
       } catch (err) {
-        console.error('[Greenhouse Debug] Error collecting debug info', err);
+        logger.debug('Error collecting Greenhouse debug info', { err }, 'scraper');
       }
     }
   }
