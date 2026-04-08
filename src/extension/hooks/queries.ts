@@ -119,6 +119,28 @@ export function useCurrentTabUrl() {
   });
 }
 
+// Fetch available AI models (Ollama/LM Studio)
+export function useAIModels(provider: 'ollama' | 'lmstudio' | string) {
+  return useQuery({
+    queryKey: ['ai', 'models', provider],
+    queryFn: async (): Promise<string[]> => {
+      if (provider !== 'ollama' && provider !== 'lmstudio') {
+        return [];
+      }
+      const res = await fetch(`${API_BASE}/ai/models`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to fetch models');
+      }
+      const data = await res.json();
+      return data.models || [];
+    },
+    enabled: provider === 'ollama' || provider === 'lmstudio',
+    retry: 1,
+    staleTime: 60000, // Cache for 1 minute
+  });
+}
+
 // Combined hook for initial data loading
 export function useExtensionData() {
   const connection = useConnectionStatus();

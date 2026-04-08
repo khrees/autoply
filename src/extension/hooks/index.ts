@@ -1,3 +1,4 @@
 export * from './queries';
 export * from './mutations';
 export * from './useFocusTrap';
+export { queryKeys } from './queries';

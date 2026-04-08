@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   ShieldCheck,
   CheckCircle,
   AlertCircle,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import type { AppConfig } from '../../types';
+import { useAIModels } from '../hooks';
 
 const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
 
@@ -19,6 +21,18 @@ export const SettingsSection = ({
 }) => {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
+
+  // Fetch available models for local providers
+  const { data: availableModels, isLoading: modelsLoading, error: modelsError, refetch: refetchModels } = useAIModels(
+    config?.ai.provider || ''
+  );
+
+  // Auto-select first model if none selected and models are available
+  useEffect(() => {
+    if (availableModels && availableModels.length > 0 && !config?.ai.model) {
+      onUpdate({ ai: { ...config!.ai, model: availableModels[0] } });
+    }
+  }, [availableModels, config?.ai.model, config, onUpdate]);
 
   if (!config) return null;
 
@@ -109,15 +123,79 @@ export const SettingsSection = ({
         )}
 
         <div className="space-y-3">
-          <label className="label">Model</label>
-          <input
-            type="text"
-            value={config.ai.model || ''}
-            onChange={(e) => onUpdate({ ai: { ...config.ai, model: e.target.value } })}
-            placeholder="e.g., gpt-4, claude-3, llama3"
-            className="input"
-            aria-label="AI model"
-          />
+          <div className="flex items-center justify-between">
+            <label className="label">Model</label>
+            {['ollama', 'lmstudio'].includes(config.ai.provider) && (
+              <button
+                onClick={() => refetchModels()}
+                disabled={modelsLoading}
+                className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1 transition-colors"
+                aria-label="Refresh model list"
+              >
+                <RefreshCw className={`w-3 h-3 ${modelsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            )}
+          </div>
+
+          {/* Local providers: show dropdown with loaded models */}
+          {['ollama', 'lmstudio'].includes(config.ai.provider) ? (
+            <div className="space-y-2">
+              {modelsLoading ? (
+                <div className="input flex items-center gap-2 text-[var(--text-secondary)]">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading models...
+                </div>
+              ) : modelsError ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={config.ai.model || ''}
+                    onChange={(e) => onUpdate({ ai: { ...config.ai, model: e.target.value } })}
+                    placeholder="Enter model name manually"
+                    className="input"
+                    aria-label="AI model"
+                  />
+                  <p className="text-xs text-rose-400">
+                    Couldn&apos;t fetch models. Make sure {config.ai.provider === 'ollama' ? 'Ollama' : 'LM Studio'} is running.
+                  </p>
+                </div>
+              ) : availableModels?.length ? (
+                <select
+                  value={config.ai.model || ''}
+                  onChange={(e) => onUpdate({ ai: { ...config.ai, model: e.target.value } })}
+                  className="input appearance-none cursor-pointer"
+                  aria-label="AI model"
+                >
+                  <option value="" disabled>Select a model...</option>
+                  {availableModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={config.ai.model || ''}
+                  onChange={(e) => onUpdate({ ai: { ...config.ai, model: e.target.value } })}
+                  placeholder="No models found. Enter manually..."
+                  className="input"
+                  aria-label="AI model"
+                />
+              )}
+            </div>
+          ) : (
+            /* Cloud providers: free text input */
+            <input
+              type="text"
+              value={config.ai.model || ''}
+              onChange={(e) => onUpdate({ ai: { ...config.ai, model: e.target.value } })}
+              placeholder="e.g., gpt-4, claude-3, gemini-pro"
+              className="input"
+              aria-label="AI model"
+            />
+          )}
         </div>
 
         <button
