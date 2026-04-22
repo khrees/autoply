@@ -2,14 +2,28 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 export function generateDocumentFilename(
   fullName: string,
-  documentType: 'resume' | 'cover_letter'
+  documentType: 'resume' | 'cover_letter',
+  company?: string
 ): string {
-  const nameParts = fullName.trim().toLowerCase().split(/\s+/);
+  const nameParts = fullName.trim().split(/\s+/);
   const firstName = nameParts[0] || 'unknown';
-  const lastName = nameParts[nameParts.length - 1] || 'user';
-  const randomId = Math.floor(Math.random() * 90 + 10); // 2-digit random ID (10-99)
+  const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
 
-  return `${firstName}_${lastName}_${documentType}_${randomId}.pdf`;
+  const sanitizedCompany = company ? company.replace(/[^a-zA-Z0-9]/g, '_') : '';
+
+  if (documentType === 'cover_letter') {
+    if (sanitizedCompany) {
+      return `${firstName}'s_Letter_to_${sanitizedCompany}.pdf`;
+    }
+    return `${firstName}_cover_letter.pdf`;
+  }
+
+  if (sanitizedCompany) {
+    const fullNameFormatted = lastName ? `${firstName}_${lastName}` : firstName;
+    return `${fullNameFormatted}_${sanitizedCompany}_resume.pdf`;
+  }
+
+  return `${firstName}_${lastName || 'user'}_resume.pdf`;
 }
 
 export interface PDFGenerationOptions {

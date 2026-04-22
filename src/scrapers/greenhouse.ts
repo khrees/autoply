@@ -3,6 +3,7 @@ import type { AIProvider, JobData, CustomQuestion, Platform, Profile } from '../
 import { FormFiller } from '../core/form-filler';
 import { analyzeAndFillFormFields } from '../ai/form-analyzer';
 import { createAIProvider } from '../ai/provider';
+import { logger } from '../utils/logger';
 
 export function normalizeGreenhouseCompanyName(company: string): string {
   const trimmed = company.trim().replace(/\s+/g, ' ');
@@ -42,8 +43,8 @@ export class GreenhouseScraper extends BaseScraper {
     await this.page.waitForSelector('#app_body, .app-body, [data-mapped="true"], h1', {
       timeout: 10000,
     }).catch(() => { });
-    // Extra wait for JS rendering
-    await this.page.waitForTimeout(2000);
+    // Wait for JS rendering to settle
+    await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
   }
 
   override async scrape(url: string, aiProvider?: AIProvider): Promise<JobData> {
@@ -105,11 +106,12 @@ export class GreenhouseScraper extends BaseScraper {
           if (isVisible) {
             await this.humanDelay(true);
             await button.click();
-            await this.page.waitForTimeout(1000);
+            await this.page.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch(() => {});
             return;
           }
         }
-      } catch {
+      } catch (e) {
+        logger.debug(`Apply button selector "${selector}" failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper');
         continue;
       }
     }
@@ -228,9 +230,9 @@ export class GreenhouseScraper extends BaseScraper {
           });
           return results;
         });
-        console.log('[Greenhouse Debug] Empty fields before submit:', JSON.stringify(emptyFields, null, 2));
+        logger.debug('Greenhouse empty fields before submit', { emptyFields }, 'scraper');
       } catch (err) {
-        console.error('[Greenhouse Debug] Error collecting debug info', err);
+        logger.debug('Error collecting Greenhouse debug info', { err }, 'scraper');
       }
     }
   }
@@ -250,7 +252,7 @@ export class GreenhouseScraper extends BaseScraper {
             const text = await parentEl.textContent();
             if (text?.toLowerCase().includes('resume') || text?.toLowerCase().includes('cv')) {
               await input.setInputFiles(filePath);
-              await this.page.waitForTimeout(2000);
+              await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
               await this.humanDelay(true);
               return true;
             }
@@ -273,7 +275,7 @@ export class GreenhouseScraper extends BaseScraper {
             const fileInput = await this.page.$(selector);
             if (fileInput) {
               await fileInput.setInputFiles(filePath);
-              await this.page.waitForTimeout(2000);
+              await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
               await this.humanDelay(true);
               return true;
             }
@@ -291,7 +293,7 @@ export class GreenhouseScraper extends BaseScraper {
               area.click(),
             ]);
             await fileChooser.setFiles(filePath);
-            await this.page.waitForTimeout(2000);
+            await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
             return true;
           } catch {
             continue;
@@ -301,7 +303,7 @@ export class GreenhouseScraper extends BaseScraper {
         // Fourth try: Just use the first file input on the page
         if (allFileInputs.length > 0) {
           await allFileInputs[0].setInputFiles(filePath);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
           return true;
         }
 
@@ -322,7 +324,7 @@ export class GreenhouseScraper extends BaseScraper {
           const fileInput = await this.page.$(selector);
           if (fileInput) {
             await fileInput.setInputFiles(filePath);
-            await this.page.waitForTimeout(2000);
+            await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
             await this.humanDelay(true);
             return true;
           }
@@ -484,8 +486,8 @@ export class GreenhouseScraper extends BaseScraper {
           for (const char of value) {
             await input.type(char, { delay: 50 });
           }
-          // Wait longer for search results
-          await this.page.waitForTimeout(1500);
+          // Wait for search results to appear
+          await this.page.waitForSelector('.select__option', { timeout: 3000 }).catch(() => {});
         }
 
         // Find and click matching option
@@ -542,10 +544,10 @@ export class GreenhouseScraper extends BaseScraper {
     const country = this.deriveCountryFromProfile(profile);
     const city = this.deriveCityFromProfile(profile);
     if (country) {
-      questionPatterns.push({ pattern: /^country\b/i, answer: country });
+      questionPatterns.push({ pattern: /\bcountry\b/i, answer: country });
     }
     if (city) {
-      questionPatterns.push({ pattern: /location.*city|city/i, answer: city });
+      questionPatterns.push({ pattern: /\blocation\b|\bcity\b/i, answer: city });
     }
     questionPatterns.push(
       { pattern: /source.*right.*work|right.*work.*source/i, answer: 'Citizen' },
@@ -675,17 +677,31 @@ export class GreenhouseScraper extends BaseScraper {
       }
     }
 
-    // Handle required radio buttons
-    const radioGroups = await this.page.$$('fieldset:has(input[type="radio"]), .field:has(input[type="radio"])');
+    // Handle required radio buttons — use a broad selector to catch all Greenhouse question containers,
+    // then deduplicate by keeping only the innermost container for each radio input group.
+    const radioGroupHandles = await this.page.$$(
+      'fieldset:has(input[type="radio"]), .field:has(input[type="radio"]), li:has(input[type="radio"]), [class*="question"]:has(input[type="radio"])'
+    );
+    // Deduplicate: for each radio name group, keep only the smallest (most specific) container
+    const seenRadioNames = new Set<string>();
+    const radioGroups = (await Promise.all(radioGroupHandles.map(async (handle) => {
+      const names = await handle.$$eval('input[type="radio"]', (inputs) =>
+        [...new Set(inputs.map((i) => (i as HTMLInputElement).name).filter(Boolean))]
+      );
+      const key = names.sort().join('|');
+      if (!key || seenRadioNames.has(key)) return null;
+      seenRadioNames.add(key);
+      return handle;
+    }))).filter((h): h is NonNullable<typeof h> => h !== null);
     for (const group of radioGroups) {
       try {
         // Check if any radio in this group is already selected
         const checkedRadio = await group.$('input[type="radio"]:checked');
         if (checkedRadio) continue; // Already answered
 
-        // Get the question text
+        // Get the question text — try multiple label selectors
         const questionText = await group.$eval(
-          'legend, label:first-of-type, .field-label, > label',
+          'legend, .field-label, [class*="label"], > label, label:first-of-type',
           (el) => el.textContent?.trim() || ''
         ).catch(() => '');
 
@@ -1067,7 +1083,7 @@ export class GreenhouseScraper extends BaseScraper {
           } else if (combined.includes('country')) {
             value = this.deriveCountryFromProfile(profile) || '';
           } else if (combined.includes('location') || combined.includes('city')) {
-            value = profile.location || '';
+            value = this.deriveCityFromProfile(profile) || '';
           } else if (combined.includes('preferred') && combined.includes('name')) {
             value = profile.name.split(' ')[0];
           } else if (combined.includes('phone') || combined.includes('tel')) {
@@ -1260,7 +1276,7 @@ export class GreenhouseScraper extends BaseScraper {
               const input = await this.page.$('.select__input input');
               if (input) {
                 await input.fill(answer);
-                await this.page.waitForTimeout(500);
+                await this.page.waitForSelector('.select__option', { timeout: 2000 }).catch(() => {});
               }
 
               // Find and click matching option
@@ -2032,20 +2048,25 @@ export class GreenhouseScraper extends BaseScraper {
 
   private deriveCountryFromProfile(profile: Profile): string | null {
     if (!profile.location) return null;
+    // Check parts from the end — country is usually last in "City, State, Country" format
+    const parts = profile.location.split(',').map((p) => p.trim()).filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const match = this.matchCountryName(parts[i]);
+      if (match) return match;
+    }
     return this.matchCountryName(profile.location);
   }
 
   private deriveCityFromProfile(profile: Profile): string | null {
     const location = profile.location?.trim();
     if (!location) return null;
-    
-    // If it's just a country, use it
-    if (this.matchCountryName(location)) return location;
 
     const parts = location.split(',').map((p) => p.trim()).filter(Boolean);
     if (parts.length === 0) return null;
-    
-    // Return city if present, or just the first part
+
+    // Return the first part (city/locality). For "Lagos, Lagos State, Nigeria" → "Lagos"
+    // If it's a single-part location that is a country name, return as-is
+    if (parts.length === 1) return parts[0];
     return parts[0];
   }
 }

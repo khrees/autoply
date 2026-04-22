@@ -1,5 +1,6 @@
 import { BaseScraper } from './base';
 import type { JobData, CustomQuestion, Platform } from '../types';
+import { logger } from '../utils/logger';
 
 export class TeamtailorScraper extends BaseScraper {
   platform: Platform = 'teamtailor';
@@ -35,7 +36,9 @@ export class TeamtailorScraper extends BaseScraper {
   protected override async waitForApplicationForm(): Promise<void> {
     if (!this.page) return;
 
-    await this.page.waitForSelector('form, .application-form', { timeout: 10000 }).catch(() => {});
+    await this.page.waitForSelector('form, .application-form', { timeout: 10000 }).catch(() => {
+      logger.debug('Teamtailor application form not found within timeout — proceeding anyway', {}, 'scraper');
+    });
     await this.humanDelay(true);
   }
 

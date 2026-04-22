@@ -30,7 +30,15 @@ function rowToApplication(row: ApplicationRow): Application {
     status: row.status as ApplicationStatus,
     generated_resume: row.generated_resume ?? undefined,
     generated_cover_letter: row.generated_cover_letter ?? undefined,
-    form_data: row.form_data ? (() => { try { return JSON.parse(row.form_data); } catch { return undefined; } })() : undefined,
+    form_data: row.form_data
+      ? (() => {
+          try {
+            return JSON.parse(row.form_data);
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined,
     error_message: row.error_message ?? undefined,
     time_saved: row.time_saved ?? undefined,
     applied_at: row.applied_at ?? undefined,
@@ -72,16 +80,19 @@ export class ApplicationRepository {
 
   findById(id: number): Application | null {
     const db = getDb();
-    const row = db.query<ApplicationRow, [number]>('SELECT * FROM applications WHERE id = ?').get(id);
+    const row = db
+      .query<ApplicationRow, [number]>('SELECT * FROM applications WHERE id = ?')
+      .get(id);
     return row ? rowToApplication(row) : null;
   }
 
   findByUrl(url: string): Application[] {
     const db = getDb();
     const rows = db
-      .query<ApplicationRow, [string]>(
-        'SELECT * FROM applications WHERE url = ? ORDER BY created_at DESC'
-      )
+      .query<
+        ApplicationRow,
+        [string]
+      >('SELECT * FROM applications WHERE url = ? ORDER BY created_at DESC')
       .all(url);
     return rows.map(rowToApplication);
   }
@@ -98,7 +109,11 @@ export class ApplicationRepository {
     return (row?.count ?? 0) > 0;
   }
 
-  findAll(filters?: { status?: ApplicationStatus; company?: string; profile_id?: number }): Application[] {
+  findAll(filters?: {
+    status?: ApplicationStatus;
+    company?: string;
+    profile_id?: number;
+  }): Application[] {
     const db = getDb();
     let query = 'SELECT * FROM applications WHERE 1=1';
     const params: unknown[] = [];
@@ -162,7 +177,10 @@ export class ApplicationRepository {
 
     if (fields.length > 0) {
       values.push(id);
-      db.run(`UPDATE applications SET ${fields.join(', ')} WHERE id = ?`, values as SQLQueryBindings[]);
+      db.run(
+        `UPDATE applications SET ${fields.join(', ')} WHERE id = ?`,
+        values as SQLQueryBindings[]
+      );
     }
 
     return this.findById(id);
@@ -187,6 +205,16 @@ export class ApplicationRepository {
     const stmt = db.query<{ count: number }, SQLQueryBindings[]>(query);
     const result = stmt.get(...(params as SQLQueryBindings[]));
     return result?.count ?? 0;
+  }
+
+  markStaleAsFailed(staleHours = 24): number {
+    const db = getDb();
+    const cutoff = new Date(Date.now() - staleHours * 60 * 60 * 1000).toISOString();
+    const result = db.run(
+      `UPDATE applications SET status = 'failed', error_message = 'Auto-failed: stuck in pending for > ${staleHours} hours' WHERE status = 'pending' AND created_at < ?`,
+      [cutoff]
+    );
+    return result.changes;
   }
 }
 

@@ -329,43 +329,86 @@ export class LinkedInScraper extends BaseScraper {
 
   private deriveCountryCodeFromLocation(location?: string): string | null {
     if (!location) return null;
-    const normalized = location.toLowerCase();
+    const n = location.toLowerCase();
 
-    if (
-      normalized.includes('united states') ||
-      normalized.includes('usa') ||
-      normalized.includes('us') ||
-      normalized.includes('america')
-    ) {
-      return 'US';
-    }
-    if (normalized.includes('canada')) return 'CA';
-    if (
-      normalized.includes('united kingdom') ||
-      normalized.includes('uk') ||
-      normalized.includes('england') ||
-      normalized.includes('scotland') ||
-      normalized.includes('wales') ||
-      normalized.includes('northern ireland')
-    ) {
-      return 'GB';
-    }
-    if (normalized.includes('australia')) return 'AU';
-    if (normalized.includes('india')) return 'IN';
-    if (normalized.includes('nigeria')) return 'NG';
-    if (normalized.includes('germany')) return 'DE';
-    if (normalized.includes('france')) return 'FR';
-    if (normalized.includes('spain')) return 'ES';
-    if (normalized.includes('italy')) return 'IT';
-    if (normalized.includes('netherlands') || normalized.includes('holland')) return 'NL';
-    if (normalized.includes('sweden')) return 'SE';
-    if (normalized.includes('norway')) return 'NO';
-    if (normalized.includes('denmark')) return 'DK';
-    if (normalized.includes('switzerland')) return 'CH';
-    if (normalized.includes('ireland')) return 'IE';
-    if (normalized.includes('singapore')) return 'SG';
-    if (normalized.includes('new zealand')) return 'NZ';
+    // Map of keyword patterns to ISO 3166-1 alpha-2 codes
+    const countryMap: Array<[RegExp, string]> = [
+      [/united states|usa|\bus\b|america|u\.s\.a|u\.s\b/, 'US'],
+      [/canada/, 'CA'],
+      [/united kingdom|uk\b|england|scotland|wales|northern ireland|britain/, 'GB'],
+      [/australia/, 'AU'],
+      [/india/, 'IN'],
+      [/nigeria/, 'NG'],
+      [/germany|deutschland/, 'DE'],
+      [/france/, 'FR'],
+      [/spain|españa/, 'ES'],
+      [/italy|italia/, 'IT'],
+      [/netherlands|holland/, 'NL'],
+      [/sweden|sverige/, 'SE'],
+      [/norway|norge/, 'NO'],
+      [/denmark|danmark/, 'DK'],
+      [/switzerland|schweiz/, 'CH'],
+      [/ireland/, 'IE'],
+      [/singapore/, 'SG'],
+      [/new zealand/, 'NZ'],
+      [/brazil|brasil/, 'BR'],
+      [/mexico|méxico/, 'MX'],
+      [/argentina/, 'AR'],
+      [/colombia/, 'CO'],
+      [/chile/, 'CL'],
+      [/peru|perú/, 'PE'],
+      [/venezuela/, 'VE'],
+      [/south africa/, 'ZA'],
+      [/kenya/, 'KE'],
+      [/ghana/, 'GH'],
+      [/ethiopia/, 'ET'],
+      [/egypt|مصر/, 'EG'],
+      [/morocco|maroc/, 'MA'],
+      [/tanzania/, 'TZ'],
+      [/uganda/, 'UG'],
+      [/japan|日本/, 'JP'],
+      [/china|中国|中國/, 'CN'],
+      [/south korea|korea|한국/, 'KR'],
+      [/indonesia/, 'ID'],
+      [/pakistan/, 'PK'],
+      [/bangladesh/, 'BD'],
+      [/philippines/, 'PH'],
+      [/vietnam|viet nam/, 'VN'],
+      [/thailand|ประเทศไทย/, 'TH'],
+      [/malaysia/, 'MY'],
+      [/taiwan|台灣/, 'TW'],
+      [/hong kong|香港/, 'HK'],
+      [/israel|ישראל/, 'IL'],
+      [/turkey|türkiye/, 'TR'],
+      [/saudi arabia|المملكة العربية/, 'SA'],
+      [/united arab emirates|uae|dubai|abu dhabi/, 'AE'],
+      [/qatar/, 'QA'],
+      [/kuwait/, 'KW'],
+      [/bahrain/, 'BH'],
+      [/jordan/, 'JO'],
+      [/russia|россия/, 'RU'],
+      [/ukraine|україна/, 'UA'],
+      [/poland|polska/, 'PL'],
+      [/portugal/, 'PT'],
+      [/belgium|belgique/, 'BE'],
+      [/austria|österreich/, 'AT'],
+      [/czech|czechia|česká/, 'CZ'],
+      [/hungary|magyarország/, 'HU'],
+      [/romania|românia/, 'RO'],
+      [/finland|suomi/, 'FI'],
+      [/greece|ελλάδα/, 'GR'],
+      [/serbia/, 'RS'],
+      [/croatia|hrvatska/, 'HR'],
+      [/bulgaria/, 'BG'],
+      [/slovakia/, 'SK'],
+      [/lithuania/, 'LT'],
+      [/latvia/, 'LV'],
+      [/estonia/, 'EE'],
+    ];
 
+    for (const [pattern, code] of countryMap) {
+      if (pattern.test(n)) return code;
+    }
     return null;
   }
 
@@ -415,68 +458,80 @@ export class LinkedInScraper extends BaseScraper {
   }
 
   private async fillLinkedInWorkExperience(profile: SubmissionOptions['profile']): Promise<void> {
-    if (!this.page) return;
+    if (!this.page || profile.experience.length === 0) return;
 
-    const latestExperience = profile.experience[0];
-    if (!latestExperience) return;
+    // LinkedIn may show one experience entry per step, or all at once
+    // Find all title inputs currently on the page
+    const titleInputs = await this.page.$$('input[name*="title"], input[id*="jobTitle"], input[id*="currentTitle"]');
+    const companyInputs = await this.page.$$('input[name*="company"], input[id*="companyName"], input[id*="currentCompany"]');
 
-    // Current title
-    const titleInput = await this.page.$('input[name*="title"], input[id*="jobTitle"]');
-    if (titleInput) {
-      const currentValue = await titleInput.inputValue();
-      if (!currentValue) {
-        await titleInput.fill(latestExperience.title);
+    // Fill each visible, empty title/company pair with the corresponding experience entry
+    for (let i = 0; i < Math.min(titleInputs.length, profile.experience.length); i++) {
+      const exp = profile.experience[i];
+      const titleInput = titleInputs[i];
+      const companyInput = companyInputs[i];
+
+      if (titleInput) {
+        const isVisible = await titleInput.isVisible().catch(() => false);
+        if (isVisible) {
+          const currentValue = await titleInput.inputValue().catch(() => '');
+          if (!currentValue) {
+            await titleInput.fill(exp.title).catch(() => {});
+          }
+        }
       }
-    }
 
-    // Current company
-    const companyInput = await this.page.$('input[name*="company"], input[id*="companyName"]');
-    if (companyInput) {
-      const currentValue = await companyInput.inputValue();
-      if (!currentValue) {
-        await companyInput.fill(latestExperience.company);
-        // Wait for autocomplete and potentially select first option
-        await this.page.waitForTimeout(1000);
-        const autocompleteOption = await this.page.$(
-          '[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child'
-        );
-        if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => {});
+      if (companyInput) {
+        const isVisible = await companyInput.isVisible().catch(() => false);
+        if (isVisible) {
+          const currentValue = await companyInput.inputValue().catch(() => '');
+          if (!currentValue) {
+            await companyInput.fill(exp.company).catch(() => {});
+            await this.page.waitForTimeout(800);
+            const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child').catch(() => null);
+            if (autocompleteOption) await autocompleteOption.click().catch(() => {});
+          }
         }
       }
     }
   }
 
   private async fillLinkedInEducation(profile: SubmissionOptions['profile']): Promise<void> {
-    if (!this.page) return;
+    if (!this.page || profile.education.length === 0) return;
 
-    const latestEducation = profile.education[0];
-    if (!latestEducation) return;
+    const schoolInputs = await this.page.$$('input[name*="school"], input[id*="school"]');
+    const degreeInputs = await this.page.$$('input[name*="degree"], select[name*="degree"], input[id*="degree"]');
 
-    // School
-    const schoolInput = await this.page.$('input[name*="school"], input[id*="school"]');
-    if (schoolInput) {
-      const currentValue = await schoolInput.inputValue();
-      if (!currentValue) {
-        await schoolInput.fill(latestEducation.institution);
-        await this.page.waitForTimeout(1000);
-        const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child');
-        if (autocompleteOption) {
-          await autocompleteOption.click().catch(() => {});
+    for (let i = 0; i < Math.min(schoolInputs.length, profile.education.length); i++) {
+      const edu = profile.education[i];
+      const schoolInput = schoolInputs[i];
+      const degreeInput = degreeInputs[i];
+
+      if (schoolInput) {
+        const isVisible = await schoolInput.isVisible().catch(() => false);
+        if (isVisible) {
+          const currentValue = await schoolInput.inputValue().catch(() => '');
+          if (!currentValue) {
+            await schoolInput.fill(edu.institution).catch(() => {});
+            await this.page.waitForTimeout(800);
+            const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child').catch(() => null);
+            if (autocompleteOption) await autocompleteOption.click().catch(() => {});
+          }
         }
       }
-    }
 
-    // Degree
-    const degreeInput = await this.page.$('input[name*="degree"], select[name*="degree"]');
-    if (degreeInput) {
-      const tagName = await degreeInput.evaluate((el) => el.tagName.toLowerCase());
-      if (tagName === 'select') {
-        await degreeInput.selectOption({ label: latestEducation.degree }).catch(() => {});
-      } else {
-        const currentValue = await degreeInput.inputValue();
-        if (!currentValue) {
-          await degreeInput.fill(latestEducation.degree);
+      if (degreeInput) {
+        const isVisible = await degreeInput.isVisible().catch(() => false);
+        if (isVisible) {
+          const tagName = await degreeInput.evaluate((el) => el.tagName.toLowerCase()).catch(() => 'input');
+          if (tagName === 'select') {
+            await (degreeInput as any).selectOption({ label: edu.degree }).catch(() => {});
+          } else {
+            const currentValue = await degreeInput.inputValue().catch(() => '');
+            if (!currentValue) {
+              await degreeInput.fill(edu.degree).catch(() => {});
+            }
+          }
         }
       }
     }

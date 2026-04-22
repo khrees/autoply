@@ -833,7 +833,10 @@ export class FormFiller {
         await element.click();
         await element.fill('');
         await element.type(inputValue, { delay: 40 });
-        await this.page.waitForTimeout(800);
+        await this.page.waitForSelector(
+          '[role="listbox"] [role="option"], [role="option"], [class*="autocomplete"] li, [class*="typeahead"] li, [class*="suggestion"]',
+          { timeout: 2000 }
+        ).catch(() => {});
 
         const optionSelectors = [
           '[role="listbox"] [role="option"]',
@@ -1537,7 +1540,6 @@ export class FormFiller {
     try {
       const { input, select } = await import('@inquirer/prompts');
 
-      console.log('');
 
       if (
         (question.type === 'select' || question.type === 'radio') &&

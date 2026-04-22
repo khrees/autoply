@@ -44,14 +44,12 @@ export const historyCommand = new Command('history')
         app.status === 'submitted'
           ? chalk.green
           : app.status === 'failed'
-          ? chalk.red
-          : app.status === 'filled'
-          ? chalk.cyan
-          : chalk.yellow;
+            ? chalk.red
+            : app.status === 'filled'
+              ? chalk.cyan
+              : chalk.yellow;
 
-      console.log(
-        `${chalk.bold(app.job_title)} at ${chalk.cyan(app.company)}`
-      );
+      console.log(`${chalk.bold(app.job_title)} at ${chalk.cyan(app.company)}`);
       console.log(`  Status: ${statusColor(app.status)}`);
       console.log(`  Platform: ${app.platform}`);
       console.log(`  URL: ${chalk.dim(app.url)}`);
@@ -65,7 +63,9 @@ export const historyCommand = new Command('history')
     }
 
     if (applications.length > limit) {
-      logger.info(`Showing ${limit} of ${applications.length} applications. Use --limit to see more.`);
+      logger.info(
+        `Showing ${limit} of ${applications.length} applications. Use --limit to see more.`
+      );
     }
 
     // Summary stats
@@ -125,6 +125,50 @@ historyCommand
       logger.success(`Cleared ${applications.length} application(s).`);
     } else {
       logger.info('Cancelled.');
+    }
+  });
+
+historyCommand
+  .command('cleanup')
+  .description('Mark (or delete) pending applications older than N hours')
+  .option('-h, --hours <hours>', 'Hours after which to consider stale', '24')
+  .option('-d, --delete', 'Permanently delete stale records instead of marking as failed')
+  .action(async (options: { hours: string; delete?: boolean }) => {
+    const hours = parseInt(options.hours, 10);
+    if (isNaN(hours) || hours < 1) {
+      logger.error('Hours must be a positive number');
+      process.exit(1);
+    }
+
+    if (options.delete) {
+      const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+      const stale = applicationRepository.findAll({ status: 'pending' }).filter(
+        (a) => !!a.created_at && a.created_at < cutoff
+      );
+      if (stale.length === 0) {
+        logger.info('No stale applications to delete.');
+        return;
+      }
+      const { confirm } = await import('@inquirer/prompts');
+      const confirmed = await confirm({
+        message: `Permanently delete ${stale.length} stale application(s)?`,
+        default: false,
+      });
+      if (!confirmed) {
+        logger.info('Cancelled.');
+        return;
+      }
+      for (const app of stale) {
+        if (app.id) applicationRepository.delete(app.id);
+      }
+      logger.success(`Deleted ${stale.length} stale application(s).`);
+    } else {
+      const count = applicationRepository.markStaleAsFailed(hours);
+      if (count > 0) {
+        logger.success(`Marked ${count} stale application(s) as failed.`);
+      } else {
+        logger.info('No stale applications found.');
+      }
     }
   });
 

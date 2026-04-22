@@ -866,14 +866,53 @@ export abstract class BaseScraper {
   }
 
   /**
-   * Check for a Captcha challenge and wait for the user to solve it manually.
-   * Logs a message to the console if a captcha is detected.
+   * Check for a CAPTCHA challenge. Tries automated solving first, then falls
+   * back to waiting for manual input.
+   *
+   * - Cloudflare JS challenges: solved automatically by the real Chromium
+   *   browser, no API key required.
+   * - reCAPTCHA v2/v3, hCaptcha: automated via 2captcha (requires
+   *   TWOCAPTCHA_API_KEY env var), otherwise manual fallback.
    */
   protected async waitForCaptchaSolved(): Promise<boolean> {
     if (!this.page) return false;
 
     try {
-      // Look for common captcha iframes
+      const { createCaptchaSolver, CaptchaSolver } = await import('../scraping-browser/captcha-solver');
+
+      // --- Cloudflare full-page challenge (no iframe, just a title check) ---
+      const isCFChallenge = await this.page.evaluate(() => {
+        const title = document.title.toLowerCase();
+        const bodyText = (document.body?.innerText ?? '').toLowerCase();
+        const inlineScripts = Array.from(document.querySelectorAll('script:not([src])'))
+          .map((s) => s.textContent ?? '')
+          .join(' ');
+        return (
+          title === 'just a moment...' ||
+          document.getElementById('challenge-running') !== null ||
+          document.getElementById('challenge-form') !== null ||
+          document.getElementById('challenge-error-text') !== null ||
+          bodyText.includes('performing security verification') ||
+          bodyText.includes('verifying you are human') ||
+          bodyText.includes('enable javascript and cookies to continue') ||
+          bodyText.includes('performance and security by cloudflare') ||
+          inlineScripts.includes('_cf_chl_opt')
+        );
+      });
+
+      if (isCFChallenge) {
+        logger.info('Cloudflare challenge detected. Waiting for browser to pass it...');
+        const solved = await CaptchaSolver.solveCloudflare(this.page);
+        if (solved) {
+          logger.success('Cloudflare challenge passed. Continuing...');
+          await this.humanDelay(true);
+          return true;
+        }
+        logger.warning('Cloudflare challenge did not resolve in time. Continuing anyway...');
+        return false;
+      }
+
+      // --- Iframe-based CAPTCHAs (reCAPTCHA, hCaptcha, CF Turnstile widget) ---
       const captchaSelectors = [
         'iframe[src*="hcaptcha.com"]',
         'iframe[title*="hCaptcha"]',
@@ -882,39 +921,48 @@ export abstract class BaseScraper {
         'iframe[src*="challenges.cloudflare.com"]',
       ];
 
+      let captchaIframe: import('playwright-core').ElementHandle | null = null;
       for (const selector of captchaSelectors) {
         const iframes = await this.page.$$(selector);
-
-        if (iframes.length > 0) {
-          logger.debug(`Found ${iframes.length} iframes matching ${selector}`);
-        }
-
-        for (let i = 0; i < iframes.length; i++) {
-          const captchaIframe = iframes[i];
-          const isVisible = await captchaIframe.isVisible();
-          logger.debug(`Iframe ${i} isVisible: ${isVisible}`);
-
-          if (isVisible) {
-            logger.info('CAPTCHA detected! Please solve it manually in the browser window.');
-
-            // Wait for the captcha to be solved (the iframe will typically become hidden or be removed)
-            try {
-              // Wait for up to 2 minutes for the user to solve it
-              await captchaIframe.waitForElementState('hidden', { timeout: 120000 });
-              logger.success('CAPTCHA appears to be solved! Continuing submission...');
-              await this.humanDelay(true); // Wait a bit after solving
-              return true;
-            } catch (waitError) {
-              logger.warning(
-                'Timed out waiting for CAPTCHA to be solved manually. Continuing anyway...'
-              );
-              return false;
-            }
+        for (const iframe of iframes) {
+          if (await iframe.isVisible()) {
+            captchaIframe = iframe;
+            break;
           }
+        }
+        if (captchaIframe) break;
+      }
+
+      if (!captchaIframe) return false;
+
+      // --- Automated solving ---
+      const solver = createCaptchaSolver();
+      if (solver) {
+        logger.info('CAPTCHA detected. Attempting automated solve...');
+        try {
+          const solved = await solver.solvePage(this.page);
+          if (solved) {
+            logger.success('CAPTCHA solved automatically. Continuing...');
+            await this.humanDelay(true);
+            return true;
+          }
+          logger.warning('Automated CAPTCHA solve failed. Falling back to manual...');
+        } catch (err) {
+          logger.debug(`Automated CAPTCHA error: ${err}`);
         }
       }
 
-      return false; // No captcha detected
+      // --- Manual fallback ---
+      logger.info('CAPTCHA detected! Please solve it manually in the browser window.');
+      try {
+        await captchaIframe.waitForElementState('hidden', { timeout: 120000 });
+        logger.success('CAPTCHA appears to be solved! Continuing submission...');
+        await this.humanDelay(true);
+        return true;
+      } catch {
+        logger.warning('Timed out waiting for CAPTCHA to be solved manually. Continuing anyway...');
+        return false;
+      }
     } catch (error) {
       logger.debug(`Error checking for captcha: ${error}`);
       return false;
