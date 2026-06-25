@@ -40,9 +40,11 @@ export class GreenhouseScraper extends BaseScraper {
       }
     }
 
-    await this.page.waitForSelector('#app_body, .app-body, [data-mapped="true"], h1', {
-      timeout: 10000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('#app_body, .app-body, [data-mapped="true"], h1', {
+        timeout: 10000,
+      })
+      .catch(() => {});
     // Wait for JS rendering to settle
     await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
   }
@@ -56,7 +58,10 @@ export class GreenhouseScraper extends BaseScraper {
     }
   }
 
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
+  override async submitApplication(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<SubmissionResult> {
     this.browserSelectionUrl = url;
     try {
       const resolvedUrl = this.resolveGreenhouseUrl(url);
@@ -67,7 +72,10 @@ export class GreenhouseScraper extends BaseScraper {
     }
   }
 
-  override async fillApplication(url: string, options: SubmissionOptions): Promise<import('./base').FillApplicationResult> {
+  override async fillApplication(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<import('./base').FillApplicationResult> {
     this.browserSelectionUrl = url;
     try {
       const resolvedUrl = this.resolveGreenhouseUrl(url);
@@ -111,14 +119,20 @@ export class GreenhouseScraper extends BaseScraper {
           }
         }
       } catch (e) {
-        logger.debug(`Apply button selector "${selector}" failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper');
+        logger.debug(
+          `Apply button selector "${selector}" failed: ${e instanceof Error ? e.message : e}`,
+          {},
+          'scraper'
+        );
         continue;
       }
     }
 
     // If no apply button, scroll to the form (it might already be visible)
     await this.page.evaluate(() => {
-      const form = document.querySelector('#application_form, form[id*="application"], form[class*="application"]');
+      const form = document.querySelector(
+        '#application_form, form[id*="application"], form[class*="application"]'
+      );
       if (form) {
         form.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -147,7 +161,11 @@ export class GreenhouseScraper extends BaseScraper {
     }
   }
 
-  protected override async postFormFill(options: SubmissionOptions, _filler: FormFiller, _errors: string[]): Promise<void> {
+  protected override async postFormFill(
+    options: SubmissionOptions,
+    _filler: FormFiller,
+    _errors: string[]
+  ): Promise<void> {
     // Fill LinkedIn/Website fields
     await this.fillGreenhouseUrls(options);
 
@@ -187,45 +205,67 @@ export class GreenhouseScraper extends BaseScraper {
     }
   }
 
-  protected override async preSubmitActions(_options: SubmissionOptions, _errors: string[]): Promise<void> {
+  protected override async preSubmitActions(
+    _options: SubmissionOptions,
+    _errors: string[]
+  ): Promise<void> {
     if (!this.page) return;
 
     if (process.env.DEBUG_GREENHOUSE || process.env.DEBUG) {
       try {
         const { getAutoplyDir } = await import('../db');
         const { join } = await import('path');
-        const preSubmitPath = join(getAutoplyDir(), 'screenshots', `greenhouse_pre_submit_${Date.now()}.png`);
+        const preSubmitPath = join(
+          getAutoplyDir(),
+          'screenshots',
+          `greenhouse_pre_submit_${Date.now()}.png`
+        );
         await this.takeScreenshot(preSubmitPath);
 
         const emptyFields = await this.page.evaluate(() => {
           const results: string[] = [];
-          document.querySelectorAll('input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])').forEach(el => {
-            const input = el as HTMLInputElement;
-            if (input.offsetParent !== null && !input.value) {
-              const label = input.closest('.field, .form-group, div')?.querySelector('label')?.textContent?.trim() || input.name || input.id;
-              results.push(`Empty input: ${label}`);
-            }
-          });
-          document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach(el => {
+          document
+            .querySelectorAll(
+              'input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])'
+            )
+            .forEach((el) => {
+              const input = el as HTMLInputElement;
+              if (input.offsetParent !== null && !input.value) {
+                const label =
+                  input
+                    .closest('.field, .form-group, div')
+                    ?.querySelector('label')
+                    ?.textContent?.trim() ||
+                  input.name ||
+                  input.id;
+                results.push(`Empty input: ${label}`);
+              }
+            });
+          document.querySelectorAll('input[type="checkbox"]:not(:checked)').forEach((el) => {
             const cb = el as HTMLInputElement;
             if (cb.offsetParent !== null) {
-              const label = cb.closest('label')?.textContent?.trim() || document.querySelector(`label[for="${cb.id}"]`)?.textContent?.trim() || cb.name;
+              const label =
+                cb.closest('label')?.textContent?.trim() ||
+                document.querySelector(`label[for="${cb.id}"]`)?.textContent?.trim() ||
+                cb.name;
               results.push(`Unchecked checkbox: ${label}`);
             }
           });
-          document.querySelectorAll('select').forEach(el => {
+          document.querySelectorAll('select').forEach((el) => {
             const sel = el as HTMLSelectElement;
             if (sel.offsetParent !== null && !sel.value) {
               results.push(`Empty select: ${sel.name || sel.id}`);
             }
           });
-          document.querySelectorAll('[class*="placeholder"]').forEach(el => {
+          document.querySelectorAll('[class*="placeholder"]').forEach((el) => {
             if ((el as HTMLElement).offsetParent !== null) {
               const container = el.closest('.field, .form-group, div');
               const label = container?.querySelector('label')?.textContent?.trim() || 'unknown';
               const classes = el.className;
               const parentClasses = el.parentElement?.className || '';
-              results.push(`Unfilled React Select: label="${label}" classes="${classes}" parentClasses="${parentClasses}"`);
+              results.push(
+                `Unfilled React Select: label="${label}" classes="${classes}" parentClasses="${parentClasses}"`
+              );
             }
           });
           return results;
@@ -237,7 +277,10 @@ export class GreenhouseScraper extends BaseScraper {
     }
   }
 
-  protected override async uploadFile(filePath: string, type: 'resume' | 'cover_letter'): Promise<boolean> {
+  protected override async uploadFile(
+    filePath: string,
+    type: 'resume' | 'cover_letter'
+  ): Promise<boolean> {
     if (!this.page) return false;
 
     if (type === 'resume') {
@@ -246,7 +289,9 @@ export class GreenhouseScraper extends BaseScraper {
         const allFileInputs = await this.page.$$('input[type="file"]');
         for (const input of allFileInputs) {
           // Check if this input is related to resume by looking at parent/sibling elements
-          const parent = await input.evaluateHandle(el => el.closest('[class*="resume"], [id*="resume"], [data-field*="resume"], .field'));
+          const parent = await input.evaluateHandle((el) =>
+            el.closest('[class*="resume"], [id*="resume"], [data-field*="resume"], .field')
+          );
           const parentEl = parent.asElement();
           if (parentEl) {
             const text = await parentEl.textContent();
@@ -285,7 +330,9 @@ export class GreenhouseScraper extends BaseScraper {
         }
 
         // Third try: Click on upload area and use file chooser
-        const uploadAreas = await this.page.$$('[class*="resume"] [class*="upload"], #resume_upload, .attach-or-paste, button:has-text("Attach"), button:has-text("Upload")');
+        const uploadAreas = await this.page.$$(
+          '[class*="resume"] [class*="upload"], #resume_upload, .attach-or-paste, button:has-text("Attach"), button:has-text("Upload")'
+        );
         for (const area of uploadAreas) {
           try {
             const [fileChooser] = await Promise.all([
@@ -382,10 +429,7 @@ export class GreenhouseScraper extends BaseScraper {
       education.institution
     );
 
-    await this.fillInputBySelector(
-      'input[name*="degree"], input[id*="degree"]',
-      education.degree
-    );
+    await this.fillInputBySelector('input[name*="degree"], input[id*="degree"]', education.degree);
 
     if (education.field) {
       await this.fillInputBySelector(
@@ -476,7 +520,7 @@ export class GreenhouseScraper extends BaseScraper {
         await this.humanDelay(true);
 
         // Wait for menu
-        await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
+        await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
 
         // For searchable selects (like Country, Location), type the answer
         const input = await control.$('input');
@@ -509,7 +553,7 @@ export class GreenhouseScraper extends BaseScraper {
             (answerLower === 'no' && /^(no|false|n)$/i.test(optTextLower)) ||
             (answerLower.includes('decline') && optTextLower.includes('decline')) ||
             (answerLower.includes('prefer not') && optTextLower.includes('prefer not')) ||
-            (answerLower.includes('don\'t wish') && optTextLower.includes('don\'t wish')) ||
+            (answerLower.includes("don't wish") && optTextLower.includes("don't wish")) ||
             (answerLower.includes('i am not') && optTextLower.includes('i am not')) ||
             (answerLower.includes('acknowledge') && optTextLower.includes('acknowledge'))
           ) {
@@ -562,7 +606,7 @@ export class GreenhouseScraper extends BaseScraper {
       { pattern: /voluntary.*self.*identification.*gender/i, answer: 'Decline to Self-Identify' },
       { pattern: /self.*identification/i, answer: 'Decline to Self-Identify' },
       { pattern: /veteran|military/i, answer: 'I am not' },
-      { pattern: /disability|disabled/i, answer: 'I don\'t wish to answer' },
+      { pattern: /disability|disabled/i, answer: "I don't wish to answer" },
       { pattern: /race|ethnicity|hispanic|latino/i, answer: 'Decline to self identify' },
       { pattern: /ai.*policy|acknowledge|agree.*policy|consent.*ai/i, answer: 'I acknowledge' },
       { pattern: /interviewed.*before|applied.*before/i, answer: 'No' },
@@ -593,14 +637,18 @@ export class GreenhouseScraper extends BaseScraper {
           if (label) return label.textContent?.trim() || '';
 
           // Try to find label as parent/sibling
-          const fieldContainer = el.closest('.field, .form-group, fieldset, [class*="field"], [class*="question"]');
+          const fieldContainer = el.closest(
+            '.field, .form-group, fieldset, [class*="field"], [class*="question"]'
+          );
           if (fieldContainer) {
             label = fieldContainer.querySelector('label, .field-label, legend');
             if (label) return label.textContent?.trim() || '';
             // Sometimes the text is directly in the container
             const containerText = fieldContainer.textContent?.trim() || '';
             // Remove option texts from container text
-            const options = Array.from(el.querySelectorAll('option')).map(o => o.textContent?.trim() || '');
+            const options = Array.from(el.querySelectorAll('option')).map(
+              (o) => o.textContent?.trim() || ''
+            );
             let cleanText = containerText;
             for (const opt of options) {
               cleanText = cleanText.replace(opt, '');
@@ -636,15 +684,26 @@ export class GreenhouseScraper extends BaseScraper {
               const optText = opt.text.toLowerCase().trim();
               const answerLower = answer.toLowerCase();
               // Skip empty/placeholder options
-              if (!optText || optText === 'select' || optText === 'select...' || optText === '-- select --' || optText.startsWith('select')) {
+              if (
+                !optText ||
+                optText === 'select' ||
+                optText === 'select...' ||
+                optText === '-- select --' ||
+                optText.startsWith('select')
+              ) {
                 return false;
               }
-              return optText === answerLower ||
+              return (
+                optText === answerLower ||
                 optText.includes(answerLower) ||
                 answerLower.includes(optText) ||
-                (answerLower === 'yes' && /^(yes|true|y|affirmative|i agree|agree)$/i.test(optText)) ||
-                (answerLower === 'no' && /^(no|false|n|negative|i (do not|don't) agree)$/i.test(optText)) ||
-                (answerLower === 'prefer not to say' && /prefer|decline|not (to )?disclose|not (to )?answer/i.test(optText));
+                (answerLower === 'yes' &&
+                  /^(yes|true|y|affirmative|i agree|agree)$/i.test(optText)) ||
+                (answerLower === 'no' &&
+                  /^(no|false|n|negative|i (do not|don't) agree)$/i.test(optText)) ||
+                (answerLower === 'prefer not to say' &&
+                  /prefer|decline|not (to )?disclose|not (to )?answer/i.test(optText))
+              );
             });
 
             if (matchingOption && matchingOption.value) {
@@ -684,15 +743,19 @@ export class GreenhouseScraper extends BaseScraper {
     );
     // Deduplicate: for each radio name group, keep only the smallest (most specific) container
     const seenRadioNames = new Set<string>();
-    const radioGroups = (await Promise.all(radioGroupHandles.map(async (handle) => {
-      const names = await handle.$$eval('input[type="radio"]', (inputs) =>
-        [...new Set(inputs.map((i) => (i as HTMLInputElement).name).filter(Boolean))]
-      );
-      const key = names.sort().join('|');
-      if (!key || seenRadioNames.has(key)) return null;
-      seenRadioNames.add(key);
-      return handle;
-    }))).filter((h): h is NonNullable<typeof h> => h !== null);
+    const radioGroups = (
+      await Promise.all(
+        radioGroupHandles.map(async (handle) => {
+          const names = await handle.$$eval('input[type="radio"]', (inputs) => [
+            ...new Set(inputs.map((i) => (i as HTMLInputElement).name).filter(Boolean)),
+          ]);
+          const key = names.sort().join('|');
+          if (!key || seenRadioNames.has(key)) return null;
+          seenRadioNames.add(key);
+          return handle;
+        })
+      )
+    ).filter((h): h is NonNullable<typeof h> => h !== null);
     for (const group of radioGroups) {
       try {
         // Check if any radio in this group is already selected
@@ -700,10 +763,12 @@ export class GreenhouseScraper extends BaseScraper {
         if (checkedRadio) continue; // Already answered
 
         // Get the question text — try multiple label selectors
-        const questionText = await group.$eval(
-          'legend, .field-label, [class*="label"], > label, label:first-of-type',
-          (el) => el.textContent?.trim() || ''
-        ).catch(() => '');
+        const questionText = await group
+          .$eval(
+            'legend, .field-label, [class*="label"], > label, label:first-of-type',
+            (el) => el.textContent?.trim() || ''
+          )
+          .catch(() => '');
 
         if (!questionText) continue;
 
@@ -715,7 +780,8 @@ export class GreenhouseScraper extends BaseScraper {
             for (const radio of radios) {
               const radioValue = await radio.getAttribute('value');
               const radioLabel = await this.page.evaluate((el) => {
-                const label = el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
+                const label =
+                  el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
                 return label?.textContent?.trim() || '';
               }, radio);
 
@@ -754,7 +820,14 @@ export class GreenhouseScraper extends BaseScraper {
       let howDidYouHearChecked = false;
 
       // Preferred labels for "How did you hear" - in order of preference
-      const preferredHowDidYouHearLabels = ['linkedin', 'job board', 'career', 'website', 'indeed', 'glassdoor'];
+      const preferredHowDidYouHearLabels = [
+        'linkedin',
+        'job board',
+        'career',
+        'website',
+        'indeed',
+        'glassdoor',
+      ];
 
       for (const cb of allUnchecked) {
         try {
@@ -772,7 +845,11 @@ export class GreenhouseScraper extends BaseScraper {
               if (containerText.length > 20) break;
               container = container.parentElement;
             }
-            return { label: lblText, container: containerText, name: el.getAttribute('name') || '' };
+            return {
+              label: lblText,
+              container: containerText,
+              name: el.getAttribute('name') || '',
+            };
           }, cb);
 
           const ctxLower = context.container.toLowerCase();
@@ -781,14 +858,22 @@ export class GreenhouseScraper extends BaseScraper {
 
           // Acknowledge / consent / agree / GDPR / demographic data — always check
           if (
-            lblLower.includes('acknowledge') || lblLower.includes('consent') ||
-            lblLower.includes('agree') || lblLower.includes('gdpr') ||
-            lblLower.includes('i certify') || lblLower.includes('i understand') ||
-            lblLower.includes('checking this box') || lblLower.includes('by checking') ||
-            lblLower.includes('demographic') || lblLower.includes('collecting') ||
-            ctxLower.includes('consent') || ctxLower.includes('demographic') ||
-            nameLower.includes('gdpr') || nameLower.includes('consent') ||
-            nameLower.includes('acknowledge') || nameLower.includes('demographic')
+            lblLower.includes('acknowledge') ||
+            lblLower.includes('consent') ||
+            lblLower.includes('agree') ||
+            lblLower.includes('gdpr') ||
+            lblLower.includes('i certify') ||
+            lblLower.includes('i understand') ||
+            lblLower.includes('checking this box') ||
+            lblLower.includes('by checking') ||
+            lblLower.includes('demographic') ||
+            lblLower.includes('collecting') ||
+            ctxLower.includes('consent') ||
+            ctxLower.includes('demographic') ||
+            nameLower.includes('gdpr') ||
+            nameLower.includes('consent') ||
+            nameLower.includes('acknowledge') ||
+            nameLower.includes('demographic')
           ) {
             await cb.check();
             await this.humanDelay(true);
@@ -796,7 +881,8 @@ export class GreenhouseScraper extends BaseScraper {
           }
 
           // "How did you hear" group — check one (prefer LinkedIn, then Job Board, etc.)
-          const isHowDidYouHear = ctxLower.includes('how did you hear') ||
+          const isHowDidYouHear =
+            ctxLower.includes('how did you hear') ||
             ctxLower.includes('where did you find') ||
             ctxLower.includes('how did you find') ||
             ctxLower.includes('how did you learn') ||
@@ -805,7 +891,9 @@ export class GreenhouseScraper extends BaseScraper {
 
           if (isHowDidYouHear && !howDidYouHearChecked) {
             // Check if this is a preferred option
-            const isPreferred = preferredHowDidYouHearLabels.some(pref => lblLower.includes(pref));
+            const isPreferred = preferredHowDidYouHearLabels.some((pref) =>
+              lblLower.includes(pref)
+            );
             if (isPreferred) {
               await cb.check();
               await this.humanDelay(true);
@@ -822,7 +910,9 @@ export class GreenhouseScraper extends BaseScraper {
       if (!howDidYouHearChecked) {
         try {
           // Method 1: by ID/value/name attribute
-          let linkedinCheckbox = await this.page.$('input[type="checkbox"][id*="linkedin" i], input[type="checkbox"][value*="linkedin" i], input[type="checkbox"][name*="linkedin" i]');
+          let linkedinCheckbox = await this.page.$(
+            'input[type="checkbox"][id*="linkedin" i], input[type="checkbox"][value*="linkedin" i], input[type="checkbox"][name*="linkedin" i]'
+          );
 
           // Method 2: by label text using page context
           if (!linkedinCheckbox) {
@@ -830,9 +920,11 @@ export class GreenhouseScraper extends BaseScraper {
               const labels = Array.from(document.querySelectorAll('label'));
               for (const label of labels) {
                 if (label.textContent?.toLowerCase().includes('linkedin')) {
-                  const checkbox = label.querySelector('input[type="checkbox"]') ||
+                  const checkbox =
+                    label.querySelector('input[type="checkbox"]') ||
                     document.getElementById(label.getAttribute('for') || '');
-                  if (checkbox && (checkbox as HTMLInputElement).type === 'checkbox') return checkbox;
+                  if (checkbox && (checkbox as HTMLInputElement).type === 'checkbox')
+                    return checkbox;
                 }
               }
               return null;
@@ -840,7 +932,11 @@ export class GreenhouseScraper extends BaseScraper {
             linkedinCheckbox = handle.asElement() as typeof linkedinCheckbox;
           }
 
-          if (linkedinCheckbox && await linkedinCheckbox.isVisible() && !(await linkedinCheckbox.isChecked())) {
+          if (
+            linkedinCheckbox &&
+            (await linkedinCheckbox.isVisible()) &&
+            !(await linkedinCheckbox.isChecked())
+          ) {
             await linkedinCheckbox.check();
             await this.humanDelay(true);
             howDidYouHearChecked = true;
@@ -853,41 +949,56 @@ export class GreenhouseScraper extends BaseScraper {
       // If no "how did you hear" option was checked via preferred labels, check first one
       if (!howDidYouHearChecked) {
         const howDidYouHearInputs = await this.page.$$eval('input[type="checkbox"]', (els) => {
-          return els.filter(el => {
-            if ((el as HTMLInputElement).checked) return false;
-            let container = el.parentElement;
-            for (let i = 0; i < 5 && container; i++) {
-              const text = container.textContent?.toLowerCase() || '';
-              if (text.includes('how did you hear') || text.includes('where did you find') || text.includes('how did you learn')) {
-                return true;
+          return els
+            .filter((el) => {
+              if ((el as HTMLInputElement).checked) return false;
+              let container = el.parentElement;
+              for (let i = 0; i < 5 && container; i++) {
+                const text = container.textContent?.toLowerCase() || '';
+                if (
+                  text.includes('how did you hear') ||
+                  text.includes('where did you find') ||
+                  text.includes('how did you learn')
+                ) {
+                  return true;
+                }
+                container = container.parentElement;
               }
-              container = container.parentElement;
-            }
-            return false;
-          }).map(el => el.id || el.getAttribute('name') || '');
+              return false;
+            })
+            .map((el) => el.id || el.getAttribute('name') || '');
         });
 
         // Check if any in the group is already checked
-        const anyCheckedInGroup = await this.page.$$eval('input[type="checkbox"]:checked', (els) => {
-          return els.some(el => {
-            let container = el.parentElement;
-            for (let i = 0; i < 5 && container; i++) {
-              const text = container.textContent?.toLowerCase() || '';
-              if (text.includes('how did you hear') || text.includes('where did you find') || text.includes('how did you learn')) {
-                return true;
+        const anyCheckedInGroup = await this.page.$$eval(
+          'input[type="checkbox"]:checked',
+          (els) => {
+            return els.some((el) => {
+              let container = el.parentElement;
+              for (let i = 0; i < 5 && container; i++) {
+                const text = container.textContent?.toLowerCase() || '';
+                if (
+                  text.includes('how did you hear') ||
+                  text.includes('where did you find') ||
+                  text.includes('how did you learn')
+                ) {
+                  return true;
+                }
+                container = container.parentElement;
               }
-              container = container.parentElement;
-            }
-            return false;
-          });
-        });
+              return false;
+            });
+          }
+        );
 
         if (!anyCheckedInGroup && howDidYouHearInputs.length > 0) {
           // Check the first unchecked one in the group
           const firstId = howDidYouHearInputs[0];
           if (firstId) {
-            const cb = await this.page.$(`input[type="checkbox"][id="${firstId}"], input[type="checkbox"][name="${firstId}"]`);
-            if (cb && await cb.isVisible()) {
+            const cb = await this.page.$(
+              `input[type="checkbox"][id="${firstId}"], input[type="checkbox"][name="${firstId}"]`
+            );
+            if (cb && (await cb.isVisible())) {
               await cb.check();
               await this.humanDelay(true);
             }
@@ -911,12 +1022,12 @@ export class GreenhouseScraper extends BaseScraper {
       // Try by label text
       const labels = await this.page.$$('label');
       for (const label of labels) {
-        const text = await label.textContent() || '';
+        const text = (await label.textContent()) || '';
         if (/preferred.*first.*name|preferred.*name/i.test(text)) {
           const forAttr = await label.getAttribute('for');
           if (forAttr) {
             const input = await this.page.$(`#${forAttr}`);
-            if (input && await input.isVisible()) {
+            if (input && (await input.isVisible())) {
               const val = await input.inputValue();
               if (!val) {
                 await input.fill(firstName);
@@ -926,11 +1037,11 @@ export class GreenhouseScraper extends BaseScraper {
             }
           }
           // Try sibling/child input
-          const parent = await label.evaluateHandle(el => el.closest('.field, .form-group, div'));
+          const parent = await label.evaluateHandle((el) => el.closest('.field, .form-group, div'));
           const parentEl = parent.asElement();
           if (parentEl) {
             const input = await parentEl.$('input[type="text"], input:not([type])');
-            if (input && await input.isVisible()) {
+            if (input && (await input.isVisible())) {
               const val = await input.inputValue();
               if (!val) {
                 await input.fill(firstName);
@@ -943,8 +1054,10 @@ export class GreenhouseScraper extends BaseScraper {
       }
 
       // Try by placeholder
-      const prefInput = await this.page.$('input[placeholder*="Preferred"], input[name*="preferred"]');
-      if (prefInput && await prefInput.isVisible()) {
+      const prefInput = await this.page.$(
+        'input[placeholder*="Preferred"], input[name*="preferred"]'
+      );
+      if (prefInput && (await prefInput.isVisible())) {
         const val = await prefInput.inputValue();
         if (!val) {
           await prefInput.fill(firstName);
@@ -1006,7 +1119,7 @@ export class GreenhouseScraper extends BaseScraper {
           await this.humanDelay(true);
 
           // Wait for menu
-          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
+          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
 
           // Look for "Decline" option
           const options = await this.page.$$('.select__option');
@@ -1038,7 +1151,9 @@ export class GreenhouseScraper extends BaseScraper {
     if (!this.page) return;
 
     try {
-      const emptyInputs = await this.page.$$('input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])');
+      const emptyInputs = await this.page.$$(
+        'input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])'
+      );
 
       for (const input of emptyInputs) {
         try {
@@ -1051,9 +1166,11 @@ export class GreenhouseScraper extends BaseScraper {
             const id = (el.id || '').toLowerCase();
             const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
             const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
-            const requiredAttr = el.getAttribute('required') !== null || el.getAttribute('aria-required') === 'true';
+            const requiredAttr =
+              el.getAttribute('required') !== null || el.getAttribute('aria-required') === 'true';
             // Check if this is a React Select internal input
-            const isReactSelect = !!el.closest('[class*="select__"]') || !!el.closest('[class*="Select"]');
+            const isReactSelect =
+              !!el.closest('[class*="select__"]') || !!el.closest('[class*="Select"]');
             // Get label
             let labelText = '';
             const label = el.id ? document.querySelector(`label[for="${el.id}"]`) : null;
@@ -1064,7 +1181,15 @@ export class GreenhouseScraper extends BaseScraper {
               labelText = containerLabel?.textContent?.trim() || '';
             }
             const required = requiredAttr || labelText.includes('*') || !!el.closest('.required');
-            return { name, id, placeholder, autocomplete, label: labelText.toLowerCase(), isReactSelect, required };
+            return {
+              name,
+              id,
+              placeholder,
+              autocomplete,
+              label: labelText.toLowerCase(),
+              isReactSelect,
+              required,
+            };
           }, input);
 
           // Skip React Select internal inputs — they're handled by fillReactSelectDropdowns
@@ -1088,7 +1213,11 @@ export class GreenhouseScraper extends BaseScraper {
             value = profile.name.split(' ')[0];
           } else if (combined.includes('phone') || combined.includes('tel')) {
             value = profile.phone || '';
-          } else if (combined.includes('salary') || combined.includes('compensation') || combined.includes('pay')) {
+          } else if (
+            combined.includes('salary') ||
+            combined.includes('compensation') ||
+            combined.includes('pay')
+          ) {
             value = 'Negotiable';
             isFallback = true;
           } else if (combined.includes('referral') || combined.includes('referred')) {
@@ -1106,7 +1235,7 @@ export class GreenhouseScraper extends BaseScraper {
                 // For location autocomplete, using type instead of fill helps trigger suggestions
                 await input.click();
                 await input.focus();
-                
+
                 // Clear existing text if any
                 const existingValue = await input.evaluate((el: HTMLInputElement) => el.value);
                 if (existingValue) {
@@ -1118,13 +1247,18 @@ export class GreenhouseScraper extends BaseScraper {
                 for (const char of value) {
                   await input.type(char, { delay: 50 });
                 }
-                
+
                 // Wait for suggestions to appear
                 if (this.page) {
-                  await this.page.waitForSelector('[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"], .select__option', { timeout: 4000 });
-                  
-                  const firstOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child, .select__option:first-child');
-                  
+                  await this.page.waitForSelector(
+                    '[class*="autocomplete"] li, [class*="suggestion"], [role="option"], [role="listbox"] [role="option"], .select__option',
+                    { timeout: 4000 }
+                  );
+
+                  const firstOption = await this.page.$(
+                    '[class*="autocomplete"] li:first-child, [class*="suggestion"]:first-child, [role="option"]:first-child, .select__option:first-child'
+                  );
+
                   if (firstOption) {
                     await firstOption.click();
                     await this.humanDelay(true);
@@ -1169,7 +1303,7 @@ export class GreenhouseScraper extends BaseScraper {
         }> = [];
 
         // Find unfilled text inputs
-        document.querySelectorAll('input[type="text"], input:not([type])').forEach(el => {
+        document.querySelectorAll('input[type="text"], input:not([type])').forEach((el) => {
           const input = el as HTMLInputElement;
           if (input.type === 'hidden' || input.type === 'file' || input.type === 'submit') return;
           if (!input.offsetParent) return; // Not visible
@@ -1198,7 +1332,10 @@ export class GreenhouseScraper extends BaseScraper {
 
         // Find unfilled React Selects
         document.querySelectorAll('.select__control').forEach((el, i) => {
-          if (!el.querySelector('.select__single-value') && !el.querySelector('.select__multi-value')) {
+          if (
+            !el.querySelector('.select__single-value') &&
+            !el.querySelector('.select__multi-value')
+          ) {
             // Get label
             let label = '';
             let current: Element | null = el;
@@ -1252,7 +1389,7 @@ export class GreenhouseScraper extends BaseScraper {
         if (field.type === 'text') {
           // Find and fill the text input
           const input = await this.page.$(`#${field.id}, input[name="${field.id}"]`);
-          if (input && await input.isVisible()) {
+          if (input && (await input.isVisible())) {
             const currentVal = await input.inputValue();
             if (!currentVal) {
               await input.fill(answer);
@@ -1270,13 +1407,15 @@ export class GreenhouseScraper extends BaseScraper {
               await controls[index].click();
               await this.humanDelay(true);
 
-              await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
+              await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
 
               // Type answer if there's an input
               const input = await this.page.$('.select__input input');
               if (input) {
                 await input.fill(answer);
-                await this.page.waitForSelector('.select__option', { timeout: 2000 }).catch(() => {});
+                await this.page
+                  .waitForSelector('.select__option', { timeout: 2000 })
+                  .catch(() => {});
               }
 
               // Find and click matching option
@@ -1321,7 +1460,13 @@ export class GreenhouseScraper extends BaseScraper {
    * Answers are cached so the user is only asked once per unique field label.
    */
   private async promptForUnfilledFields(
-    fields: Array<{ id: string; type: string; label: string; options?: string[]; required: boolean }>
+    fields: Array<{
+      id: string;
+      type: string;
+      label: string;
+      options?: string[];
+      required: boolean;
+    }>
   ): Promise<void> {
     if (!this.page) return;
 
@@ -1332,15 +1477,21 @@ export class GreenhouseScraper extends BaseScraper {
 
     // Check cache first, prompt only for truly unknown fields
     const cachedAnswers = config.cachedAnswers ?? {};
-    const toAsk = fields.filter(f => {
-      const key = f.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const toAsk = fields.filter((f) => {
+      const key = f.label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '');
       return !cachedAnswers[key];
     });
 
     if (toAsk.length === 0) {
       // All answers are cached — apply them
       for (const field of fields) {
-        const key = field.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        const key = field.label
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_|_$/g, '');
         const cached = cachedAnswers[key];
         if (cached) {
           await this.applyAnswerToField(field, cached);
@@ -1355,7 +1506,10 @@ export class GreenhouseScraper extends BaseScraper {
     let configChanged = false;
 
     for (const field of fields) {
-      const key = field.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      const key = field.label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '');
       let answer = cachedAnswers[key];
 
       if (!answer) {
@@ -1363,7 +1517,7 @@ export class GreenhouseScraper extends BaseScraper {
           if (field.type === 'select' && field.options && field.options.length > 0) {
             answer = await promptSelect({
               message: `  ${field.label}:`,
-              choices: field.options.map(opt => ({ name: opt, value: opt })),
+              choices: field.options.map((opt) => ({ name: opt, value: opt })),
             });
           } else {
             answer = await promptInput({
@@ -1403,22 +1557,22 @@ export class GreenhouseScraper extends BaseScraper {
     try {
       if (field.type === 'text') {
         const input = await this.page.$(`#${field.id}, input[name="${field.id}"]`);
-        if (input && await input.isVisible()) {
+        if (input && (await input.isVisible())) {
           await input.fill(answer);
-          await new Promise(r => setTimeout(r, 200));
+          await new Promise((r) => setTimeout(r, 200));
         }
       } else if (field.type === 'select' && field.id.startsWith('react_select_')) {
         const index = parseInt(field.id.replace('react_select_', ''));
         const controls = await this.page.$$('.select__control');
         if (controls[index]) {
           await controls[index].click();
-          await new Promise(r => setTimeout(r, 300));
-          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => { });
+          await new Promise((r) => setTimeout(r, 300));
+          await this.page.waitForSelector('.select__menu', { timeout: 3000 }).catch(() => {});
 
           const searchInput = await this.page.$('.select__input input');
           if (searchInput) {
             await searchInput.fill(answer);
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 500));
           }
 
           const options = await this.page.$$('.select__option');
@@ -1445,13 +1599,13 @@ export class GreenhouseScraper extends BaseScraper {
 
     try {
       // reCAPTCHA is in an iframe
-      const recaptchaFrame = this.page.frames().find(f =>
-        f.url().includes('recaptcha') || f.url().includes('google.com/recaptcha')
-      );
+      const recaptchaFrame = this.page
+        .frames()
+        .find((f) => f.url().includes('recaptcha') || f.url().includes('google.com/recaptcha'));
 
       if (recaptchaFrame) {
         const checkbox = await recaptchaFrame.$('#recaptcha-anchor, .recaptcha-checkbox');
-        if (checkbox && await checkbox.isVisible()) {
+        if (checkbox && (await checkbox.isVisible())) {
           await checkbox.click();
           // Wait for challenge to resolve (may show image challenge)
           await this.page.waitForTimeout(3000);
@@ -1500,7 +1654,7 @@ export class GreenhouseScraper extends BaseScraper {
 
     try {
       // Wait for page to load after submit
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
       await this.humanDelay();
 
       // Check for email verification step before checking for confirmation
@@ -1541,7 +1695,11 @@ export class GreenhouseScraper extends BaseScraper {
 
       // Check URL for confirmation
       const currentUrl = this.page.url();
-      if (currentUrl.includes('thank') || currentUrl.includes('confirmation') || currentUrl.includes('success')) {
+      if (
+        currentUrl.includes('thank') ||
+        currentUrl.includes('confirmation') ||
+        currentUrl.includes('success')
+      ) {
         return { success: true, message: 'Application submitted successfully' };
       }
 
@@ -1570,15 +1728,24 @@ export class GreenhouseScraper extends BaseScraper {
       }
 
       // Check if the application form is still visible — means submission failed
-      const formStillVisible = await this.page.$('#application_form, form[id*="application"], #main_fields, #submit_app');
+      const formStillVisible = await this.page.$(
+        '#application_form, form[id*="application"], #main_fields, #submit_app'
+      );
       if (formStillVisible) {
         const isVisible = await formStillVisible.isVisible().catch(() => false);
         if (isVisible) {
-          return { success: false, message: 'Form is still visible after submit — submission likely failed (check for unfilled required fields or reCAPTCHA)' };
+          return {
+            success: false,
+            message:
+              'Form is still visible after submit — submission likely failed (check for unfilled required fields or reCAPTCHA)',
+          };
         }
       }
 
-      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
+      return {
+        success: false,
+        message: 'Could not confirm submission status (no clear success indicator found)',
+      };
     } catch (error) {
       return {
         success: false,
@@ -1625,7 +1792,7 @@ export class GreenhouseScraper extends BaseScraper {
     for (const selector of verificationTextSelectors) {
       try {
         const el = await this.page.$(selector);
-        if (el && await el.isVisible()) {
+        if (el && (await el.isVisible())) {
           isVerificationPage = true;
           break;
         }
@@ -1640,7 +1807,7 @@ export class GreenhouseScraper extends BaseScraper {
     for (const selector of verificationSelectors) {
       try {
         const el = await this.page.$(selector);
-        if (el && await el.isVisible()) {
+        if (el && (await el.isVisible())) {
           codeInput = el;
           break;
         }
@@ -1651,7 +1818,9 @@ export class GreenhouseScraper extends BaseScraper {
 
     // Also try generic single text input on the verification page
     if (!codeInput) {
-      const inputs = await this.page.$$('input[type="text"]:visible, input[type="number"]:visible, input:not([type]):visible');
+      const inputs = await this.page.$$(
+        'input[type="text"]:visible, input[type="number"]:visible, input:not([type]):visible'
+      );
       for (const inp of inputs) {
         const isVisible = await inp.isVisible().catch(() => false);
         if (isVisible) {
@@ -1662,15 +1831,27 @@ export class GreenhouseScraper extends BaseScraper {
     }
 
     if (!codeInput) {
-      return { success: false, message: 'Email verification required but could not find code input field. Check your email and complete verification manually.' };
+      return {
+        success: false,
+        message:
+          'Email verification required but could not find code input field. Check your email and complete verification manually.',
+      };
     }
 
     if (this.autoMode || !config.application.interactivePrompts) {
-      return { success: false, message: 'Email verification required. Run without --auto and ensure interactive prompts are enabled to enter the code.' };
+      return {
+        success: false,
+        message:
+          'Email verification required. Run without --auto and ensure interactive prompts are enabled to enter the code.',
+      };
     }
 
     if (!process.stdin.isTTY) {
-      return { success: false, message: 'Email verification required but no interactive TTY is available to enter the code.' };
+      return {
+        success: false,
+        message:
+          'Email verification required but no interactive TTY is available to enter the code.',
+      };
     }
 
     // Prompt user for the verification code
@@ -1685,7 +1866,11 @@ export class GreenhouseScraper extends BaseScraper {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const code = await this.promptForVerificationCode(attempt, maxAttempts);
       if (!code) {
-        return { success: false, message: 'Email verification required but no code was entered. Complete verification manually.' };
+        return {
+          success: false,
+          message:
+            'Email verification required but no code was entered. Complete verification manually.',
+        };
       }
 
       // Fill the code
@@ -1705,7 +1890,7 @@ export class GreenhouseScraper extends BaseScraper {
       for (const btnSelector of verifyButtonSelectors) {
         try {
           const btn = await this.page.$(btnSelector);
-          if (btn && await btn.isVisible()) {
+          if (btn && (await btn.isVisible())) {
             await btn.click();
             break;
           }
@@ -1715,33 +1900,45 @@ export class GreenhouseScraper extends BaseScraper {
       }
 
       // Wait for response
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
       await this.humanDelay();
 
       // Check if we got through to a confirmation/thank-you page
       const pageText = await this.page.evaluate(() => document.body.innerText.toLowerCase());
-      if (pageText.includes('thank') || pageText.includes('submitted') || pageText.includes('received your application')) {
+      if (
+        pageText.includes('thank') ||
+        pageText.includes('submitted') ||
+        pageText.includes('received your application')
+      ) {
         return { success: true, message: 'Application submitted (email verified)' };
       }
 
       // Check if verification page is gone (URL changed)
       const newUrl = this.page.url();
-      if (newUrl.includes('thank') || newUrl.includes('confirmation') || newUrl.includes('success')) {
+      if (
+        newUrl.includes('thank') ||
+        newUrl.includes('confirmation') ||
+        newUrl.includes('success')
+      ) {
         return { success: true, message: 'Application submitted (email verified)' };
       }
 
       // Check for error on the verification itself
       const errorVisible = await this.page.$('.error, [class*="error"], [role="alert"]');
-      if (errorVisible && await errorVisible.isVisible().catch(() => false)) {
+      if (errorVisible && (await errorVisible.isVisible().catch(() => false))) {
         const errorText = await errorVisible.textContent();
-        if (errorText?.toLowerCase().includes('invalid') || errorText?.toLowerCase().includes('incorrect') || errorText?.toLowerCase().includes('expired')) {
+        if (
+          errorText?.toLowerCase().includes('invalid') ||
+          errorText?.toLowerCase().includes('incorrect') ||
+          errorText?.toLowerCase().includes('expired')
+        ) {
           console.log(`  Invalid code: ${errorText.trim()}`);
           if (attempt < maxAttempts) {
             // Re-find the input in case page re-rendered
             for (const selector of verificationSelectors) {
               try {
                 const el = await this.page.$(selector);
-                if (el && await el.isVisible()) {
+                if (el && (await el.isVisible())) {
                   codeInput = el;
                   break;
                 }
@@ -1757,7 +1954,11 @@ export class GreenhouseScraper extends BaseScraper {
       // If we're still on a verification-like page, the code might be wrong
       const stillVerifying = await this.page.evaluate(() => {
         const text = document.body.innerText.toLowerCase();
-        return text.includes('verification') || text.includes('check your email') || text.includes('enter the code');
+        return (
+          text.includes('verification') ||
+          text.includes('check your email') ||
+          text.includes('enter the code')
+        );
       });
 
       if (stillVerifying && attempt < maxAttempts) {
@@ -1771,10 +1972,16 @@ export class GreenhouseScraper extends BaseScraper {
       }
     }
 
-    return { success: false, message: 'Email verification failed after 3 attempts. Complete verification manually.' };
+    return {
+      success: false,
+      message: 'Email verification failed after 3 attempts. Complete verification manually.',
+    };
   }
 
-  private async promptForVerificationCode(attempt: number, maxAttempts: number): Promise<string | null> {
+  private async promptForVerificationCode(
+    attempt: number,
+    maxAttempts: number
+  ): Promise<string | null> {
     const message = `Verification code${attempt > 1 ? ` (attempt ${attempt}/${maxAttempts})` : ''}:`;
 
     try {
@@ -1813,14 +2020,16 @@ export class GreenhouseScraper extends BaseScraper {
     // boards.greenhouse.io uses h1.app-title; job-boards.greenhouse.io uses h1 inside main content
     let title = await this.extractText('h1.app-title, h1[class*="job-title"], .job-title h1');
     if (!title || title.toLowerCase().includes('open positions')) {
-      title = await this.extractText('.app-title, [data-mapped="true"] h1') || title;
+      title = (await this.extractText('.app-title, [data-mapped="true"] h1')) || title;
     }
-    
+
     // Fallback: If title is generic or missing, look into any Greenhouse iframe
     if (!title || title.toLowerCase().includes('open positions')) {
-      const ghFrame = this.page.frames().find(f => f.url().includes('greenhouse.io'));
+      const ghFrame = this.page.frames().find((f) => f.url().includes('greenhouse.io'));
       if (ghFrame) {
-        const frameTitle = await (await ghFrame.$('h1.app-title, h1[class*="job-title"], .job-title h1, h1'))?.textContent();
+        const frameTitle = await (
+          await ghFrame.$('h1.app-title, h1[class*="job-title"], .job-title h1, h1')
+        )?.textContent();
         if (frameTitle) title = frameTitle.trim();
       }
     }
@@ -1849,7 +2058,7 @@ export class GreenhouseScraper extends BaseScraper {
         }
       }
     }
-    
+
     company = normalizeGreenhouseCompanyName(company);
 
     // Extract job description — try platform-specific selectors first, then broader ones
@@ -1859,7 +2068,7 @@ export class GreenhouseScraper extends BaseScraper {
       // Try broader extraction for job-boards.greenhouse.io
       const sections = await this.extractAllText(
         'section, .section, [class*="section"], .body, .job__description, ' +
-        '[data-mapped="true"], .posting-page, article'
+          '[data-mapped="true"], .posting-page, article'
       );
       const joined = sections.join('\n\n').trim();
       if (joined.length > (description?.trim().length ?? 0)) {
@@ -1871,9 +2080,10 @@ export class GreenhouseScraper extends BaseScraper {
       description = await this.page.evaluate(() => {
         // Exclude form elements, nav, header, footer from extraction
         const excludeSelectors = 'form, nav, header, footer, [class*="application"], script, style';
-        const mainContent = document.querySelector('main, #app_body, .app-body, [role="main"]') || document.body;
+        const mainContent =
+          document.querySelector('main, #app_body, .app-body, [role="main"]') || document.body;
         const clone = mainContent.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll(excludeSelectors).forEach(el => el.remove());
+        clone.querySelectorAll(excludeSelectors).forEach((el) => el.remove());
         return clone.textContent?.trim() ?? '';
       });
     }
@@ -1921,18 +2131,17 @@ export class GreenhouseScraper extends BaseScraper {
     // Custom questions often appear after the main fields (name, email, resume)
     const customFields = await this.page.$$(
       '[class*="custom-question"], [data-question], ' +
-      '#custom_fields .field, #custom_fields > div, ' +
-      '.field:has(select), .field:has(input[type="radio"]), ' +
-      '#additional_fields .field, .additional-fields .field, ' +
-      '[id*="question"], [class*="question"]'
+        '#custom_fields .field, #custom_fields > div, ' +
+        '.field:has(select), .field:has(input[type="radio"]), ' +
+        '#additional_fields .field, .additional-fields .field, ' +
+        '[id*="question"], [class*="question"]'
     );
 
     for (let i = 0; i < customFields.length; i++) {
       const field = customFields[i];
-      const questionText = await field.$eval(
-        'label, .field-label',
-        (el) => el.textContent?.trim() ?? ''
-      ).catch(() => '');
+      const questionText = await field
+        .$eval('label, .field-label', (el) => el.textContent?.trim() ?? '')
+        .catch(() => '');
 
       if (!questionText) continue;
 
@@ -2022,7 +2231,10 @@ export class GreenhouseScraper extends BaseScraper {
     const mappings: Array<{ pattern: RegExp; name: string }> = [
       { pattern: /\b(united states|usa|us)\b/i, name: 'United States' },
       { pattern: /\b(canada)\b/i, name: 'Canada' },
-      { pattern: /\b(united kingdom|uk|england|scotland|wales|northern ireland)\b/i, name: 'United Kingdom' },
+      {
+        pattern: /\b(united kingdom|uk|england|scotland|wales|northern ireland)\b/i,
+        name: 'United Kingdom',
+      },
       { pattern: /\b(australia)\b/i, name: 'Australia' },
       { pattern: /\b(india)\b/i, name: 'India' },
       { pattern: /\b(nigeria)\b/i, name: 'Nigeria' },
@@ -2049,7 +2261,10 @@ export class GreenhouseScraper extends BaseScraper {
   private deriveCountryFromProfile(profile: Profile): string | null {
     if (!profile.location) return null;
     // Check parts from the end — country is usually last in "City, State, Country" format
-    const parts = profile.location.split(',').map((p) => p.trim()).filter(Boolean);
+    const parts = profile.location
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
     for (let i = parts.length - 1; i >= 0; i--) {
       const match = this.matchCountryName(parts[i]);
       if (match) return match;
@@ -2061,7 +2276,10 @@ export class GreenhouseScraper extends BaseScraper {
     const location = profile.location?.trim();
     if (!location) return null;
 
-    const parts = location.split(',').map((p) => p.trim()).filter(Boolean);
+    const parts = location
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
     if (parts.length === 0) return null;
 
     // Return the first part (city/locality). For "Lagos, Lagos State, Nigeria" → "Lagos"

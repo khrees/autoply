@@ -6,9 +6,11 @@ export class JobviteScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('.jv-page-body, .jv-job-detail', {
-      timeout: 10000,
-    }).catch(() => {});
+    await this.page
+      .waitForSelector('.jv-page-body, .jv-job-detail', {
+        timeout: 10000,
+      })
+      .catch(() => {});
   }
 
   protected override async navigateToApplicationForm(): Promise<void> {
@@ -30,7 +32,9 @@ export class JobviteScraper extends BaseScraper {
   protected override async waitForApplicationForm(): Promise<void> {
     if (!this.page) return;
 
-    await this.page.waitForSelector('form, .jv-application-form', { timeout: 10000 }).catch(() => {});
+    await this.page
+      .waitForSelector('form, .jv-application-form', { timeout: 10000 })
+      .catch(() => {});
     await this.humanDelay(true);
   }
 
@@ -82,7 +86,7 @@ export class JobviteScraper extends BaseScraper {
 
     const { extractCustomQuestionsFromContainers } = await import('./helpers');
     const questionContainers = await this.page.$$('.jv-question, [class*="custom-question"]');
-    
+
     return extractCustomQuestionsFromContainers(this.page, questionContainers, 'jobvite');
   }
 }

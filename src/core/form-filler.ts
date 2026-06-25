@@ -833,10 +833,12 @@ export class FormFiller {
         await element.click();
         await element.fill('');
         await element.type(inputValue, { delay: 40 });
-        await this.page.waitForSelector(
-          '[role="listbox"] [role="option"], [role="option"], [class*="autocomplete"] li, [class*="typeahead"] li, [class*="suggestion"]',
-          { timeout: 2000 }
-        ).catch(() => {});
+        await this.page
+          .waitForSelector(
+            '[role="listbox"] [role="option"], [role="option"], [class*="autocomplete"] li, [class*="typeahead"] li, [class*="suggestion"]',
+            { timeout: 2000 }
+          )
+          .catch(() => {});
 
         const optionSelectors = [
           '[role="listbox"] [role="option"]',
@@ -1064,16 +1066,7 @@ export class FormFiller {
       }
 
       if (!fileInput) {
-        const uploaded = await handleFileUpload(
-          this.page,
-          fileInput as unknown as import('playwright').ElementHandle<HTMLInputElement>,
-          filePath
-        );
-        if (uploaded) {
-          await waitForFileUploaded(this.page);
-          return true;
-        }
-
+        // No file input found — try clicking an upload button to trigger a file chooser
         const uploadButton = await this.root.$(
           '[class*="upload"], [class*="attach"], button:has-text("Upload")'
         );
@@ -1539,7 +1532,6 @@ export class FormFiller {
 
     try {
       const { input, select } = await import('@inquirer/prompts');
-
 
       if (
         (question.type === 'select' || question.type === 'radio') &&

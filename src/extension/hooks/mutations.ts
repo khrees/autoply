@@ -1,31 +1,74 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from './queries';
 import type { Profile, AppConfig } from '../../types';
+import { API_BASE } from '../constants';
 
-const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function getApiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Request to ${url} failed`);
+  return data;
+}
+
+// ── Mutation Data Types ──────────────────────────────────────────────────────
 
 interface SaveProfileData {
   formData: Partial<Profile>;
   profileId?: number;
 }
 
-// Save profile mutation
+interface GenerateDocumentsData {
+  url: string;
+  type: 'resume' | 'cover-letter' | 'both';
+}
+
+export interface GeneratedDocumentsResult {
+  /** PDF filename for download/preview */
+  resume?: string;
+  /** PDF filename for download/preview */
+  coverLetter?: string;
+  /** Markdown content of the resume, for in-extension preview */
+  resumeContent?: string;
+  /** Markdown content of the cover letter, for in-extension preview */
+  coverLetterContent?: string;
+}
+
+interface BulkAddData {
+  urls: string[];
+}
+
+interface BulkAddResult {
+  added: number;
+}
+
+interface BulkProcessData {
+  autoSubmit?: boolean;
+  delaySeconds?: number;
+}
+
+interface MapFieldsData {
+  fields: Array<{ key: string; type: string; label: string }>;
+}
+
+// ── Mutations ────────────────────────────────────────────────────────────────
+
+/** Save or update profile */
 export function useSaveProfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ formData, profileId }: SaveProfileData): Promise<Profile> => {
-      const res = await fetch(`${API_BASE}/profile`, {
+      return fetchJson(getApiUrl('/profile'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          id: profileId,
-        }),
+        body: JSON.stringify({ ...formData, id: profileId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save profile');
-      return data.profile || data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.profile });
@@ -33,19 +76,17 @@ export function useSaveProfile() {
   });
 }
 
-// Import profile from resume
+/** Import profile from resume text */
 export function useImportProfile() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (resumeText: string): Promise<Partial<Profile>> => {
-      const res = await fetch(`${API_BASE}/profile/import`, {
+      const data = await fetchJson<{ profile: Partial<Profile> }>(getApiUrl('/profile/import'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resumeText }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to import profile');
       return data.profile;
     },
     onSuccess: () => {
@@ -54,13 +95,15 @@ export function useImportProfile() {
   });
 }
 
-// Delete application mutation
+/** Delete an application */
 export function useDeleteApplication() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (id: number): Promise<void> => {
-      const res = await fetch(`${API_BASE}/applications/${id}`, { method: 'DELETE' });
+      const res = await fetch(getApiUrl(`/applications/${id}`), {
+        method: 'DELETE',
+      });
       if (!res.ok) throw new Error('Failed to delete application');
     },
     onSuccess: () => {
@@ -69,13 +112,12 @@ export function useDeleteApplication() {
   });
 }
 
-// Update app config mutation
+/** Update app config */
 export function useUpdateConfig() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (newConfig: Partial<AppConfig>): Promise<void> => {
-      // Get current config first
       const currentConfig = queryClient.getQueryData<AppConfig>(queryKeys.config);
       if (!currentConfig) throw new Error('Config not loaded');
 
@@ -91,7 +133,7 @@ export function useUpdateConfig() {
         updated.browser = { ...currentConfig.browser, ...newConfig.browser };
       }
 
-      const res = await fetch(`${API_BASE}/config`, {
+      const res = await fetch(getApiUrl('/config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
@@ -104,56 +146,49 @@ export function useUpdateConfig() {
   });
 }
 
-// Generate documents mutation
-interface GenerateDocumentsData {
-  url: string;
-  type: 'resume' | 'cover-letter' | 'both';
-}
-
-interface GeneratedDocumentsResult {
-  resume?: string;
-  coverLetter?: string;
-}
-
+/** Generate documents (resume + cover letter) */
 export function useGenerateDocuments() {
   return useMutation({
-    mutationFn: async ({ url, type }: GenerateDocumentsData): Promise<GeneratedDocumentsResult> => {
-      const res = await fetch(`${API_BASE}/documents/generate`, {
+    mutationFn: async ({
+      url,
+      type,
+    }: GenerateDocumentsData): Promise<GeneratedDocumentsResult> => {
+      const data = await fetchJson<{
+        success: boolean;
+        resumePath?: string;
+        coverLetterPath?: string;
+        resumeContent?: string;
+        coverLetterContent?: string;
+        error?: string;
+      }>(getApiUrl('/documents/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, type }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to generate documents');
+
+      if (!data.success) throw new Error(data.error || 'Failed to generate documents');
+
       return {
         resume: data.resumePath?.split('/').pop(),
         coverLetter: data.coverLetterPath?.split('/').pop(),
+        resumeContent: data.resumeContent,
+        coverLetterContent: data.coverLetterContent,
       };
     },
   });
 }
 
-// Bulk add URLs mutation
-interface BulkAddData {
-  urls: string[];
-}
-
-interface BulkAddResult {
-  added: number;
-}
-
+/** Bulk add URLs to queue */
 export function useBulkAdd() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ urls }: BulkAddData): Promise<BulkAddResult> => {
-      const res = await fetch(`${API_BASE}/queue/add`, {
+      const data = await fetchJson<{ added: number }>(getApiUrl('/queue/add'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to add URLs');
       return { added: data.added };
     },
     onSuccess: () => {
@@ -162,34 +197,23 @@ export function useBulkAdd() {
   });
 }
 
-// Bulk process mutation
-interface BulkProcessData {
-  autoSubmit?: boolean;
-  delaySeconds?: number;
-}
-
-interface BulkStats {
-  pending: number;
-  completed: number;
-  failed: number;
-}
-
-interface BulkProcessResult {
-  stats: BulkStats;
-}
-
+/** Bulk process the queue */
 export function useBulkProcess() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ autoSubmit, delaySeconds }: BulkProcessData): Promise<BulkProcessResult> => {
-      const res = await fetch(`${API_BASE}/queue/process`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoSubmit, delaySeconds }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Bulk processing failed');
+    mutationFn: async ({
+      autoSubmit,
+      delaySeconds,
+    }: BulkProcessData): Promise<{ stats: { pending: number; completed: number; failed: number } }> => {
+      const data = await fetchJson<{ stats: { pending: number; completed: number; failed: number } }>(
+        getApiUrl('/queue/process'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ autoSubmit, delaySeconds }),
+        }
+      );
       return { stats: data.stats };
     },
     onSuccess: () => {
@@ -199,34 +223,24 @@ export function useBulkProcess() {
   });
 }
 
-// Map fields mutation
-interface MapFieldsData {
-  fields: string[];
-}
-
-interface MapFieldsResult {
-  fillPlan: Record<string, string>;
-}
-
+/** Map form fields to profile data */
 export function useMapFields() {
   return useMutation({
-    mutationFn: async ({ fields }: MapFieldsData): Promise<MapFieldsResult> => {
-      const res = await fetch(`${API_BASE}/profile/map-fields`, {
+    mutationFn: async ({ fields }: MapFieldsData): Promise<{ fillPlan: Record<string, string> }> => {
+      return fetchJson(getApiUrl('/profile/map-fields'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields }),
       });
-      if (!res.ok) throw new Error('Failed to map fields');
-      return res.json();
     },
   });
 }
 
-// Download document mutation
+/** Download a document (returns blob) */
 export function useDownloadDocument() {
   return useMutation({
     mutationFn: async (filename: string): Promise<Blob> => {
-      const res = await fetch(`${API_BASE}/documents/download/${encodeURIComponent(filename)}`);
+      const res = await fetch(getApiUrl(`/documents/download/${encodeURIComponent(filename)}`));
       if (!res.ok) throw new Error('Failed to download document');
       return res.blob();
     },

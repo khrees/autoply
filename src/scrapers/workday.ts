@@ -7,14 +7,22 @@ export class WorkdayScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('[data-automation-id="jobPostingHeader"], .css-1q2dra3, [data-automation-id="jobPostingDescription"]', {
-      timeout: 15000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector(
+        '[data-automation-id="jobPostingHeader"], .css-1q2dra3, [data-automation-id="jobPostingDescription"]',
+        {
+          timeout: 15000,
+        }
+      )
+      .catch(() => {});
   }
 
   // ============ Workday Form Submission ============
 
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
+  override async submitApplication(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<SubmissionResult> {
     const errors: string[] = [];
 
     try {
@@ -48,11 +56,11 @@ export class WorkdayScraper extends BaseScraper {
       const { takeScreenshotIfEnabled } = await import('./helpers');
       const { configRepository } = await import('../db/repositories/config');
       const { getAutoplyDir } = await import('../db');
-      
+
       const screenshotPath = await takeScreenshotIfEnabled(
-        this.page, 
-        `workday_${Date.now()}`, 
-        configRepository.loadAppConfig, 
+        this.page,
+        `workday_${Date.now()}`,
+        configRepository.loadAppConfig,
         getAutoplyDir
       );
 
@@ -88,16 +96,20 @@ export class WorkdayScraper extends BaseScraper {
   private async waitForWorkdayApplicationForm(): Promise<void> {
     if (!this.page) return;
 
-    await this.page.waitForSelector('[data-automation-id="applicationForm"], [data-automation-id*="input"]', {
-      timeout: 15000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('[data-automation-id="applicationForm"], [data-automation-id*="input"]', {
+        timeout: 15000,
+      })
+      .catch(() => {});
     await this.humanDelay(true);
   }
 
   private async checkWorkdaySignIn(): Promise<boolean> {
     if (!this.page) return true;
 
-    const signInElement = await this.page.$('[data-automation-id="signInLink"], button:has-text("Sign In")');
+    const signInElement = await this.page.$(
+      '[data-automation-id="signInLink"], button:has-text("Sign In")'
+    );
     if (signInElement) {
       const isVisible = await signInElement.isVisible();
       return isVisible;
@@ -105,7 +117,9 @@ export class WorkdayScraper extends BaseScraper {
     return false;
   }
 
-  private async processWorkdaySteps(options: SubmissionOptions): Promise<{ success: boolean; message: string; errors: string[] }> {
+  private async processWorkdaySteps(
+    options: SubmissionOptions
+  ): Promise<{ success: boolean; message: string; errors: string[] }> {
     if (!this.page) return { success: false, message: 'Page not initialized', errors: [] };
 
     const errors: string[] = [];
@@ -117,7 +131,9 @@ export class WorkdayScraper extends BaseScraper {
       await this.fillWorkdayStep(options, errors);
 
       // Check for submit
-      const submitButton = await this.page.$('[data-automation-id="submit"], button:has-text("Submit")');
+      const submitButton = await this.page.$(
+        '[data-automation-id="submit"], button:has-text("Submit")'
+      );
       if (submitButton) {
         const isEnabled = await submitButton.isEnabled();
         if (isEnabled) {
@@ -130,13 +146,17 @@ export class WorkdayScraper extends BaseScraper {
       // Check for field-level validation errors before advancing
       const hasErrors = await this.checkWorkdayValidationErrors();
       if (hasErrors) {
-        errors.push('Validation errors on current step — some required fields may not have been filled');
+        errors.push(
+          'Validation errors on current step — some required fields may not have been filled'
+        );
         // Do not advance; break out so the caller knows something is wrong
         break;
       }
 
       // Next button
-      const nextButton = await this.page.$('[data-automation-id="bottom-navigation-next-button"], button:has-text("Next")');
+      const nextButton = await this.page.$(
+        '[data-automation-id="bottom-navigation-next-button"], button:has-text("Next")'
+      );
       if (nextButton) {
         const isEnabled = await nextButton.isEnabled();
         if (isEnabled) {
@@ -171,8 +191,14 @@ export class WorkdayScraper extends BaseScraper {
       errors.push(...formResult.errors);
     } else {
       // Fallback: fill basic fields manually if extraction found nothing
-      await this.fillWorkdayInput('[data-automation-id="legalNameSection_firstName"]', profile.name.split(' ')[0]);
-      await this.fillWorkdayInput('[data-automation-id="legalNameSection_lastName"]', profile.name.split(' ').slice(1).join(' '));
+      await this.fillWorkdayInput(
+        '[data-automation-id="legalNameSection_firstName"]',
+        profile.name.split(' ')[0]
+      );
+      await this.fillWorkdayInput(
+        '[data-automation-id="legalNameSection_lastName"]',
+        profile.name.split(' ').slice(1).join(' ')
+      );
       await this.fillWorkdayInput('[data-automation-id="email"]', profile.email);
 
       if (profile.phone) {
@@ -182,7 +208,9 @@ export class WorkdayScraper extends BaseScraper {
 
     // Resume upload
     if (options.resumePath) {
-      const fileInput = await this.page.$('[data-automation-id="file-upload-input-ref"], input[type="file"]');
+      const fileInput = await this.page.$(
+        '[data-automation-id="file-upload-input-ref"], input[type="file"]'
+      );
       if (fileInput) {
         await fileInput.setInputFiles(options.resumePath);
         await this.page.waitForTimeout(2000);
@@ -213,18 +241,28 @@ export class WorkdayScraper extends BaseScraper {
     }
   }
 
-  private async waitForWorkdayConfirmation(): Promise<{ success: boolean; message: string; errors: string[] }> {
+  private async waitForWorkdayConfirmation(): Promise<{
+    success: boolean;
+    message: string;
+    errors: string[];
+  }> {
     if (!this.page) return { success: false, message: 'Page not initialized', errors: [] };
 
     try {
       await this.page.waitForTimeout(3000);
 
-      const successElement = await this.page.$('[data-automation-id="confirmationMessage"], :has-text("Thank you")');
+      const successElement = await this.page.$(
+        '[data-automation-id="confirmationMessage"], :has-text("Thank you")'
+      );
       if (successElement) {
         return { success: true, message: 'Workday application submitted', errors: [] };
       }
 
-      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)', errors: [] };
+      return {
+        success: false,
+        message: 'Could not confirm submission status (no clear success indicator found)',
+        errors: [],
+      };
     } catch {
       return { success: false, message: 'Confirmation check failed', errors: [] };
     }
@@ -283,9 +321,7 @@ export class WorkdayScraper extends BaseScraper {
   }
 
   private formatCompanyName(name: string): string {
-    return name
-      .replace(/-/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   private async checkWorkdayValidationErrors(): Promise<boolean> {
@@ -323,10 +359,9 @@ export class WorkdayScraper extends BaseScraper {
 
     for (let i = 0; i < customFields.length; i++) {
       const field = customFields[i];
-      const questionText = await field.$eval(
-        'label, [data-automation-id*="label"]',
-        (el) => el.textContent?.trim() ?? ''
-      ).catch(() => '');
+      const questionText = await field
+        .$eval('label, [data-automation-id*="label"]', (el) => el.textContent?.trim() ?? '')
+        .catch(() => '');
 
       if (!questionText) continue;
 
@@ -343,19 +378,25 @@ export class WorkdayScraper extends BaseScraper {
         type = 'textarea';
       } else if (hasSelect) {
         type = 'select';
-        options = await field.$$eval('[data-automation-id*="option"], option', (opts) =>
-          opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
-        ).catch(() => []);
+        options = await field
+          .$$eval('[data-automation-id*="option"], option', (opts) =>
+            opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
+          )
+          .catch(() => []);
       } else if (hasRadio) {
         type = 'radio';
-        options = await field.$$eval('input[type="radio"]', (inputs) =>
-          inputs.map((inp) => inp.getAttribute('value') ?? '').filter(Boolean)
-        ).catch(() => []);
+        options = await field
+          .$$eval('input[type="radio"]', (inputs) =>
+            inputs.map((inp) => inp.getAttribute('value') ?? '').filter(Boolean)
+          )
+          .catch(() => []);
       } else if (hasCheckbox) {
         type = 'checkbox';
-        options = await field.$$eval('input[type="checkbox"]', (inputs) =>
-          inputs.map((inp) => inp.getAttribute('value') ?? '').filter(Boolean)
-        ).catch(() => []);
+        options = await field
+          .$$eval('input[type="checkbox"]', (inputs) =>
+            inputs.map((inp) => inp.getAttribute('value') ?? '').filter(Boolean)
+          )
+          .catch(() => []);
       }
 
       const required = (await field.$('[required], [data-automation-id*="required"]')) !== null;

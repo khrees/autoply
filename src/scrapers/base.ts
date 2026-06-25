@@ -256,14 +256,12 @@ export abstract class BaseScraper {
     return fields;
   }
 
-  protected async findLabelForInput(input: unknown): Promise<string> {
+  protected async findLabelForInput(input: import('playwright').ElementHandle): Promise<string> {
     if (!this.page) return '';
 
     try {
       // Try to find associated label by id
-      const id = await (
-        input as { getAttribute: (attr: string) => Promise<string | null> }
-      ).getAttribute('id');
+      const id = await input.getAttribute('id');
       if (id) {
         const label = await this.page.$(`label[for="${id}"]`);
         if (label) {
@@ -281,15 +279,11 @@ export abstract class BaseScraper {
       if (parentLabel) return parentLabel;
 
       // Try aria-label
-      const ariaLabel = await (
-        input as { getAttribute: (attr: string) => Promise<string | null> }
-      ).getAttribute('aria-label');
+      const ariaLabel = await input.getAttribute('aria-label');
       if (ariaLabel) return ariaLabel;
 
       // Try placeholder
-      const placeholder = await (
-        input as { getAttribute: (attr: string) => Promise<string | null> }
-      ).getAttribute('placeholder');
+      const placeholder = await input.getAttribute('placeholder');
       if (placeholder) return placeholder;
 
       return '';
@@ -679,6 +673,108 @@ export abstract class BaseScraper {
   }
 
   /**
+   * Shared setup for both submitApplication and fillApplication.
+   * Navigates to the page, waits for content, opens the application form,
+   * and creates a form filler ready for use.
+   */
+  private async prepareApplicationForm(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<{
+    filler: FormFiller;
+    liveFormFields: FormField[];
+    formFields: FormField[];
+  }> {
+    await this.initialize(url);
+    if (!this.page) throw new Error('Browser not initialized');
+
+    // Navigate to job posting
+    await this.humanDelay();
+    await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await this.humanDelay(true);
+    await this.humanScroll();
+    await this.waitForContent();
+
+    // Navigate to application form (platform-specific)
+    await this.navigateToApplicationForm();
+    await this.waitForApplicationForm();
+
+    // Create form filler
+    const fillerOptions: FormFillerOptions = {
+      resumePath: options.resumePath,
+      coverLetterPath: options.coverLetterPath,
+      answeredQuestions: options.answeredQuestions,
+      autoMode: options.autoMode,
+    };
+
+    const filler = new FormFiller(this.page, options.profile, options.jobData, fillerOptions);
+
+    // Extract form fields from the live form, fall back to pre-scraped data
+    const liveFormFields = await this.extractFormFields();
+    const formFields = liveFormFields.length > 0 ? liveFormFields : options.jobData.form_fields;
+
+    return { filler, liveFormFields, formFields };
+  }
+
+  /**
+   * Shared form-filling logic: fills fields, uploads docs, fills questions,
+   * runs platform-specific hooks, and validates.
+   */
+  private async fillAllForms(
+    filler: FormFiller,
+    formFields: FormField[],
+    options: SubmissionOptions
+  ): Promise<{
+    formResult: FillResult;
+    questionsResult: FillResult;
+    postFillErrors: string[];
+    integrityErrors: string[];
+    validationErrors: string[];
+  }> {
+    const postFillErrors: string[] = [];
+
+    // Fill standard form fields
+    const formResult = await filler.fillForm(formFields);
+
+    // Upload resume
+    if (options.resumePath) {
+      const uploaded = await this.uploadFile(options.resumePath, 'resume');
+      if (!uploaded) postFillErrors.push('Failed to upload resume');
+    }
+
+    // Upload cover letter
+    if (options.coverLetterPath) {
+      await this.uploadFile(options.coverLetterPath, 'cover_letter');
+    }
+
+    // Fill custom questions
+    const questionsResult =
+      options.answeredQuestions && options.answeredQuestions.length > 0
+        ? await filler.fillCustomQuestions(options.answeredQuestions)
+        : { success: true, filledFields: [], skippedFields: [], errors: [] };
+
+    // Platform-specific post-form-fill
+    await this.postFormFill(options, filler, postFillErrors);
+
+    // Platform-specific pre-submit actions
+    await this.preSubmitActions(options, postFillErrors);
+
+    // Profile integrity validation
+    const integrityResult = await this.validateProfileIntegrity(options.profile);
+
+    // Platform-specific pre-submit validation
+    const validationResult = await this.validateBeforeSubmit();
+
+    return {
+      formResult,
+      questionsResult,
+      postFillErrors,
+      integrityErrors: integrityResult.errors,
+      validationErrors: validationResult.errors,
+    };
+  }
+
+  /**
    * Navigate to the application form from the job posting page.
    * Override in platform-specific scrapers.
    */
@@ -878,7 +974,8 @@ export abstract class BaseScraper {
     if (!this.page) return false;
 
     try {
-      const { createCaptchaSolver, CaptchaSolver } = await import('../scraping-browser/captcha-solver');
+      const { createCaptchaSolver, CaptchaSolver } =
+        await import('../scraping-browser/captcha-solver');
 
       // --- Cloudflare full-page challenge (no iframe, just a title check) ---
       const isCFChallenge = await this.page.evaluate(() => {

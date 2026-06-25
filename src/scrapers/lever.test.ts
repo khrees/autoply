@@ -16,9 +16,12 @@ describe('shouldSkipLeverCustomQuestion', () => {
   });
 
   test('keeps actual application questions', () => {
-    expect(shouldSkipLeverCustomQuestion('Are you based in the US or Canada?', 'surveysResponses[field0]')).toBe(
-      false
-    );
+    expect(
+      shouldSkipLeverCustomQuestion(
+        'Are you based in the US or Canada?',
+        'surveysResponses[field0]'
+      )
+    ).toBe(false);
     expect(
       shouldSkipLeverCustomQuestion(
         'In a few words, what makes you the ideal candidate for this position?',

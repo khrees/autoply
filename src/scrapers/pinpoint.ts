@@ -6,9 +6,11 @@ export class PinpointScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('.job-page, .job-content, [class*="vacancy"]', {
-      timeout: 10000,
-    }).catch(() => {});
+    await this.page
+      .waitForSelector('.job-page, .job-content, [class*="vacancy"]', {
+        timeout: 10000,
+      })
+      .catch(() => {});
   }
 
   protected override async waitForApplicationForm(): Promise<void> {
@@ -29,7 +31,9 @@ export class PinpointScraper extends BaseScraper {
     const company = urlMatch ? urlMatch[1].replace(/-/g, ' ') : 'Unknown Company';
 
     // Extract location
-    const location = await this.extractText('.job-location, [class*="location"], .vacancy-location');
+    const location = await this.extractText(
+      '.job-location, [class*="location"], .vacancy-location'
+    );
 
     // Extract description
     const description = await this.extractText(
@@ -72,7 +76,7 @@ export class PinpointScraper extends BaseScraper {
 
     const { extractCustomQuestionsFromContainers } = await import('./helpers');
     const questionContainers = await this.page.$$('[class*="question"], [class*="custom-field"]');
-    
+
     return extractCustomQuestionsFromContainers(this.page, questionContainers, 'pinpoint');
   }
 }

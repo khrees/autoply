@@ -3,6 +3,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { configRepository } from '../db/repositories/config';
+import { credentialStore } from '../db/repositories/secure-credentials';
 import type { AIProviderType } from '../types';
 import { readFile } from 'fs/promises';
 
@@ -19,23 +20,44 @@ const VISION_MODELS: Partial<Record<AIProviderType, string>> = {
   google: 'gemini-2.0-flash',
 };
 
-function createVisionModel(provider: AIProviderType) {
+async function createVisionModel(provider: AIProviderType) {
   const modelId = VISION_MODELS[provider];
   if (!modelId) {
     throw new Error(`Vision not supported for provider: ${provider}`);
   }
 
+  // Resolve API key the same way the main provider does: env > keychain > config
+  let apiKey: string | null = null;
+  if (provider === 'openai') apiKey = process.env.OPENAI_API_KEY ?? null;
+  if (provider === 'anthropic') apiKey = process.env.ANTHROPIC_API_KEY ?? null;
+  if (provider === 'google') apiKey = process.env.GOOGLE_API_KEY ?? null;
+
+  if (!apiKey) {
+    apiKey = await credentialStore.getApiKey(provider as 'openai' | 'anthropic' | 'google');
+  }
+
+  if (!apiKey) {
+    const config = configRepository.loadAppConfig();
+    apiKey = config.ai.apiKey ?? null;
+  }
+
+  if (!apiKey) {
+    throw new Error(
+      `Missing API key for ${provider}. Set the environment variable or store securely.`
+    );
+  }
+
   switch (provider) {
     case 'openai': {
-      const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const openai = createOpenAI({ apiKey });
       return openai(modelId);
     }
     case 'anthropic': {
-      const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const anthropic = createAnthropic({ apiKey });
       return anthropic(modelId);
     }
     case 'google': {
-      const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_API_KEY });
+      const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
     }
     default:
@@ -64,7 +86,7 @@ export async function verifySubmissionScreenshot(
     const base64Image = imageBuffer.toString('base64');
     const mimeType = screenshotPath.endsWith('.png') ? 'image/png' : 'image/jpeg';
 
-    const model = createVisionModel(provider);
+    const model = await createVisionModel(provider);
 
     const result = await generateText({
       model,

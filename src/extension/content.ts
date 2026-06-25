@@ -76,7 +76,6 @@ interface Profile {
   headline?: string;
 }
 
-
 const HUMAN_ONLY_PATTERNS = [
   /gender|sex/i,
   /ethnicity|race/i,
@@ -106,7 +105,8 @@ function isFormElement(el: Element): boolean {
 
 function isVisible(el: Element): boolean {
   const style = window.getComputedStyle(el);
-  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')
+    return false;
   const rect = (el as HTMLElement).getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
 }
@@ -209,9 +209,7 @@ function isCustomDropdown(el: HTMLElement): boolean {
 // Small random delay to mimic human reaction time and avoid bot-detection heuristics.
 // Kept short (30–120ms) so it doesn't noticeably slow fills but breaks timing fingerprints.
 function humanJitter(minMs = 30, maxMs = 120): Promise<void> {
-  return new Promise((resolve) =>
-    setTimeout(resolve, minMs + Math.random() * (maxMs - minMs))
-  );
+  return new Promise((resolve) => setTimeout(resolve, minMs + Math.random() * (maxMs - minMs)));
 }
 
 function waitForElement(selector: string, timeoutMs = 400): Promise<Element | null> {
@@ -356,8 +354,6 @@ async function fillCheckbox(el: Element, value: string): Promise<boolean> {
   }
 }
 
-
-
 async function findAndFillField(
   profile: Profile,
   profileKey: string,
@@ -399,7 +395,6 @@ async function findAndFillField(
   return false;
 }
 
-
 async function findAndFillByLabelMatch(profile: Profile, labelText: string): Promise<boolean> {
   // Match label text to profile fields
   if (/first|given|fname/i.test(labelText)) {
@@ -430,7 +425,6 @@ async function findAndFillByLabelMatch(profile: Profile, labelText: string): Pro
   return false;
 }
 
-
 async function uploadResumeFile(base64: string, filename: string): Promise<boolean> {
   const fileInputs = Array.from(
     document.querySelectorAll('input[type="file"]')
@@ -440,10 +434,14 @@ async function uploadResumeFile(base64: string, filename: string): Promise<boole
     if (!isVisible(input)) continue;
 
     const context = (
-      input.name + ' ' +
-      input.id + ' ' +
-      (input.getAttribute('aria-label') || '') + ' ' +
-      (input.closest('label')?.textContent || '') + ' ' +
+      input.name +
+      ' ' +
+      input.id +
+      ' ' +
+      (input.getAttribute('aria-label') || '') +
+      ' ' +
+      (input.closest('label')?.textContent || '') +
+      ' ' +
       (input.getAttribute('accept') || '')
     ).toLowerCase();
 
@@ -639,7 +637,10 @@ async function fillByFillPlan(
 
     if (looksLikeLabel(fieldKey)) {
       // Key is a human-readable label — use label-based matching
-      didFill = await findAndFillByLabelMatch({ [fieldKey]: value } as unknown as Profile, fieldKey);
+      didFill = await findAndFillByLabelMatch(
+        { [fieldKey]: value } as unknown as Profile,
+        fieldKey
+      );
     } else {
       // Key is a DOM attribute value — try name/id selectors
       const selectors = [
@@ -700,7 +701,10 @@ async function handleAutofillWithProfile(
     const alreadyFilled = new Set(result.filled);
     const planFilled = await fillByFillPlan(fillPlan, alreadyFilled);
     if (planFilled.length > 0) {
-      debugLog(`Autoply: fillPlan filled ${planFilled.length} additional fields:`, planFilled.join(', '));
+      debugLog(
+        `Autoply: fillPlan filled ${planFilled.length} additional fields:`,
+        planFilled.join(', ')
+      );
       result.filled.push(...planFilled);
     }
   }

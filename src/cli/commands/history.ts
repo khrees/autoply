@@ -142,9 +142,9 @@ historyCommand
 
     if (options.delete) {
       const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-      const stale = applicationRepository.findAll({ status: 'pending' }).filter(
-        (a) => !!a.created_at && a.created_at < cutoff
-      );
+      const stale = applicationRepository
+        .findAll({ status: 'pending' })
+        .filter((a) => !!a.created_at && a.created_at < cutoff);
       if (stale.length === 0) {
         logger.info('No stale applications to delete.');
         return;

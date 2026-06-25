@@ -1,13 +1,5 @@
 import React from 'react';
-import {
-  Zap,
-  Shield,
-  Sparkles,
-  AlertCircle,
-  Loader2,
-  ArrowRight,
-  X,
-} from 'lucide-react';
+import { Zap, Sparkles, AlertCircle, Loader2, ArrowRight, X } from 'lucide-react';
 
 export const ActionCard = ({
   onApply,
@@ -30,14 +22,9 @@ export const ActionCard = ({
     </div>
 
     <div className="relative z-10 space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 border border-blue-500/20">
-          <Shield className="w-5 h-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-bold text-[var(--text-primary)]">Apply Instantly</h2>
-          <p className="text-xs text-[var(--text-tertiary)]">AI-powered form autofill</p>
-        </div>
+      <div>
+        <h2 className="text-lg font-bold text-[var(--text-primary)]">Apply Instantly</h2>
+        <p className="text-xs text-[var(--text-tertiary)]">AI-powered form autofill</p>
       </div>
 
       <p className="text-sm text-[var(--text-secondary)] leading-relaxed">

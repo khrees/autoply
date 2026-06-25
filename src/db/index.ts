@@ -58,9 +58,10 @@ function runMigrations(database: Database): void {
 
   function hasTable(tableName: string): boolean {
     const row = database
-      .query<{ name: string }, [string]>(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
-      )
+      .query<
+        { name: string },
+        [string]
+      >("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get(tableName);
     return Boolean(row);
   }
@@ -70,9 +71,7 @@ function runMigrations(database: Database): void {
       return false;
     }
 
-    const columns = database
-      .query<{ name: string }, []>(`PRAGMA table_info(${tableName})`)
-      .all();
+    const columns = database.query<{ name: string }, []>(`PRAGMA table_info(${tableName})`).all();
 
     return columns.some((column) => column.name === columnName);
   }
@@ -136,9 +135,7 @@ function runMigrations(database: Database): void {
       name: '004_add_time_saved_to_applications',
       run: (currentDatabase) => {
         if (!hasColumn('applications', 'time_saved')) {
-          currentDatabase.exec(
-            'ALTER TABLE applications ADD COLUMN time_saved INTEGER DEFAULT 0'
-          );
+          currentDatabase.exec('ALTER TABLE applications ADD COLUMN time_saved INTEGER DEFAULT 0');
         }
       },
     },

@@ -462,8 +462,12 @@ export class LinkedInScraper extends BaseScraper {
 
     // LinkedIn may show one experience entry per step, or all at once
     // Find all title inputs currently on the page
-    const titleInputs = await this.page.$$('input[name*="title"], input[id*="jobTitle"], input[id*="currentTitle"]');
-    const companyInputs = await this.page.$$('input[name*="company"], input[id*="companyName"], input[id*="currentCompany"]');
+    const titleInputs = await this.page.$$(
+      'input[name*="title"], input[id*="jobTitle"], input[id*="currentTitle"]'
+    );
+    const companyInputs = await this.page.$$(
+      'input[name*="company"], input[id*="companyName"], input[id*="currentCompany"]'
+    );
 
     // Fill each visible, empty title/company pair with the corresponding experience entry
     for (let i = 0; i < Math.min(titleInputs.length, profile.experience.length); i++) {
@@ -488,7 +492,9 @@ export class LinkedInScraper extends BaseScraper {
           if (!currentValue) {
             await companyInput.fill(exp.company).catch(() => {});
             await this.page.waitForTimeout(800);
-            const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child').catch(() => null);
+            const autocompleteOption = await this.page
+              .$('[class*="autocomplete"] li:first-child, [class*="typeahead"] li:first-child')
+              .catch(() => null);
             if (autocompleteOption) await autocompleteOption.click().catch(() => {});
           }
         }
@@ -500,7 +506,9 @@ export class LinkedInScraper extends BaseScraper {
     if (!this.page || profile.education.length === 0) return;
 
     const schoolInputs = await this.page.$$('input[name*="school"], input[id*="school"]');
-    const degreeInputs = await this.page.$$('input[name*="degree"], select[name*="degree"], input[id*="degree"]');
+    const degreeInputs = await this.page.$$(
+      'input[name*="degree"], select[name*="degree"], input[id*="degree"]'
+    );
 
     for (let i = 0; i < Math.min(schoolInputs.length, profile.education.length); i++) {
       const edu = profile.education[i];
@@ -514,7 +522,9 @@ export class LinkedInScraper extends BaseScraper {
           if (!currentValue) {
             await schoolInput.fill(edu.institution).catch(() => {});
             await this.page.waitForTimeout(800);
-            const autocompleteOption = await this.page.$('[class*="autocomplete"] li:first-child').catch(() => null);
+            const autocompleteOption = await this.page
+              .$('[class*="autocomplete"] li:first-child')
+              .catch(() => null);
             if (autocompleteOption) await autocompleteOption.click().catch(() => {});
           }
         }
@@ -523,7 +533,9 @@ export class LinkedInScraper extends BaseScraper {
       if (degreeInput) {
         const isVisible = await degreeInput.isVisible().catch(() => false);
         if (isVisible) {
-          const tagName = await degreeInput.evaluate((el) => el.tagName.toLowerCase()).catch(() => 'input');
+          const tagName = await degreeInput
+            .evaluate((el) => el.tagName.toLowerCase())
+            .catch(() => 'input');
           if (tagName === 'select') {
             await (degreeInput as any).selectOption({ label: edu.degree }).catch(() => {});
           } else {

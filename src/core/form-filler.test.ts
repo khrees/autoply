@@ -24,9 +24,11 @@ const FIELD_PATTERNS = {
   portfolio: /portfolio|website|personal[\s_-]?site|url|homepage/i,
   resume: /resume|cv|curriculum[\s_-]?vitae/i,
   coverLetter: /cover[\s_-]?letter|covering[\s_-]?letter|motivation[\s_-]?letter/i,
-  workAuthorization: /work[\s_-]?auth|authorized[\s_-]?to[\s_-]?work|legally[\s_-]?authorized|eligib|visa[\s_-]?status|right[\s_-]?to[\s_-]?work/i,
+  workAuthorization:
+    /work[\s_-]?auth|authorized[\s_-]?to[\s_-]?work|legally[\s_-]?authorized|eligib|visa[\s_-]?status|right[\s_-]?to[\s_-]?work/i,
   sponsorship: /sponsor|visa[\s_-]?sponsor|immigration[\s_-]?sponsor|require.*sponsor/i,
-  yearsExperience: /years?[\s_-]?(?:of[\s_-]?)?experience|experience[\s_-]?years|how[\s_-]?many[\s_-]?years/i,
+  yearsExperience:
+    /years?[\s_-]?(?:of[\s_-]?)?experience|experience[\s_-]?years|how[\s_-]?many[\s_-]?years/i,
   currentCompany: /current[\s_-]?company|employer|where.*work/i,
   currentTitle: /current[\s_-]?title|current[\s_-]?role|job[\s_-]?title/i,
   salary: /salary|compensation|pay|expected[\s_-]?salary|desired[\s_-]?salary/i,
@@ -325,11 +327,7 @@ describe('FormFiller Value Extraction Logic', () => {
   };
 
   // Helper to test value extraction logic
-  function getValueForField(
-    label: string,
-    name: string,
-    profile: Profile
-  ): string | null {
+  function getValueForField(label: string, name: string, profile: Profile): string | null {
     return getDeterministicFieldValue(profile, {
       label,
       name,
@@ -357,7 +355,9 @@ describe('FormFiller Value Extraction Logic', () => {
 
   test('extracts email from profile', () => {
     expect(getValueForField('Email', 'email', mockProfile)).toBe('john.doe@example.com');
-    expect(getValueForField('E-mail Address', 'email_address', mockProfile)).toBe('john.doe@example.com');
+    expect(getValueForField('E-mail Address', 'email_address', mockProfile)).toBe(
+      'john.doe@example.com'
+    );
   });
 
   test('extracts phone from profile', () => {
@@ -371,13 +371,19 @@ describe('FormFiller Value Extraction Logic', () => {
   });
 
   test('extracts LinkedIn URL from profile', () => {
-    expect(getValueForField('LinkedIn', 'linkedin', mockProfile)).toBe('https://linkedin.com/in/johndoe');
-    expect(getValueForField('LinkedIn URL', 'linkedin_url', mockProfile)).toBe('https://linkedin.com/in/johndoe');
+    expect(getValueForField('LinkedIn', 'linkedin', mockProfile)).toBe(
+      'https://linkedin.com/in/johndoe'
+    );
+    expect(getValueForField('LinkedIn URL', 'linkedin_url', mockProfile)).toBe(
+      'https://linkedin.com/in/johndoe'
+    );
   });
 
   test('extracts GitHub URL from profile', () => {
     expect(getValueForField('GitHub', 'github', mockProfile)).toBe('https://github.com/johndoe');
-    expect(getValueForField('GitHub Profile', 'github_url', mockProfile)).toBe('https://github.com/johndoe');
+    expect(getValueForField('GitHub Profile', 'github_url', mockProfile)).toBe(
+      'https://github.com/johndoe'
+    );
   });
 
   test('extracts portfolio URL from profile', () => {
@@ -437,8 +443,7 @@ describe('Option Matching Logic', () => {
     // Contains match
     const containsMatch = options.find(
       (opt) =>
-        opt.toLowerCase().includes(normalizedValue) ||
-        normalizedValue.includes(opt.toLowerCase())
+        opt.toLowerCase().includes(normalizedValue) || normalizedValue.includes(opt.toLowerCase())
     );
     if (containsMatch) return containsMatch;
 
@@ -451,9 +456,7 @@ describe('Option Matching Logic', () => {
     }
 
     if (['no', 'false', 'n'].includes(normalizedValue)) {
-      const noOption = options.find((opt) =>
-        /^(no|false|n|negative)$/i.test(opt.trim())
-      );
+      const noOption = options.find((opt) => /^(no|false|n|negative)$/i.test(opt.trim()));
       if (noOption) return noOption;
     }
 
@@ -509,7 +512,8 @@ describe('Years of Experience Calculation', () => {
     for (const exp of experience) {
       const start = new Date(exp.start_date);
       const end = exp.end_date ? new Date(exp.end_date) : new Date();
-      const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+      const months =
+        (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
       totalMonths += Math.max(0, months);
     }
 
@@ -589,8 +593,12 @@ describe('Years of Experience Calculation', () => {
 describe('requiresHumanAnswer', () => {
   test('flags work authorization and sponsorship questions', () => {
     expect(requiresHumanAnswer('Are you based in the US or Canada?')).toBe(true);
-    expect(requiresHumanAnswer('Will you now or in the future require a visa sponsorship or transfer?')).toBe(true);
-    expect(requiresHumanAnswer('Are you legally authorized to work in the United States?')).toBe(true);
+    expect(
+      requiresHumanAnswer('Will you now or in the future require a visa sponsorship or transfer?')
+    ).toBe(true);
+    expect(requiresHumanAnswer('Are you legally authorized to work in the United States?')).toBe(
+      true
+    );
   });
 
   test('flags hybrid and onsite attendance questions', () => {
@@ -599,14 +607,18 @@ describe('requiresHumanAnswer', () => {
         'Are you willing and able to come onsite to our Brisbane, CA location Tues-Thurs on a weekly basis?'
       )
     ).toBe(true);
-    expect(requiresHumanAnswer('This is a hybrid role. Can you work onsite three days per week?')).toBe(true);
+    expect(
+      requiresHumanAnswer('This is a hybrid role. Can you work onsite three days per week?')
+    ).toBe(true);
   });
 
   test('allows normal role-fit questions', () => {
-    expect(requiresHumanAnswer('In a few words, what makes you the ideal candidate for this position?')).toBe(
+    expect(
+      requiresHumanAnswer('In a few words, what makes you the ideal candidate for this position?')
+    ).toBe(false);
+    expect(requiresHumanAnswer('Describe your experience supporting API integrations.')).toBe(
       false
     );
-    expect(requiresHumanAnswer('Describe your experience supporting API integrations.')).toBe(false);
   });
 });
 
@@ -645,17 +657,30 @@ describe('field guardrails', () => {
 
   test('blocks AI for identity, compliance, and demographic fields', () => {
     expect(shouldAllowAIAnswer({ label: 'Email address', type: 'text' })).toBe(false);
-    expect(shouldAllowAIAnswer({ label: 'Will you now or in the future require visa sponsorship?', type: 'select' })).toBe(false);
+    expect(
+      shouldAllowAIAnswer({
+        label: 'Will you now or in the future require visa sponsorship?',
+        type: 'select',
+      })
+    ).toBe(false);
     expect(shouldAllowAIAnswer({ label: 'Gender', type: 'select' })).toBe(false);
-    expect(shouldAllowAIAnswer({ label: 'Why are you interested in this role?', type: 'textarea' })).toBe(true);
+    expect(
+      shouldAllowAIAnswer({ label: 'Why are you interested in this role?', type: 'textarea' })
+    ).toBe(true);
   });
 
   test('does not guess compliance answers deterministically', () => {
     expect(
-      getDeterministicFieldValue(profile, { label: 'Are you legally authorized to work in the United States?', type: 'select' })
+      getDeterministicFieldValue(profile, {
+        label: 'Are you legally authorized to work in the United States?',
+        type: 'select',
+      })
     ).toBeNull();
     expect(
-      getDeterministicFieldValue(profile, { label: 'Will you require visa sponsorship?', type: 'select' })
+      getDeterministicFieldValue(profile, {
+        label: 'Will you require visa sponsorship?',
+        type: 'select',
+      })
     ).toBeNull();
   });
 
@@ -664,7 +689,9 @@ describe('field guardrails', () => {
     expect(getIdentityAssertionKey({ label: 'Current location', type: 'text' })).toBe('location');
     expect(getExpectedIdentityValue(profile, 'email')).toBe('christiannduh@gmail.com');
     expect(matchesIdentityFieldValue('phone', '+2348129270350', '+234 812 927 0350')).toBe(true);
-    expect(matchesIdentityFieldValue('location', 'Lagos State, Nigeria', 'Lagos, Nigeria')).toBe(true);
+    expect(matchesIdentityFieldValue('location', 'Lagos State, Nigeria', 'Lagos, Nigeria')).toBe(
+      true
+    );
     expect(matchesIdentityFieldValue('fullName', 'Christian Ndu', 'Christina Diaz')).toBe(false);
   });
 });

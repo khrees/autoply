@@ -14,7 +14,11 @@ export interface SavedAnswer {
 
 function hashQuestion(question: string): string {
   // Normalize: lowercase, strip punctuation, collapse whitespace
-  const normalized = question.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+  const normalized = question
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
@@ -54,9 +58,10 @@ export class SavedAnswersRepository {
     const conditions = keywords.map(() => 'LOWER(question) LIKE ?').join(' OR ');
     const params: (string | number)[] = [profileId, ...keywords.map((k) => `%${k}%`), limit];
     const rows = db
-      .query<SavedAnswer, (string | number)[]>(
-        `SELECT * FROM saved_answers WHERE profile_id = ? AND (${conditions}) ORDER BY used_count DESC LIMIT ?`
-      )
+      .query<
+        SavedAnswer,
+        (string | number)[]
+      >(`SELECT * FROM saved_answers WHERE profile_id = ? AND (${conditions}) ORDER BY used_count DESC LIMIT ?`)
       .all(...params);
     return rows;
   }
@@ -65,9 +70,10 @@ export class SavedAnswersRepository {
     const db = getDb();
     return (
       db
-        .query<SavedAnswer, [number, string]>(
-          'SELECT * FROM saved_answers WHERE profile_id = ? AND question_hash = ?'
-        )
+        .query<
+          SavedAnswer,
+          [number, string]
+        >('SELECT * FROM saved_answers WHERE profile_id = ? AND question_hash = ?')
         .get(profileId, hash) ?? null
     );
   }
@@ -75,9 +81,10 @@ export class SavedAnswersRepository {
   findAll(profileId: number): SavedAnswer[] {
     const db = getDb();
     return db
-      .query<SavedAnswer, [number]>(
-        'SELECT * FROM saved_answers WHERE profile_id = ? ORDER BY used_count DESC'
-      )
+      .query<
+        SavedAnswer,
+        [number]
+      >('SELECT * FROM saved_answers WHERE profile_id = ? ORDER BY used_count DESC')
       .all(profileId);
   }
 

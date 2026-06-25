@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import type { JobData, FormField, Profile, GeneratedDocuments } from '../types';
+import {
+  type JobData,
+  type FormField,
+  type Profile,
+  type GeneratedDocuments,
+  ProfileSchema,
+} from '../types';
 
 // ============================================================================
 // Zod Schemas for Runtime Validation
@@ -60,44 +66,6 @@ export const JobDataSchema = z.object({
   remote: z.boolean().optional(),
   form_fields: z.array(FormFieldSchema),
   custom_questions: z.array(CustomQuestionSchema),
-});
-
-/**
- * Validate a profile
- */
-export const ProfileSchema = z.object({
-  id: z.number().optional(),
-  name: z.string().min(1, 'Name is required'),
-  email: z.string().email('Invalid email format'),
-  phone: z.string().optional(),
-  location: z.string().optional(),
-  linkedin_url: z.string().url().optional().or(z.literal('')),
-  github_url: z.string().url().optional().or(z.literal('')),
-  portfolio_url: z.string().url().optional().or(z.literal('')),
-  base_resume: z.string().optional(),
-  base_cover_letter: z.string().optional(),
-  skills: z.array(z.string()),
-  experience: z.array(
-    z.object({
-      company: z.string(),
-      title: z.string(),
-      location: z.string().optional(),
-      start_date: z.string(),
-      end_date: z.string().optional(),
-      description: z.string().optional(),
-      highlights: z.array(z.string()),
-    })
-  ),
-  education: z.array(
-    z.object({
-      institution: z.string(),
-      degree: z.string(),
-      field: z.string().optional(),
-      start_date: z.string().optional(),
-      end_date: z.string().optional(),
-      gpa: z.string().optional(),
-    })
-  ),
 });
 
 /**
@@ -213,7 +181,7 @@ export function validateGeneratedDocuments(
 
     // Check for placeholder text that shouldn't be there
     const placeholderPatterns = [
-      /[your|their|his|her]\s+(company|name|position)/i,
+      /(?:your|their|his|her)\s+(company|name|position)/i,
       /\[.*\]/, // Unfilled brackets
       /insert .* here/i,
       /replace with/i,
@@ -304,7 +272,9 @@ export function validateFormFieldsConsistency(
       // Check email consistency
       if (/e?[\s_-]?mail|email/i.test(fieldContext)) {
         if (field.value.toLowerCase() !== profile.email.toLowerCase()) {
-          conflicts.push(`Email mismatch: form has "${field.value}", profile has "${profile.email}"`);
+          conflicts.push(
+            `Email mismatch: form has "${field.value}", profile has "${profile.email}"`
+          );
         }
       }
 

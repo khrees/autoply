@@ -11,7 +11,8 @@ Schema:
   "requirements": ["Required skill or qualification"],
   "qualifications": ["Nice-to-have or preferred qualification"],
   "salary": "Salary range if mentioned",
-  "job_type": "full-time, part-time, contract, etc."
+  "job_type": "full-time, part-time, contract, etc.",
+  "remote": true or false
 }
 
 Rules:
@@ -53,7 +54,10 @@ ${cleanedHtml}`;
 
   const response = await provider.generateText(prompt, EXTRACTION_SYSTEM_PROMPT);
 
-  const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+  const cleaned = response
+    .replace(/```json?\n?/g, '')
+    .replace(/```/g, '')
+    .trim();
   const parsed: ExtractedJobData = JSON.parse(cleaned);
 
   const result: Partial<JobData> = {};
@@ -73,14 +77,25 @@ ${cleanedHtml}`;
 export function mergeJobData(existing: JobData, extracted: Partial<JobData>): JobData {
   return {
     ...existing,
-    title: shouldReplace(existing.title, 'Unknown Position') ? (extracted.title ?? existing.title) : existing.title,
-    company: shouldReplace(existing.company, '') ? (extracted.company ?? existing.company) : existing.company,
-    description: shouldReplace(existing.description, '') ? (extracted.description ?? existing.description) : existing.description,
-    requirements: existing.requirements.length === 0 ? (extracted.requirements ?? []) : existing.requirements,
-    qualifications: existing.qualifications.length === 0 ? (extracted.qualifications ?? []) : existing.qualifications,
+    title: shouldReplace(existing.title, 'Unknown Position')
+      ? (extracted.title ?? existing.title)
+      : existing.title,
+    company: shouldReplace(existing.company, '')
+      ? (extracted.company ?? existing.company)
+      : existing.company,
+    description: shouldReplace(existing.description, '')
+      ? (extracted.description ?? existing.description)
+      : existing.description,
+    requirements:
+      existing.requirements.length === 0 ? (extracted.requirements ?? []) : existing.requirements,
+    qualifications:
+      existing.qualifications.length === 0
+        ? (extracted.qualifications ?? [])
+        : existing.qualifications,
     location: existing.location ?? extracted.location,
     salary: existing.salary ?? extracted.salary,
     job_type: existing.job_type ?? extracted.job_type,
+    remote: existing.remote ?? extracted.remote,
   };
 }
 

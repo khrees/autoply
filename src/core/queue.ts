@@ -201,7 +201,8 @@ export class ApplicationQueue {
       if (!data.items || !Array.isArray(data.items)) return null;
 
       const pending = data.items.filter(
-        ([_, item]: [string, QueueItem]) => item.status === 'pending' || item.status === 'processing'
+        ([_, item]: [string, QueueItem]) =>
+          item.status === 'pending' || item.status === 'processing'
       ).length;
       return { pending, savedAt: data.savedAt };
     } catch {

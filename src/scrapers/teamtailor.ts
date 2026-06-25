@@ -7,9 +7,11 @@ export class TeamtailorScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('.job-ad, .careersite-job, [class*="job-page"]', {
-      timeout: 10000,
-    }).catch(() => {});
+    await this.page
+      .waitForSelector('.job-ad, .careersite-job, [class*="job-page"]', {
+        timeout: 10000,
+      })
+      .catch(() => {});
   }
 
   protected override async navigateToApplicationForm(): Promise<void> {
@@ -37,7 +39,11 @@ export class TeamtailorScraper extends BaseScraper {
     if (!this.page) return;
 
     await this.page.waitForSelector('form, .application-form', { timeout: 10000 }).catch(() => {
-      logger.debug('Teamtailor application form not found within timeout — proceeding anyway', {}, 'scraper');
+      logger.debug(
+        'Teamtailor application form not found within timeout — proceeding anyway',
+        {},
+        'scraper'
+      );
     });
     await this.humanDelay(true);
   }
@@ -72,8 +78,7 @@ export class TeamtailorScraper extends BaseScraper {
 
     // Check remote
     const remote =
-      location.toLowerCase().includes('remote') ||
-      jobType.toLowerCase().includes('remote');
+      location.toLowerCase().includes('remote') || jobType.toLowerCase().includes('remote');
 
     // Extract form fields
     const formFields = await this.extractFormFields();
@@ -115,7 +120,7 @@ export class TeamtailorScraper extends BaseScraper {
     const questionContainers = await this.page.$$(
       '.application-form__question, [class*="custom-question"], [class*="form-group"]'
     );
-    
+
     return extractCustomQuestionsFromContainers(this.page, questionContainers, 'teamtailor');
   }
 }

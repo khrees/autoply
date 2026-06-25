@@ -230,11 +230,6 @@ export interface QueueItem {
 }
 
 // ============ CLI Types ============
-export interface ApplyOptions {
-  file?: string;
-  dryRun?: boolean;
-}
-
 export interface GenerateOptions {
   output?: string;
 }

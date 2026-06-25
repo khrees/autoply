@@ -30,7 +30,9 @@ export class ConfigRepository {
   // Database-based config (for key-value pairs)
   get(key: string): string | null {
     const db = getDb();
-    const row = db.query<{ value: string }, [string]>('SELECT value FROM config WHERE key = ?').get(key);
+    const row = db
+      .query<{ value: string }, [string]>('SELECT value FROM config WHERE key = ?')
+      .get(key);
     return row?.value ?? null;
   }
 
@@ -50,7 +52,9 @@ export class ConfigRepository {
 
   getAll(): Record<string, string> {
     const db = getDb();
-    const rows = db.query<{ key: string; value: string }, []>('SELECT key, value FROM config').all();
+    const rows = db
+      .query<{ key: string; value: string }, []>('SELECT key, value FROM config')
+      .all();
     const config: Record<string, string> = {};
     for (const row of rows) {
       config[row.key] = row.value;

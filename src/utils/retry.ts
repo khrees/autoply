@@ -52,9 +52,7 @@ function shouldRetry(error: Error, options: Required<RetryOptions>): boolean {
 
   // Check retryable patterns (if specified, only these trigger retry)
   if (options.retryableErrors.length > 0) {
-    return options.retryableErrors.some((pattern) =>
-      errorMessage.includes(pattern.toLowerCase())
-    );
+    return options.retryableErrors.some((pattern) => errorMessage.includes(pattern.toLowerCase()));
   }
 
   // Default: retry on most errors except known non-retryable ones
@@ -91,10 +89,7 @@ function shouldRetry(error: Error, options: Required<RetryOptions>): boolean {
  * );
  * ```
  */
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  options: RetryOptions = {}
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const opts: Required<RetryOptions> = { ...DEFAULT_RETRY_OPTIONS, ...options };
 
   const pRetryOptions: PRetryOptions = {
@@ -106,13 +101,10 @@ export async function withRetry<T>(
     onFailedAttempt: ({ error, attemptNumber }) => {
       if (shouldRetry(error, opts)) {
         opts.onRetry(error, attemptNumber);
-        logger.debug(
-          `${opts.operationName} attempt ${attemptNumber} failed: ${error.message}`,
-          {
-            attempt: attemptNumber,
-            retriesLeft: opts.maxRetries - attemptNumber + 1,
-          }
-        );
+        logger.debug(`${opts.operationName} attempt ${attemptNumber} failed: ${error.message}`, {
+          attempt: attemptNumber,
+          retriesLeft: opts.maxRetries - attemptNumber + 1,
+        });
       }
     },
   };

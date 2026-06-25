@@ -127,8 +127,7 @@ export class CaptchaSolver {
 
       const isTurnstileWidget = await page.evaluate(
         () =>
-          document.querySelector('.cf-turnstile') !== null &&
-          document.title !== 'Just a moment...'
+          document.querySelector('.cf-turnstile') !== null && document.title !== 'Just a moment...'
       );
 
       if (isTurnstileWidget) {
@@ -136,10 +135,9 @@ export class CaptchaSolver {
         return true;
       }
 
-      await page.waitForFunction(
-        () => document.title !== 'Just a moment...',
-        { timeout: CF_CHALLENGE_TIMEOUT_MS }
-      );
+      await page.waitForFunction(() => document.title !== 'Just a moment...', {
+        timeout: CF_CHALLENGE_TIMEOUT_MS,
+      });
       await page.waitForLoadState('domcontentloaded');
       return true;
     } catch {
@@ -178,9 +176,13 @@ export class CaptchaSolver {
   private async solveRecaptchaV2Audio(page: Page): Promise<boolean> {
     try {
       // Step 1: click the checkbox in the anchor iframe
-      const anchorFrame = page.frames().find(
-        (f) => f.url().includes('recaptcha/api2/anchor') || f.url().includes('recaptcha/enterprise/anchor')
-      );
+      const anchorFrame = page
+        .frames()
+        .find(
+          (f) =>
+            f.url().includes('recaptcha/api2/anchor') ||
+            f.url().includes('recaptcha/enterprise/anchor')
+        );
       if (!anchorFrame) return false;
 
       const checkbox = await anchorFrame.$('#recaptcha-anchor, .recaptcha-checkbox');
@@ -197,9 +199,13 @@ export class CaptchaSolver {
       if (autoPassed) return true;
 
       // Step 2: find the challenge iframe (bframe)
-      const bframe = page.frames().find(
-        (f) => f.url().includes('recaptcha/api2/bframe') || f.url().includes('recaptcha/enterprise/bframe')
-      );
+      const bframe = page
+        .frames()
+        .find(
+          (f) =>
+            f.url().includes('recaptcha/api2/bframe') ||
+            f.url().includes('recaptcha/enterprise/bframe')
+        );
       if (!bframe) return false;
 
       // Click the audio button
@@ -243,7 +249,9 @@ export class CaptchaSolver {
 
       // Confirm token was issued
       const token = await page.evaluate(
-        (): string => (document.getElementById('g-recaptcha-response') as HTMLTextAreaElement | null)?.value ?? ''
+        (): string =>
+          (document.getElementById('g-recaptcha-response') as HTMLTextAreaElement | null)?.value ??
+          ''
       );
       return token.length > 0;
     } catch {
@@ -291,7 +299,9 @@ export class CaptchaSolver {
     if (!token) return false;
 
     await page.evaluate((t: string) => {
-      const textarea = document.getElementById('g-recaptcha-response') as HTMLTextAreaElement | null;
+      const textarea = document.getElementById(
+        'g-recaptcha-response'
+      ) as HTMLTextAreaElement | null;
       if (textarea) {
         textarea.style.display = 'block';
         textarea.value = t;
@@ -348,11 +358,13 @@ export class CaptchaSolver {
   private async solveHCaptchaAudio(page: Page): Promise<boolean> {
     try {
       // Find the hCaptcha widget iframe
-      const hcFrame = page.frames().find(
-        (f) =>
-          f.url().includes('hcaptcha.com') &&
-          (f.url().includes('/captcha/v1') || f.url().includes('newassets.hcaptcha.com'))
-      );
+      const hcFrame = page
+        .frames()
+        .find(
+          (f) =>
+            f.url().includes('hcaptcha.com') &&
+            (f.url().includes('/captcha/v1') || f.url().includes('newassets.hcaptcha.com'))
+        );
       if (!hcFrame) return false;
 
       // Click the checkbox to trigger the challenge
@@ -363,7 +375,9 @@ export class CaptchaSolver {
 
       // Check if it auto-passed (hCaptcha sometimes does this with good fingerprinting)
       const autoPassed = await page.evaluate((): boolean => {
-        const el = document.querySelector('[name="h-captcha-response"]') as HTMLTextAreaElement | null;
+        const el = document.querySelector(
+          '[name="h-captcha-response"]'
+        ) as HTMLTextAreaElement | null;
         return !!el?.value;
       });
       if (autoPassed) return true;
@@ -420,7 +434,8 @@ export class CaptchaSolver {
       // Confirm token was issued
       const token = await page.evaluate(
         (): string =>
-          (document.querySelector('[name="h-captcha-response"]') as HTMLTextAreaElement | null)?.value ?? ''
+          (document.querySelector('[name="h-captcha-response"]') as HTMLTextAreaElement | null)
+            ?.value ?? ''
       );
       return token.length > 0;
     } catch {

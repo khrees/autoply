@@ -8,7 +8,7 @@ import {
   User,
   Settings as SettingsIcon,
 } from 'lucide-react';
-import type { Profile } from '../types';
+import type { Profile, Application } from '../types';
 
 // Zustand
 import { useAppStore } from './store';
@@ -48,24 +48,20 @@ import { GenerateDocumentsCard } from './components/GenerateDocumentsCard';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
 import { VirtualList } from './components/VirtualList';
 
-const NON_SCRIPTABLE_PROTOCOLS = [
-  'chrome:',
-  'chrome-extension:',
-  'devtools:',
-  'edge:',
-  'about:',
-  'moz-extension:',
-];
+// Constants
+import { NON_SCRIPTABLE_PROTOCOLS, UNSUPPORTED_HOSTNAMES } from './constants';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getUnsupportedTabMessage(url?: string): string | null {
   if (!url) return 'Open a job application page before running Autofill.';
 
   try {
     const parsed = new URL(url);
-    if (NON_SCRIPTABLE_PROTOCOLS.includes(parsed.protocol)) {
+    if (NON_SCRIPTABLE_PROTOCOLS.includes(parsed.protocol as any)) {
       return `Autofill cannot run on ${parsed.protocol} pages. Open a normal job application tab first.`;
     }
-    if (parsed.hostname === 'chromewebstore.google.com') {
+    if (UNSUPPORTED_HOSTNAMES.includes(parsed.hostname as any)) {
       return 'Autofill cannot run on Chrome Web Store pages.';
     }
   } catch {
@@ -73,6 +69,110 @@ function getUnsupportedTabMessage(url?: string): string | null {
   }
   return null;
 }
+
+/**
+ * Build a fill plan entirely client-side — same logic as the server's /profile/map-fields
+ * but with zero network latency. Covers 95%+ of standard fields without any AI call.
+ */
+function buildFillPlanLocally(
+  fields: Array<{ key: string; type: string; label: string }>,
+  profile: Profile
+): Record<string, string> {
+  const profileData: Record<string, string> = {
+    firstname: profile.name?.split(' ')[0] || '',
+    lastname: profile.name?.split(' ').slice(1).join(' ') || '',
+    fullname: profile.name || '',
+    email: profile.email || '',
+    phone: profile.phone || '',
+    location: profile.location || '',
+    linkedin: profile.linkedin_url || '',
+    github: profile.github_url || '',
+    portfolio: profile.portfolio_url || '',
+  };
+
+  const labelPatterns: Array<[RegExp, string]> = [
+    [/first[\s_-]?name|given[\s_-]?name|\bfname\b/i, 'firstname'],
+    [/last[\s_-]?name|surname|family[\s_-]?name|\blname\b/i, 'lastname'],
+    [/full[\s_-]?name|your[\s_-]?name/i, 'fullname'],
+    [/e[\s-]?mail/i, 'email'],
+    [/phone|tel|mobile|cell/i, 'phone'],
+    [/linkedin/i, 'linkedin'],
+    [/github/i, 'github'],
+    [/portfolio|personal[\s-]?site/i, 'portfolio'],
+    [/city|location/i, 'location'],
+  ];
+
+  const plan: Record<string, string> = {};
+  for (const field of fields) {
+    const fieldKey = field.key || field.label;
+    const normalized = fieldKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // 1. Direct key match
+    for (const [profileKey, profileValue] of Object.entries(profileData)) {
+      if (
+        normalized === profileKey ||
+        normalized.includes(profileKey) ||
+        profileKey.includes(normalized)
+      ) {
+        if (profileValue) {
+          plan[fieldKey] = profileValue;
+          break;
+        }
+      }
+    }
+    if (plan[fieldKey]) continue;
+
+    // 2. Label pattern match
+    for (const [pattern, profileKey] of labelPatterns) {
+      if (pattern.test(field.label) || pattern.test(fieldKey)) {
+        if (profileData[profileKey]) {
+          plan[fieldKey] = profileData[profileKey];
+          break;
+        }
+      }
+    }
+  }
+  return plan;
+}
+
+/** Build a profile data map for the content script */
+function buildProfilePayload(profile: Profile) {
+  return {
+    firstName: profile.name?.split(' ')[0] || '',
+    lastName: profile.name?.split(' ').slice(1).join(' ') || '',
+    fullName: profile.name || '',
+    email: profile.email || '',
+    phone: profile.phone || '',
+    location: profile.location || '',
+    linkedin: profile.linkedin_url || '',
+    github: profile.github_url || '',
+    portfolio: profile.portfolio_url || '',
+    address: profile.location || '',
+    city: '',
+    postcode: '',
+    country: '',
+    state: '',
+    headline: profile.name || '',
+  };
+}
+
+/** Map of profile key → value for fill report display */
+function buildProfileKeyToValue(profile: Profile): Record<string, string> {
+  return {
+    firstName: profile.name?.split(' ')[0] || '',
+    lastName: profile.name?.split(' ').slice(1).join(' ') || '',
+    fullName: profile.name || '',
+    email: profile.email || '',
+    phone: profile.phone || '',
+    linkedin: profile.linkedin_url || '',
+    github: profile.github_url || '',
+    portfolio: profile.portfolio_url || '',
+    location: profile.location || '',
+    resume_upload: '',
+  };
+}
+
+// ── AppContent ───────────────────────────────────────────────────────────────
 
 const AppContent = () => {
   const toast = useToast();
@@ -84,6 +184,8 @@ const AppContent = () => {
     showProfileForm, setShowProfileForm,
     bulkUrls, setBulkUrls,
     previewApp, setPreviewApp,
+    previewDoc, setPreviewDoc,
+    previewDocs, setPreviewDocs,
     fillReport, setFillReport, updateFillReportField,
     importPreviewData, setImportPreviewData,
   } = useAppStore();
@@ -101,14 +203,6 @@ const AppContent = () => {
     [applications]
   );
 
-  const bulkStats = queueStats
-    ? {
-        pending: queueStats.pending || 0,
-        completed: queueStats.completed || 0,
-        failed: queueStats.failed || 0,
-      }
-    : null;
-
   // Mutations
   const saveProfileMutation = useSaveProfile();
   const importProfileMutation = useImportProfile();
@@ -120,11 +214,13 @@ const AppContent = () => {
   const mapFieldsMutation = useMapFields();
   const downloadDocumentMutation = useDownloadDocument();
 
-  // Check if any mutation is running (for loading states)
+  // Loading states
   const isAnyMutating = useIsMutating();
   const isSavingProfile = saveProfileMutation.isPending || importProfileMutation.isPending;
   const isGeneratingDocs = generateDocsMutation.isPending;
   const isBulkProcessing = bulkProcessMutation.isPending;
+
+  // ── Event handlers ──────────────────────────────────────────────────
 
   const handleGenerateDocuments = async (type: 'resume' | 'cover-letter' | 'both') => {
     if (!currentTabUrl) {
@@ -224,14 +320,16 @@ const AppContent = () => {
   const handleBulkProcess = async () => {
     try {
       await bulkProcessMutation.mutateAsync({
-        autoSubmit: config?.application.autoSubmit,
-        delaySeconds: config?.application.rateLimitDelay || 0,
+        autoSubmit: config?.application?.autoSubmit,
+        delaySeconds: config?.application?.rateLimitDelay || 0,
       });
       toast.success('Queue processing started');
     } catch (err: any) {
       toast.error(err.message || 'Bulk processing failed');
     }
   };
+
+  // ── Autofill logic ──────────────────────────────────────────────────
 
   const sendMessageToTab = async (tabId: number, message: any, tabUrl?: string) => {
     try {
@@ -248,7 +346,10 @@ const AppContent = () => {
 
         try {
           // Inject into main frame
-          await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['content.js'],
+          });
 
           // Also inject into all frames (handles Ashby and other iframe-based forms)
           await chrome.scripting.executeScript({
@@ -259,12 +360,12 @@ const AppContent = () => {
           await chrome.tabs.sendMessage(tabId, { type: 'PING' });
           return await chrome.tabs.sendMessage(tabId, message);
         } catch (injectionError: any) {
-          const injectionMessage =
+          const msg =
             typeof injectionError?.message === 'string'
               ? injectionError.message
               : 'Unknown injection error';
           throw new Error(
-            `Could not attach to the page. Reload and try again. (${injectionMessage})`
+            `Could not attach to the page. Reload and try again. (${msg})`
           );
         }
       }
@@ -272,63 +373,14 @@ const AppContent = () => {
     }
   };
 
-  // Build a fillPlan entirely client-side — same logic as the server's /profile/map-fields
-  // but with zero network latency. Covers 95%+ of standard fields without any AI call.
-  const buildFillPlanLocally = (
-    fields: Array<{ key: string; type: string; label: string }>,
-    p: NonNullable<typeof profile>
-  ): Record<string, string> => {
-    const profileData: Record<string, string> = {
-      firstname: p.name?.split(' ')[0] || '',
-      lastname: p.name?.split(' ').slice(1).join(' ') || '',
-      fullname: p.name || '',
-      email: p.email || '',
-      phone: p.phone || '',
-      location: p.location || '',
-      linkedin: p.linkedin_url || '',
-      github: p.github_url || '',
-      portfolio: p.portfolio_url || '',
-    };
-
-    // Label-text patterns for fields that don't have clean name/id attrs
-    const labelPatterns: Array<[RegExp, string]> = [
-      [/first[\s_-]?name|given[\s_-]?name|\bfname\b/i, 'firstname'],
-      [/last[\s_-]?name|surname|family[\s_-]?name|\blname\b/i, 'lastname'],
-      [/full[\s_-]?name|your[\s_-]?name/i, 'fullname'],
-      [/e[\s-]?mail/i, 'email'],
-      [/phone|tel|mobile|cell/i, 'phone'],
-      [/linkedin/i, 'linkedin'],
-      [/github/i, 'github'],
-      [/portfolio|personal[\s-]?site/i, 'portfolio'],
-      [/city|location/i, 'location'],
-    ];
-
-    const plan: Record<string, string> = {};
-    for (const field of fields) {
-      const fieldKey = field.key || field.label;
-      const normalized = fieldKey.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-      // 1. Direct key match
-      for (const [profileKey, profileValue] of Object.entries(profileData)) {
-        if (normalized === profileKey || normalized.includes(profileKey) || profileKey.includes(normalized)) {
-          if (profileValue) { plan[fieldKey] = profileValue; break; }
-        }
-      }
-      if (plan[fieldKey]) continue;
-
-      // 2. Label pattern match
-      for (const [pattern, profileKey] of labelPatterns) {
-        if (pattern.test(field.label) || pattern.test(fieldKey)) {
-          if (profileData[profileKey]) { plan[fieldKey] = profileData[profileKey]; break; }
-        }
-      }
-    }
-    return plan;
-  };
-
   const handleAutofill = async () => {
     if (!connected) {
       toast.error('API server not connected');
+      return;
+    }
+
+    if (!profile) {
+      toast.error('No profile found. Please set up your profile first.');
       return;
     }
 
@@ -341,29 +393,35 @@ const AppContent = () => {
         throw new Error(unsupportedTabMessage);
       }
 
-      // Check profile exists
-      if (!profile) {
-        throw new Error('No profile found. Please set up your profile first.');
-      }
-
       // Kick off resume download in parallel with form field detection
       const generatedDocs = generateDocsMutation.data;
       const resumePromise: Promise<{ base64: string; filename: string } | null> =
         generatedDocs?.resume
-          ? downloadDocumentMutation.mutateAsync(generatedDocs.resume).then((blob) =>
-              new Promise<{ base64: string; filename: string }>((resolve) => {
-                const reader = new FileReader();
-                reader.onload = () =>
-                  resolve({ base64: reader.result as string, filename: generatedDocs.resume! });
-                reader.readAsDataURL(blob);
-              })
-            ).catch(() => null)
+          ? downloadDocumentMutation
+              .mutateAsync(generatedDocs.resume)
+              .then(
+                (blob) =>
+                  new Promise<{ base64: string; filename: string }>((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () =>
+                      resolve({
+                        base64: reader.result as string,
+                        filename: generatedDocs.resume!,
+                      });
+                    reader.readAsDataURL(blob);
+                  })
+              )
+              .catch(() => null)
           : Promise.resolve(null);
 
       // Detect form fields (runs in parallel with resume download above)
       let fillPlan: Record<string, string> = {};
       try {
-        const detectedFields = await sendMessageToTab(tab.id, { type: 'GET_FORM_FIELDS' }, tab.url);
+        const detectedFields = await sendMessageToTab(
+          tab.id,
+          { type: 'GET_FORM_FIELDS' },
+          tab.url
+        );
         if (detectedFields?.fields?.length > 0) {
           // Build fillPlan locally — no server round-trip needed for standard fields
           fillPlan = buildFillPlanLocally(detectedFields.fields, profile);
@@ -403,23 +461,7 @@ const AppContent = () => {
         type: 'AUTOFILL_WITH_PROFILE',
         fillPlan,
         documents: resumeBase64 ? { resume: resumeBase64, resumeFilename } : undefined,
-        profile: {
-          firstName: profile.name?.split(' ')[0] || '',
-          lastName: profile.name?.split(' ').slice(1).join(' ') || '',
-          fullName: profile.name || '',
-          email: profile.email || '',
-          phone: profile.phone || '',
-          location: profile.location || '',
-          linkedin: profile.linkedin_url || '',
-          github: profile.github_url || '',
-          portfolio: profile.portfolio_url || '',
-          address: profile.location || '',
-          city: '',
-          postcode: '',
-          country: '',
-          state: '',
-          headline: profile.name || '',
-        },
+        profile: buildProfilePayload(profile),
       };
 
       // Send to main frame first
@@ -431,7 +473,9 @@ const AppContent = () => {
         for (const frame of frames || []) {
           if (frame.frameId !== 0) {
             try {
-              await chrome.tabs.sendMessage(tab.id, profilePayload, { frameId: frame.frameId });
+              await chrome.tabs.sendMessage(tab.id, profilePayload, {
+                frameId: frame.frameId,
+              });
             } catch {
               // Not all frames accept messages
             }
@@ -442,24 +486,15 @@ const AppContent = () => {
       }
 
       if (fillResult?.success) {
-        const profileKeyToValue: Record<string, string> = {
-          firstName: profile.name?.split(' ')[0] || '',
-          lastName: profile.name?.split(' ').slice(1).join(' ') || '',
-          fullName: profile.name || '',
-          email: profile.email || '',
-          phone: profile.phone || '',
-          linkedin: profile.linkedin_url || '',
-          github: profile.github_url || '',
-          portfolio: profile.portfolio_url || '',
-          location: profile.location || '',
-          resume_upload: '',
-        };
+        const profileKeyToValue = buildProfileKeyToValue(profile);
         const filledArr: string[] = fillResult?.filled || [];
         setFillReport({
           filled: filledArr.map((key) => ({ key, value: profileKeyToValue[key] ?? '' })),
           skipped: filledArr.length === 0 ? 0 : Math.max(0, 8 - filledArr.length),
         });
-        toast.success(`${filledArr.length} field${filledArr.length !== 1 ? 's' : ''} filled successfully`);
+        toast.success(
+          `${filledArr.length} field${filledArr.length !== 1 ? 's' : ''} filled successfully`
+        );
       } else if (fillResult?.error) {
         throw new Error(fillResult.error);
       }
@@ -473,7 +508,11 @@ const AppContent = () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab.id) return false;
-      const result = await sendMessageToTab(tab.id, { type: 'REFILL_FIELD', fieldKey, value }, tab.url);
+      const result = await sendMessageToTab(
+        tab.id,
+        { type: 'REFILL_FIELD', fieldKey, value },
+        tab.url
+      );
       if (result?.success) {
         updateFillReportField(fieldKey, value);
       }
@@ -483,6 +522,8 @@ const AppContent = () => {
     }
   };
 
+  // ── Loading state ───────────────────────────────────────────────────
+
   if (isLoading) {
     return (
       <div className="h-screen bg-[var(--bg-primary)]">
@@ -491,10 +532,14 @@ const AppContent = () => {
     );
   }
 
+  // ── Filters ─────────────────────────────────────────────────────────
+
   const filteredApps =
     recentFilter === 'all'
       ? applications.slice(0, 10)
       : applications.filter((app) => app.status === recentFilter);
+
+  // ── Render ──────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
@@ -528,9 +573,54 @@ const AppContent = () => {
               isGenerating={isGeneratingDocs}
               generatedDocs={generateDocsMutation.data ?? null}
               connected={connected}
+              onPreview={(type) => {
+                const data = generateDocsMutation.data;
+                if (!data) return;
+
+                if (type === 'both') {
+                  const docs: import('./components/PreviewModal').DocPreview[] = [];
+                  if (data.resumeContent) {
+                    docs.push({
+                      title: `Resume — ${currentTabUrl ? new URL(currentTabUrl).hostname.replace('www.', '') : ''}`,
+                      content: data.resumeContent,
+                      filename: data.resume,
+                      type: 'resume',
+                    });
+                  }
+                  if (data.coverLetterContent) {
+                    docs.push({
+                      title: `Cover Letter — ${currentTabUrl ? new URL(currentTabUrl).hostname.replace('www.', '') : ''}`,
+                      content: data.coverLetterContent,
+                      filename: data.coverLetter,
+                      type: 'cover-letter',
+                    });
+                  }
+                  if (docs.length > 0) setPreviewDocs(docs);
+                  return;
+                }
+
+                if (type === 'resume' && data.resumeContent) {
+                  setPreviewDoc({
+                    title: `Resume — ${currentTabUrl ? new URL(currentTabUrl).hostname.replace('www.', '') : ''}`,
+                    content: data.resumeContent,
+                    filename: data.resume,
+                    type: 'resume',
+                  });
+                } else if (type === 'cover-letter' && data.coverLetterContent) {
+                  setPreviewDoc({
+                    title: `Cover Letter — ${currentTabUrl ? new URL(currentTabUrl).hostname.replace('www.', '') : ''}`,
+                    content: data.coverLetterContent,
+                    filename: data.coverLetter,
+                    type: 'cover-letter',
+                  });
+                }
+              }}
             />
 
-            <QuickStats timeSaved={timeSaved} applicationsCount={applications.length} />
+            <QuickStats
+              timeSaved={timeSaved}
+              applicationsCount={applications.length}
+            />
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -562,7 +652,9 @@ const AppContent = () => {
                         <History className="w-6 h-6" />
                       </div>
                       <h3 className="empty-state-title">No applications yet</h3>
-                      <p className="empty-state-description">Your application history will appear here</p>
+                      <p className="empty-state-description">
+                        Your application history will appear here
+                      </p>
                     </div>
                   </div>
                 )}
@@ -603,7 +695,9 @@ const AppContent = () => {
                     <History className="w-6 h-6" />
                   </div>
                   <h3 className="empty-state-title">No applications tracked</h3>
-                  <p className="empty-state-description">Use autofill on a job page to start tracking</p>
+                  <p className="empty-state-description">
+                    Use autofill on a job page to start tracking
+                  </p>
                 </div>
               </div>
             )}
@@ -626,13 +720,15 @@ const AppContent = () => {
               onUrlsChange={setBulkUrls}
               onAdd={handleBulkAdd}
               onProcess={handleBulkProcess}
-              stats={bulkStats}
+              stats={queueStats}
               isProcessing={isBulkProcessing}
             />
           </div>
         )}
 
-        {activeTab === 'settings' && <SettingsSection config={config} onUpdate={updateAppConfig} />}
+        {activeTab === 'settings' && (
+          <SettingsSection config={config} onUpdate={updateAppConfig} />
+        )}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-[var(--bg-secondary)]/95 backdrop-blur-xl border-t border-[var(--border-subtle)] safe-area-bottom">
@@ -646,7 +742,6 @@ const AppContent = () => {
             <LayoutDashboard className="w-5 h-5" />
             <span>Home</span>
           </button>
-
           <button
             onClick={() => setActiveTab('history')}
             className={`nav-item ${activeTab === 'history' ? 'active' : ''}`}
@@ -656,7 +751,6 @@ const AppContent = () => {
             <History className="w-5 h-5" />
             <span>History</span>
           </button>
-
           <button
             onClick={() => setActiveTab('analytics')}
             className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}
@@ -666,7 +760,6 @@ const AppContent = () => {
             <Target className="w-5 h-5" />
             <span>Stats</span>
           </button>
-
           <button
             onClick={() => setActiveTab('profile')}
             className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`}
@@ -676,7 +769,6 @@ const AppContent = () => {
             <User className="w-5 h-5" />
             <span>Profile</span>
           </button>
-
           <button
             onClick={() => setActiveTab('settings')}
             className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
@@ -689,7 +781,37 @@ const AppContent = () => {
         </div>
       </nav>
 
-      {previewApp && <PreviewModal app={previewApp} onClose={() => setPreviewApp(null)} />}
+      {/* Preview modals */}
+      {previewApp && (previewApp.generated_resume || previewApp.generated_cover_letter) && (
+        <>
+          {previewApp.generated_resume && (
+            <PreviewModal
+              docs={[{
+                title: `Resume — ${previewApp.company || 'Application'}`,
+                content: previewApp.generated_resume,
+                type: 'resume',
+              }]}
+              onClose={() => setPreviewApp(null)}
+            />
+          )}
+          {!previewApp.generated_resume && previewApp.generated_cover_letter && (
+            <PreviewModal
+              docs={[{
+                title: `Cover Letter — ${previewApp.company || 'Application'}`,
+                content: previewApp.generated_cover_letter,
+                type: 'cover-letter',
+              }]}
+              onClose={() => setPreviewApp(null)}
+            />
+          )}
+        </>
+      )}
+      {previewDocs && previewDocs.length > 0 && (
+        <PreviewModal docs={previewDocs} onClose={() => setPreviewDocs(null)} />
+      )}
+      {previewDoc && !previewDocs && (
+        <PreviewModal docs={[previewDoc]} onClose={() => setPreviewDoc(null)} />
+      )}
 
       {showProfileForm && (
         <ProfileFormModal
@@ -712,6 +834,8 @@ const AppContent = () => {
     </div>
   );
 };
+
+// ── App root ─────────────────────────────────────────────────────────────────
 
 const App = () => (
   <Providers>

@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "bun run src/cli/index.ts",
     "api": "bun run src/api/server.ts",
-    "dev:api": "bun --watch src/api/server.ts",
+    "dev:api": "bun --watch src/api/server.ts && bun run dev",
     "extension:build": "vite build",
     "extension:build:firefox": "TARGET=firefox vite build",
     "extension:dev": "vite",

@@ -155,10 +155,20 @@ export interface BackpressureConfig {
   pauseThreshold: number;
 }
 
+/**
+ * Event-driven counting semaphore — replaces the old busy-wait loop.
+ *
+ * `acquire()` returns a Promise that resolves as soon as a slot is available.
+ * The returned `release()` function decrements the count and unblocks the next
+ * waiter, so no polling or setTimeout is needed while waiting.
+ */
 export class BackpressureController {
-  private activeOperations = 0;
+  private active = 0;
   private paused = false;
   private readonly config: BackpressureConfig;
+
+  /** Resolve callbacks from pending acquire() callers, oldest-first. */
+  private readonly waitQueue: Array<() => void> = [];
 
   constructor(config: Partial<BackpressureConfig> = {}) {
     this.config = {
@@ -174,23 +184,59 @@ export class BackpressureController {
   shouldPause(queueDepth: number): boolean {
     return (
       this.paused ||
-      this.activeOperations >= this.config.maxConcurrent ||
+      this.active >= this.config.maxConcurrent ||
       queueDepth >= this.config.pauseThreshold
     );
   }
 
   /**
-   * Acquire a slot for processing (waits if necessary)
+   * Acquire a slot for processing.
+   *
+   * - If a slot is immediately available, returns a release handle synchronously.
+   * - Otherwise the caller is queued and the Promise resolves when a slot opens.
+   *
+   * The returned `release` function MUST be called exactly once when work is done.
    */
-  async acquire(): Promise<() => void> {
-    while (this.shouldPause(0)) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+  async acquire(_queueDepth?: number): Promise<() => void> {
+    // Fast path — slot available immediately
+    if (!this.paused && this.active < this.config.maxConcurrent) {
+      this.active++;
+      return this.createReleaseHandle();
     }
 
-    this.activeOperations++;
+    // Slow path — wait until a slot opens
+    return new Promise<() => void>((resolve) => {
+      this.waitQueue.push(() => {
+        this.active++;
+        resolve(this.createReleaseHandle());
+      });
+    });
+  }
+
+  private createReleaseHandle(): () => void {
+    let released = false;
     return () => {
-      this.activeOperations--;
+      if (released) return;
+      released = true;
+      this.active--;
+
+      // Unblock the next waiter, if any, and if we're not paused
+      this.drainQueue();
     };
+  }
+
+  /**
+   * Resolve as many queued waiters as the current capacity allows.
+   */
+  private drainQueue(): void {
+    while (
+      this.waitQueue.length > 0 &&
+      !this.paused &&
+      this.active < this.config.maxConcurrent
+    ) {
+      const next = this.waitQueue.shift()!;
+      next(); // increments this.active inside the callback
+    }
   }
 
   /**
@@ -201,20 +247,26 @@ export class BackpressureController {
     maxConcurrent: number;
     paused: boolean;
     utilization: number;
+    waiting: number;
   } {
     return {
-      activeOperations: this.activeOperations,
+      activeOperations: this.active,
       maxConcurrent: this.config.maxConcurrent,
       paused: this.paused,
-      utilization: this.activeOperations / this.config.maxConcurrent,
+      utilization: this.active / this.config.maxConcurrent,
+      waiting: this.waitQueue.length,
     };
   }
 
   /**
-   * Manually pause or resume processing
+   * Manually pause or resume processing.
+   * Resuming unblocks any queued waiters that now have capacity.
    */
   setPaused(paused: boolean): void {
     this.paused = paused;
+    if (!paused) {
+      this.drainQueue();
+    }
   }
 }
 

@@ -47,11 +47,19 @@ Rules:
 export async function extractProfileFromResume(
   provider: AIProvider,
   resumeText: string
-): Promise<Omit<Profile, 'id' | 'created_at' | 'updated_at' | 'base_resume' | 'base_cover_letter' | 'preferences'>> {
+): Promise<
+  Omit<
+    Profile,
+    'id' | 'created_at' | 'updated_at' | 'base_resume' | 'base_cover_letter' | 'preferences'
+  >
+> {
   const prompt = `Extract structured profile data from this resume:\n\n${resumeText}`;
 
   const response = await provider.generateText(prompt, EXTRACTION_SYSTEM_PROMPT);
-  const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+  const cleaned = response
+    .replace(/```json?\n?/g, '')
+    .replace(/```/g, '')
+    .trim();
 
   let parsed: Record<string, unknown>;
   try {

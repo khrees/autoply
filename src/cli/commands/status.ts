@@ -21,10 +21,10 @@ export const statusCommand = new Command('status')
     const normalizedUrl = normalizeUrl(url);
     const applications = Array.from(
       new Map(
-        [...applicationRepository.findByUrl(url), ...applicationRepository.findByUrl(normalizedUrl)].map((app) => [
-          app.id,
-          app,
-        ])
+        [
+          ...applicationRepository.findByUrl(url),
+          ...applicationRepository.findByUrl(normalizedUrl),
+        ].map((app) => [app.id, app])
       ).values()
     );
 
@@ -56,9 +56,7 @@ export const statusCommand = new Command('status')
     }
 
     logger.newline();
-    logger.info(
-      `Found ${applications.length} application(s) for this URL.`
-    );
+    logger.info(`Found ${applications.length} application(s) for this URL.`);
   });
 
 /**

@@ -69,7 +69,9 @@ export const ApplicationCard = ({
   const handleDelete = async () => {
     const confirmed = await confirm({
       title: 'Delete application',
-      message: `Are you sure you want to delete the "${application.company || 'Unknown'}" application? This action cannot be undone.`,
+      message: `Are you sure you want to delete the "${
+        application.company || 'Unknown'
+      }" application? This action cannot be undone.`,
       confirmLabel: 'Delete',
       variant: 'destructive',
     });
@@ -94,11 +96,12 @@ export const ApplicationCard = ({
       <StatusBadge status={application.status} />
 
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        {onPreview && application.generated_resume && (
+        {(application.generated_resume || application.generated_cover_letter) && (
           <button
             onClick={onPreview}
             className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
             aria-label="Preview documents"
+            title="Preview documents"
           >
             <Eye className="w-4 h-4" />
           </button>

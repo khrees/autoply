@@ -1,16 +1,19 @@
 import { create } from 'zustand';
 import type { Application, Profile } from '../types';
 
+/** Document preview state for in-extension preview before download */
+export interface DocPreviewState {
+  title: string;
+  content: string;
+  filename?: string;
+  type: 'resume' | 'cover-letter';
+}
+
 type ActiveTab = 'dashboard' | 'history' | 'analytics' | 'profile' | 'settings';
 
 export interface FillReport {
   filled: Array<{ key: string; value: string }>;
   skipped: number;
-}
-
-export interface GeneratedDocs {
-  resume?: string;
-  coverLetter?: string;
 }
 
 interface AppUIState {
@@ -20,7 +23,8 @@ interface AppUIState {
   previewApp: Application | null;
   fillReport: FillReport | null;
   importPreviewData: Partial<Profile> | null;
-  generatedDocs: GeneratedDocs | null;
+  previewDoc: DocPreviewState | null;
+  previewDocs: DocPreviewState[] | null;
   bulkUrls: string;
   isApplying: boolean;
   autofillError: string | null;
@@ -32,7 +36,8 @@ interface AppUIState {
   setFillReport: (report: FillReport | null) => void;
   updateFillReportField: (fieldKey: string, value: string) => void;
   setImportPreviewData: (data: Partial<Profile> | null) => void;
-  setGeneratedDocs: (docs: GeneratedDocs | null) => void;
+  setPreviewDoc: (doc: DocPreviewState | null) => void;
+  setPreviewDocs: (docs: DocPreviewState[] | null) => void;
   setBulkUrls: (urls: string) => void;
   setIsApplying: (applying: boolean) => void;
   setAutofillError: (error: string | null) => void;
@@ -45,7 +50,8 @@ export const useAppStore = create<AppUIState>((set) => ({
   previewApp: null,
   fillReport: null,
   importPreviewData: null,
-  generatedDocs: null,
+  previewDoc: null,
+  previewDocs: null,
   bulkUrls: '',
   isApplying: false,
   autofillError: null,
@@ -54,6 +60,8 @@ export const useAppStore = create<AppUIState>((set) => ({
   setRecentFilter: (recentFilter) => set({ recentFilter }),
   setShowProfileForm: (showProfileForm) => set({ showProfileForm }),
   setPreviewApp: (previewApp) => set({ previewApp }),
+  setPreviewDoc: (previewDoc) => set({ previewDoc, previewDocs: null }),
+  setPreviewDocs: (previewDocs) => set({ previewDocs, previewDoc: null }),
   setFillReport: (fillReport) => set({ fillReport }),
   updateFillReportField: (fieldKey, value) =>
     set((state) => ({
@@ -67,7 +75,6 @@ export const useAppStore = create<AppUIState>((set) => ({
         : null,
     })),
   setImportPreviewData: (importPreviewData) => set({ importPreviewData }),
-  setGeneratedDocs: (generatedDocs) => set({ generatedDocs }),
   setBulkUrls: (bulkUrls) => set({ bulkUrls }),
   setIsApplying: (isApplying) => set({ isApplying }),
   setAutofillError: (autofillError) => set({ autofillError }),
