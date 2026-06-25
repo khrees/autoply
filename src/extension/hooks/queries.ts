@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { Profile, AppConfig, Application } from '../../types';
 
 const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';

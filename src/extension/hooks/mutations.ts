@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from './queries';
-import type { Profile, AppConfig, Application } from '../../types';
+import type { Profile, AppConfig } from '../../types';
 
 const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
 

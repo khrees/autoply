@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { JobData, FormField, CustomQuestion, Profile, GeneratedDocuments } from '../types';
+import type { JobData, FormField, Profile, GeneratedDocuments } from '../types';
 
 // ============================================================================
 // Zod Schemas for Runtime Validation
