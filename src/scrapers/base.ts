@@ -1325,7 +1325,6 @@ export abstract class BaseScraper {
    * Hook for platform-specific post-form-fill actions (e.g., custom dropdowns).
    * Override in subclass.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async postFormFill(
     _options: SubmissionOptions,
     _filler: FormFiller,
@@ -1338,7 +1337,6 @@ export abstract class BaseScraper {
    * Hook for pre-submit validations and final touches (e.g., waiting for specific validations or captchas).
    * Override in subclass.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async preSubmitActions(_options: SubmissionOptions, _errors: string[]): Promise<void> {
     // Override in platform-specific scrapers
   }

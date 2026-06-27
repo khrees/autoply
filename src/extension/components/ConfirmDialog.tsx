@@ -37,7 +37,7 @@ function ConfirmSheet({
         aria-modal="true"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-message"
-        className="bg-[var(--bg-secondary)] w-full sm:max-w-sm sm:rounded-xl rounded-t-xl animate-slide-up sm:animate-scale-in overflow-hidden"
+        className="bg-(--bg-secondary) w-full sm:max-w-sm sm:rounded-xl rounded-t-xl animate-slide-up sm:animate-scale-in overflow-hidden"
       >
         <div className="p-5 space-y-4">
           <div className="flex items-start gap-3">
@@ -55,10 +55,10 @@ function ConfirmSheet({
               )}
             </div>
             <div>
-              <h3 id="confirm-title" className="text-sm font-semibold text-[var(--text-primary)]">
+              <h3 id="confirm-title" className="text-sm font-semibold text-(--text-primary)">
                 {options.title}
               </h3>
-              <p id="confirm-message" className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
+              <p id="confirm-message" className="text-xs text-(--text-tertiary) mt-1 leading-relaxed">
                 {options.message}
               </p>
             </div>

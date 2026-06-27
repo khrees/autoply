@@ -186,6 +186,7 @@ export interface AppConfig {
     /** When true, prompt user for fields that can't be auto-filled or AI-answered */
     interactivePrompts: boolean;
     vaultEncryption: boolean;
+    useResumeForQuestions: boolean;
   };
   /** Cached answers for form fields the user has previously provided manually */
   cachedAnswers?: Record<string, string>;
@@ -217,6 +218,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     fillOptionalFields: false,
     interactivePrompts: true,
     vaultEncryption: false,
+    useResumeForQuestions: false,
   },
 };
 

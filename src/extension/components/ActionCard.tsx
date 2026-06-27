@@ -23,11 +23,11 @@ export const ActionCard = ({
 
     <div className="relative z-10 space-y-4">
       <div>
-        <h2 className="text-lg font-bold text-[var(--text-primary)]">Apply Instantly</h2>
-        <p className="text-xs text-[var(--text-tertiary)]">AI-powered form autofill</p>
+        <h2 className="text-lg font-bold text-(--text-primary)">Apply Instantly</h2>
+        <p className="text-xs text-(--text-tertiary)">AI-powered form autofill</p>
       </div>
 
-      <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+      <p className="text-sm text-(--text-secondary) leading-relaxed">
         Our AI scans the current page, detects form fields, and maps your profile data
         automatically.
       </p>

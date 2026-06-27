@@ -35,7 +35,11 @@ export class SavedAnswersRepository {
          updated_at = CURRENT_TIMESTAMP`,
       [profileId, hash, question, answer]
     );
-    return this.findByHash(profileId, hash)!;
+    const found = this.findByHash(profileId, hash);
+    if (!found) {
+      throw new Error(`Failed to find saved answer after upsert for profile ${profileId}`);
+    }
+    return found;
   }
 
   findSimilar(profileId: number, question: string, limit = 5): SavedAnswer[] {

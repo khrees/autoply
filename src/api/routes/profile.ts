@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { profileRepository } from '../../db/repositories/profile';
 import { createAIProvider } from '../../ai/provider';
+import type { Profile } from '../../types';
 
 const ProfileBodySchema = z.object({
   id: z.number().optional(),
@@ -37,10 +38,10 @@ export function registerProfileRoutes(app: FastifyInstance): void {
     const data = parsed.data;
     try {
       if (data.id !== undefined) {
-        const updated = profileRepository.update(data.id, data as any);
+        const updated = profileRepository.update(data.id, data as unknown as Partial<Profile>);
         return updated;
       }
-      const created = profileRepository.create(data as any);
+      const created = profileRepository.create(data as unknown as Omit<Profile, 'id' | 'created_at' | 'updated_at'>);
       return { success: true, profile: created };
     } catch (error) {
       return reply.status(400).send({ error: (error as Error).message });

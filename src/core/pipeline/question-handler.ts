@@ -1,11 +1,10 @@
 import type { Profile, JobData } from '../../types';
 import type { AIProvider } from '../../ai/provider';
 import { answerAllQuestions } from '../../ai/cover-letter';
-import { profileRepository } from '../../db/repositories/profile';
 import { applicationRepository } from '../../db/repositories/application';
 import { savedAnswersRepository } from '../../db/repositories/saved-answers';
 import { requiresHumanAnswer, shouldAllowAIAnswer } from '../form-filler';
-import { logger, createSpinner } from '../../utils/logger';
+import { createSpinner } from '../../utils/logger';
 
 /**
  * Pipeline step 4: Answer custom questions using cache, AI, and saved answers.

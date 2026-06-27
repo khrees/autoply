@@ -145,7 +145,7 @@ export async function markdownToPdf(
     if ('tokens' in tok && tok.tokens) {
       return tok.tokens
         .map((t: Token) => {
-          if ('text' in t) return (t as any).text ?? '';
+          if ('text' in t) return (t as { text?: string }).text ?? '';
           if (t.type === 'link') return (t as Tokens.Link).text ?? '';
           if (t.type === 'image') return (t as Tokens.Image).text ?? '';
           if (t.type === 'strong') return (t as Tokens.Strong).text ?? '';
@@ -348,9 +348,9 @@ export async function markdownToPdf(
 
       default:
         // Fallback for any unrecognized block
-        if ('text' in token && typeof (token as any).text === 'string') {
+        if ('text' in token && typeof (token as { text?: unknown }).text === 'string') {
           ensureSpace();
-          drawBlock((token as any).text);
+          drawBlock((token as { text: string }).text);
         }
         break;
     }

@@ -33,7 +33,7 @@ export async function submitApplicationWithRetries(
   url: string,
   correlationId: string,
   spinner: ReturnType<typeof createSpinner>,
-  fitResult?: unknown
+  _fitResult?: unknown
 ): Promise<FormSubmissionResult> {
   const config = configRepository.loadAppConfig();
   const maxRetries = Math.max(1, config.application.retryAttempts ?? 3);

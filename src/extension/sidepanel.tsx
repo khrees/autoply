@@ -1,14 +1,8 @@
 import React, { useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
-import {
-  LayoutDashboard,
-  History,
-  Target,
-  User,
-  Settings as SettingsIcon,
-} from 'lucide-react';
-import type { Profile, Application } from '../types';
+import { LayoutDashboard, History, Target, User, Settings as SettingsIcon } from 'lucide-react';
+import type { Profile } from '../types';
 
 // Zustand
 import { useAppStore } from './store';
@@ -58,10 +52,10 @@ function getUnsupportedTabMessage(url?: string): string | null {
 
   try {
     const parsed = new URL(url);
-    if (NON_SCRIPTABLE_PROTOCOLS.includes(parsed.protocol as any)) {
+    if ((NON_SCRIPTABLE_PROTOCOLS as readonly string[]).includes(parsed.protocol)) {
       return `Autofill cannot run on ${parsed.protocol} pages. Open a normal job application tab first.`;
     }
-    if (UNSUPPORTED_HOSTNAMES.includes(parsed.hostname as any)) {
+    if ((UNSUPPORTED_HOSTNAMES as readonly string[]).includes(parsed.hostname)) {
       return 'Autofill cannot run on Chrome Web Store pages.';
     }
   } catch {
@@ -179,15 +173,25 @@ const AppContent = () => {
 
   // UI state via Zustand
   const {
-    activeTab, setActiveTab,
-    recentFilter, setRecentFilter,
-    showProfileForm, setShowProfileForm,
-    bulkUrls, setBulkUrls,
-    previewApp, setPreviewApp,
-    previewDoc, setPreviewDoc,
-    previewDocs, setPreviewDocs,
-    fillReport, setFillReport, updateFillReportField,
-    importPreviewData, setImportPreviewData,
+    activeTab,
+    setActiveTab,
+    recentFilter,
+    setRecentFilter,
+    showProfileForm,
+    setShowProfileForm,
+    bulkUrls,
+    setBulkUrls,
+    previewApp,
+    setPreviewApp,
+    previewDoc,
+    setPreviewDoc,
+    previewDocs,
+    setPreviewDocs,
+    fillReport,
+    setFillReport,
+    updateFillReportField,
+    importPreviewData,
+    setImportPreviewData,
   } = useAppStore();
 
   // React Query data fetching
@@ -240,16 +244,18 @@ const AppContent = () => {
       });
       toast.success('Documents generated successfully');
       return result;
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate documents');
+    } catch (err) {
+      toast.error((err instanceof Error ? err.message : String(err)) || 'Failed to generate documents');
     }
   };
 
-  const updateAppConfig = async (newConfig: Parameters<typeof updateConfigMutation.mutateAsync>[0]) => {
+  const updateAppConfig = async (
+    newConfig: Parameters<typeof updateConfigMutation.mutateAsync>[0]
+  ) => {
     try {
       await updateConfigMutation.mutateAsync(newConfig);
       toast.success('Settings saved');
-    } catch (err) {
+    } catch {
       toast.error('Failed to save settings');
     }
   };
@@ -263,8 +269,8 @@ const AppContent = () => {
       setShowProfileForm(false);
       setImportPreviewData(null);
       toast.success('Profile saved successfully');
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to save profile');
+    } catch (err) {
+      toast.error((err instanceof Error ? err.message : String(err)) || 'Failed to save profile');
     }
   };
 
@@ -272,7 +278,7 @@ const AppContent = () => {
     try {
       await deleteApplicationMutation.mutateAsync(id);
       toast.success('Application deleted');
-    } catch (err) {
+    } catch {
       toast.error('Failed to delete application');
     }
   };
@@ -291,8 +297,8 @@ const AppContent = () => {
         setImportPreviewData(data);
         setShowProfileForm(false);
         toast.info('Review the extracted data before saving');
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to import profile');
+      } catch (err) {
+        toast.error((err instanceof Error ? err.message : String(err)) || 'Failed to import profile');
       }
     };
     input.click();
@@ -312,8 +318,8 @@ const AppContent = () => {
       const result = await bulkAddMutation.mutateAsync({ urls });
       setBulkUrls('');
       toast.success(`${result.added} URL${result.added !== 1 ? 's' : ''} added to queue`);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add URLs');
+    } catch (err) {
+      toast.error((err instanceof Error ? err.message : String(err)) || 'Failed to add URLs');
     }
   };
 
@@ -324,20 +330,21 @@ const AppContent = () => {
         delaySeconds: config?.application?.rateLimitDelay || 0,
       });
       toast.success('Queue processing started');
-    } catch (err: any) {
-      toast.error(err.message || 'Bulk processing failed');
+    } catch (err) {
+      toast.error((err instanceof Error ? err.message : String(err)) || 'Bulk processing failed');
     }
   };
 
   // ── Autofill logic ──────────────────────────────────────────────────
 
-  const sendMessageToTab = async (tabId: number, message: any, tabUrl?: string) => {
+  const sendMessageToTab = async (tabId: number, message: Record<string, unknown>, tabUrl?: string) => {
     try {
       return await chrome.tabs.sendMessage(tabId, message);
-    } catch (err: any) {
+    } catch (err) {
+      const error = err as Record<string, unknown>;
       if (
-        typeof err?.message === 'string' &&
-        err.message.includes('Could not establish connection')
+        typeof error.message === 'string' &&
+        error.message.includes('Could not establish connection')
       ) {
         const unsupportedTabMessage = getUnsupportedTabMessage(tabUrl);
         if (unsupportedTabMessage) {
@@ -359,14 +366,13 @@ const AppContent = () => {
 
           await chrome.tabs.sendMessage(tabId, { type: 'PING' });
           return await chrome.tabs.sendMessage(tabId, message);
-        } catch (injectionError: any) {
+        } catch (injectionError) {
+          const error = injectionError as Record<string, unknown>;
           const msg =
-            typeof injectionError?.message === 'string'
-              ? injectionError.message
+            typeof error.message === 'string'
+              ? error.message
               : 'Unknown injection error';
-          throw new Error(
-            `Could not attach to the page. Reload and try again. (${msg})`
-          );
+          throw new Error(`Could not attach to the page. Reload and try again. (${msg})`);
         }
       }
       throw err;
@@ -406,7 +412,7 @@ const AppContent = () => {
                     reader.onload = () =>
                       resolve({
                         base64: reader.result as string,
-                        filename: generatedDocs.resume!,
+                        filename: generatedDocs.resume ?? '',
                       });
                     reader.readAsDataURL(blob);
                   })
@@ -417,11 +423,7 @@ const AppContent = () => {
       // Detect form fields (runs in parallel with resume download above)
       let fillPlan: Record<string, string> = {};
       try {
-        const detectedFields = await sendMessageToTab(
-          tab.id,
-          { type: 'GET_FORM_FIELDS' },
-          tab.url
-        );
+        const detectedFields = await sendMessageToTab(tab.id, { type: 'GET_FORM_FIELDS' }, tab.url);
         if (detectedFields?.fields?.length > 0) {
           // Build fillPlan locally — no server round-trip needed for standard fields
           fillPlan = buildFillPlanLocally(detectedFields.fields, profile);
@@ -498,9 +500,9 @@ const AppContent = () => {
       } else if (fillResult?.error) {
         throw new Error(fillResult.error);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Autofill failed', err);
-      toast.error(err.message || 'Autofill failed');
+      toast.error((err instanceof Error ? err.message : String(err)) || 'Autofill failed');
     }
   };
 
@@ -526,7 +528,7 @@ const AppContent = () => {
 
   if (isLoading) {
     return (
-      <div className="h-screen bg-[var(--bg-primary)]">
+      <div className="h-screen bg-(--bg-primary)">
         <LoadingState />
       </div>
     );
@@ -542,7 +544,7 @@ const AppContent = () => {
   // ── Render ──────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-screen bg-[var(--bg-primary)]">
+    <div className="flex flex-col h-screen bg-(--bg-primary)">
       <ConnectionBanner connected={connected} />
 
       <Header connected={connected} />
@@ -617,16 +619,11 @@ const AppContent = () => {
               }}
             />
 
-            <QuickStats
-              timeSaved={timeSaved}
-              applicationsCount={applications.length}
-            />
+            <QuickStats timeSaved={timeSaved} applicationsCount={applications.length} />
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                  Recent Activity
-                </h3>
+                <h3 className="text-sm font-semibold text-(--text-primary)">Recent Activity</h3>
               </div>
               <FilterTabs active={recentFilter} onChange={setRecentFilter} />
 
@@ -665,9 +662,7 @@ const AppContent = () => {
 
         {activeTab === 'history' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-              Application History
-            </h3>
+            <h3 className="text-sm font-semibold text-(--text-primary)">Application History</h3>
             {applications.length > 0 ? (
               <VirtualList
                 items={applications}
@@ -706,7 +701,7 @@ const AppContent = () => {
 
         {activeTab === 'analytics' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Analytics</h3>
+            <h3 className="text-sm font-semibold text-(--text-primary)">Analytics</h3>
             <AnalyticsSection applications={applications} />
           </div>
         )}
@@ -726,12 +721,10 @@ const AppContent = () => {
           </div>
         )}
 
-        {activeTab === 'settings' && (
-          <SettingsSection config={config} onUpdate={updateAppConfig} />
-        )}
+        {activeTab === 'settings' && <SettingsSection config={config} onUpdate={updateAppConfig} />}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-[var(--bg-secondary)]/95 backdrop-blur-xl border-t border-[var(--border-subtle)] safe-area-bottom">
+      <nav className="fixed bottom-0 left-0 right-0 bg-(--bg-secondary)/95 backdrop-blur-xl border-t border-(--border-subtle) safe-area-bottom">
         <div className="flex items-center justify-around px-2 py-2">
           <button
             onClick={() => setActiveTab('dashboard')}
@@ -786,21 +779,25 @@ const AppContent = () => {
         <>
           {previewApp.generated_resume && (
             <PreviewModal
-              docs={[{
-                title: `Resume — ${previewApp.company || 'Application'}`,
-                content: previewApp.generated_resume,
-                type: 'resume',
-              }]}
+              docs={[
+                {
+                  title: `Resume — ${previewApp.company || 'Application'}`,
+                  content: previewApp.generated_resume,
+                  type: 'resume',
+                },
+              ]}
               onClose={() => setPreviewApp(null)}
             />
           )}
           {!previewApp.generated_resume && previewApp.generated_cover_letter && (
             <PreviewModal
-              docs={[{
-                title: `Cover Letter — ${previewApp.company || 'Application'}`,
-                content: previewApp.generated_cover_letter,
-                type: 'cover-letter',
-              }]}
+              docs={[
+                {
+                  title: `Cover Letter — ${previewApp.company || 'Application'}`,
+                  content: previewApp.generated_cover_letter,
+                  type: 'cover-letter',
+                },
+              ]}
               onClose={() => setPreviewApp(null)}
             />
           )}
@@ -847,5 +844,8 @@ const App = () => (
   </Providers>
 );
 
-const root = createRoot(document.getElementById('root')!);
-root.render(<App />);
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  const root = createRoot(rootElement);
+  root.render(<App />);
+}

@@ -92,12 +92,15 @@ Return a JSON array of fields to auto-fill. Skip any field that should be left b
     if (!Array.isArray(parsed)) return [];
 
     return parsed
-      .map((item: any) => {
-        const matchedField = fields.find(
-          (f) =>
-            f.name.toLowerCase() === item.fieldName?.toLowerCase() ||
-            f.label?.toLowerCase().includes(item.fieldName?.toLowerCase())
-        );
+      .map((item: { fieldName?: string; matchedProfileKey?: string; confidence?: number; reasoning?: string }) => {
+        const matchedField = fields.find((f) => {
+          const fieldName = item.fieldName?.toLowerCase();
+          if (!fieldName) return false;
+          return (
+            f.name.toLowerCase() === fieldName ||
+            f.label?.toLowerCase().includes(fieldName)
+          );
+        });
 
         if (!matchedField) return null;
 

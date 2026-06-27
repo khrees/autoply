@@ -1,4 +1,4 @@
-import type { Profile, JobData, Application, GeneratedDocuments, Platform } from '../../types';
+import type { Profile, JobData, Application, GeneratedDocuments } from '../../types';
 import type { SubmissionResult } from '../../scrapers/base';
 import type { VerificationResult } from '../../ai/screenshot-verifier';
 import type { JobFitResult } from '../../ai/job-matcher';

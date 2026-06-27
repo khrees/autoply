@@ -27,7 +27,7 @@ export const AnalyticsSection = ({ applications }: { applications: Application[]
   }
 
   // Filter by date range
-  const rangeConfig = DATE_RANGES.find((r) => r.key === dateRange)!;
+  const rangeConfig = DATE_RANGES.find((r) => r.key === dateRange) ?? DATE_RANGES[0];
   const cutoff = rangeConfig.ms ? Date.now() - rangeConfig.ms : 0;
   const filtered = rangeConfig.ms
     ? applications.filter(
@@ -60,15 +60,15 @@ export const AnalyticsSection = ({ applications }: { applications: Application[]
   return (
     <div className="space-y-4">
       {/* Date range filter */}
-      <div className="flex items-center gap-1 p-1 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg">
+      <div className="flex items-center gap-1 p-1 bg-(--bg-secondary) border border-(--border-subtle) rounded-lg">
         {DATE_RANGES.map((range) => (
           <button
             key={range.key}
             onClick={() => setDateRange(range.key)}
             className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
               dateRange === range.key
-                ? 'bg-[var(--accent-blue)] text-white shadow-sm'
-                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                ? 'bg-(--accent-blue) text-white shadow-sm'
+                : 'text-(--text-tertiary) hover:text-(--text-secondary)'
             }`}
           >
             {range.label}
@@ -78,25 +78,25 @@ export const AnalyticsSection = ({ applications }: { applications: Application[]
 
       <div className="grid grid-cols-2 gap-3">
         <div className="card text-center space-y-1">
-          <p className="text-2xl font-bold text-[var(--text-primary)]">{total}</p>
-          <p className="text-xs text-[var(--text-tertiary)]">Total Applied</p>
+          <p className="text-2xl font-bold text-(--text-primary)">{total}</p>
+          <p className="text-xs text-(--text-tertiary)">Total Applied</p>
         </div>
         <div className="card text-center space-y-1">
           <p className="text-2xl font-bold text-emerald-400">{successRate}%</p>
-          <p className="text-xs text-[var(--text-tertiary)]">Submitted Rate</p>
+          <p className="text-xs text-(--text-tertiary)">Submitted Rate</p>
         </div>
         <div className="card text-center space-y-1">
           <p className="text-2xl font-bold text-blue-400">{recentCount}</p>
-          <p className="text-xs text-[var(--text-tertiary)]">Last 7 Days</p>
+          <p className="text-xs text-(--text-tertiary)">Last 7 Days</p>
         </div>
         <div className="card text-center space-y-1">
           <p className="text-2xl font-bold text-rose-400">{failed}</p>
-          <p className="text-xs text-[var(--text-tertiary)]">Failed</p>
+          <p className="text-xs text-(--text-tertiary)">Failed</p>
         </div>
       </div>
 
       <div className="card space-y-3">
-        <h4 className="text-sm font-semibold text-[var(--text-primary)]">Status Breakdown</h4>
+        <h4 className="text-sm font-semibold text-(--text-primary)">Status Breakdown</h4>
         {[
           { label: 'Submitted', count: submitted, color: 'bg-emerald-400' },
           { label: 'Filled', count: filled, color: 'bg-blue-400' },
@@ -105,10 +105,10 @@ export const AnalyticsSection = ({ applications }: { applications: Application[]
         ].map(({ label, count, color }) => (
           <div key={label} className="space-y-1">
             <div className="flex justify-between text-xs">
-              <span className="text-[var(--text-secondary)]">{label}</span>
-              <span className="text-[var(--text-tertiary)]">{count}</span>
+              <span className="text-(--text-secondary)">{label}</span>
+              <span className="text-(--text-tertiary)">{count}</span>
             </div>
-            <div className="h-1.5 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
+            <div className="h-1.5 rounded-full bg-(--bg-tertiary) overflow-hidden">
               <div
                 className={`h-full rounded-full ${color} transition-all duration-500`}
                 style={{ width: total > 0 ? `${(count / total) * 100}%` : '0%' }}
@@ -120,11 +120,11 @@ export const AnalyticsSection = ({ applications }: { applications: Application[]
 
       {topPlatforms.length > 0 && (
         <div className="card space-y-3">
-          <h4 className="text-sm font-semibold text-[var(--text-primary)]">Top Platforms</h4>
+          <h4 className="text-sm font-semibold text-(--text-primary)">Top Platforms</h4>
           {topPlatforms.map(([platform, count]) => (
             <div key={platform} className="flex justify-between items-center text-xs">
-              <span className="text-[var(--text-secondary)] capitalize">{platform}</span>
-              <span className="px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">
+              <span className="text-(--text-secondary) capitalize">{platform}</span>
+              <span className="px-2 py-0.5 rounded-full bg-(--bg-tertiary) text-(--text-tertiary)">
                 {count}
               </span>
             </div>

@@ -1,16 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Sparkles,
-  ShieldCheck,
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-  RefreshCw,
-} from 'lucide-react';
-import type { AppConfig } from '../../types';
+import { Sparkles, ShieldCheck, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import type { AppConfig, AIProviderType } from '../../types';
+import { API_BASE } from '../constants';
 import { useAIModels } from '../hooks';
-
-const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
 
 export const SettingsSection = ({
   config,
@@ -23,14 +15,19 @@ export const SettingsSection = ({
   const [testMessage, setTestMessage] = useState('');
 
   // Fetch available models for local providers
-  const { data: availableModels, isLoading: modelsLoading, error: modelsError, refetch: refetchModels } = useAIModels(
-    config?.ai.provider || ''
-  );
+  const {
+    data: availableModels,
+    isLoading: modelsLoading,
+    error: modelsError,
+    refetch: refetchModels,
+  } = useAIModels(config?.ai.provider || '');
 
   // Auto-select first model if none selected and models are available
   useEffect(() => {
     if (availableModels && availableModels.length > 0 && !config?.ai.model) {
-      onUpdate({ ai: { ...config!.ai, model: availableModels[0] } });
+      if (config && config.ai) {
+        onUpdate({ ai: { ...config.ai, model: availableModels[0] } });
+      }
     }
   }, [availableModels, config?.ai.model, config, onUpdate]);
 
@@ -73,14 +70,16 @@ export const SettingsSection = ({
       <div className="card space-y-4">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-blue-500" />
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI Configuration</h3>
+          <h3 className="text-sm font-semibold text-(--text-primary)">AI Configuration</h3>
         </div>
 
         <div className="space-y-3">
           <label className="label">Provider</label>
           <select
             value={config.ai.provider}
-            onChange={(e) => onUpdate({ ai: { ...config.ai, provider: e.target.value as any } })}
+            onChange={(e) =>
+              onUpdate({ ai: { ...config.ai, provider: e.target.value as AIProviderType } })
+            }
             className="input appearance-none cursor-pointer"
             aria-label="AI provider"
           >
@@ -129,7 +128,7 @@ export const SettingsSection = ({
               <button
                 onClick={() => refetchModels()}
                 disabled={modelsLoading}
-                className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1 transition-colors"
+                className="text-xs text-(--text-secondary) hover:text-(--text-primary) flex items-center gap-1 transition-colors"
                 aria-label="Refresh model list"
               >
                 <RefreshCw className={`w-3 h-3 ${modelsLoading ? 'animate-spin' : ''}`} />
@@ -142,7 +141,7 @@ export const SettingsSection = ({
           {['ollama', 'lmstudio'].includes(config.ai.provider) ? (
             <div className="space-y-2">
               {modelsLoading ? (
-                <div className="input flex items-center gap-2 text-[var(--text-secondary)]">
+                <div className="input flex items-center gap-2 text-(--text-secondary)">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Loading models...
                 </div>
@@ -157,7 +156,8 @@ export const SettingsSection = ({
                     aria-label="AI model"
                   />
                   <p className="text-xs text-rose-400">
-                    Couldn&apos;t fetch models. Make sure {config.ai.provider === 'ollama' ? 'Ollama' : 'LM Studio'} is running.
+                    Couldn&apos;t fetch models. Make sure{' '}
+                    {config.ai.provider === 'ollama' ? 'Ollama' : 'LM Studio'} is running.
                   </p>
                 </div>
               ) : availableModels?.length ? (
@@ -167,7 +167,9 @@ export const SettingsSection = ({
                   className="input appearance-none cursor-pointer"
                   aria-label="AI model"
                 >
-                  <option value="" disabled>Select a model...</option>
+                  <option value="" disabled>
+                    Select a model...
+                  </option>
                   {availableModels.map((model) => (
                     <option key={model} value={model}>
                       {model}
@@ -236,16 +238,14 @@ export const SettingsSection = ({
       <div className="card space-y-4">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Preferences</h3>
+          <h3 className="text-sm font-semibold text-(--text-primary)">Preferences</h3>
         </div>
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-[var(--text-primary)]">Auto-submit</p>
-              <p className="text-xs text-[var(--text-tertiary)]">
-                Automatically submit after filling
-              </p>
+              <p className="text-sm font-medium text-(--text-primary)">Auto-submit</p>
+              <p className="text-xs text-(--text-tertiary)">Automatically submit after filling</p>
             </div>
             <button
               role="switch"
@@ -264,8 +264,8 @@ export const SettingsSection = ({
 
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-[var(--text-primary)]">Vault Encryption</p>
-              <p className="text-xs text-[var(--text-tertiary)]">AES-256 profile protection</p>
+              <p className="text-sm font-medium text-(--text-primary)">Vault Encryption</p>
+              <p className="text-xs text-(--text-tertiary)">AES-256 profile protection</p>
             </div>
             <button
               role="switch"
@@ -275,6 +275,28 @@ export const SettingsSection = ({
                   application: {
                     ...config.application,
                     vaultEncryption: !config.application.vaultEncryption,
+                  },
+                })
+              }
+              className="toggle"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-(--text-primary)">Use Resume for Questions</p>
+              <p className="text-xs text-(--text-tertiary)">
+                AI uses full resume/cover letter to answer questions
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={config.application.useResumeForQuestions}
+              onClick={() =>
+                onUpdate({
+                  application: {
+                    ...config.application,
+                    useResumeForQuestions: !config.application.useResumeForQuestions,
                   },
                 })
               }

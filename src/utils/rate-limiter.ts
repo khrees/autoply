@@ -234,8 +234,10 @@ export class BackpressureController {
       !this.paused &&
       this.active < this.config.maxConcurrent
     ) {
-      const next = this.waitQueue.shift()!;
-      next(); // increments this.active inside the callback
+      const next = this.waitQueue.shift();
+      if (next) {
+        next(); // increments this.active inside the callback
+      }
     }
   }
 

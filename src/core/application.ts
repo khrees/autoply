@@ -1,4 +1,4 @@
-import type { Profile, JobData } from '../types';
+import type { JobData } from '../types';
 import { generateCoverLetter } from '../ai/cover-letter';
 import { evaluateJobFit } from '../ai/job-matcher';
 import { tailorResume } from '../ai/resume';
@@ -36,7 +36,6 @@ import type {
   GeneratedDocumentPaths,
   AutoModeOptions,
   ApplyOptions,
-  JobFitResult,
 } from './pipeline/types';
 
 import { parseJobUrl } from '../utils/url-parser';

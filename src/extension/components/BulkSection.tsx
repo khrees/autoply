@@ -1,17 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Link2,
-  Plus,
-  Play,
-  Loader2,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  X,
-} from 'lucide-react';
+import { Link2, Plus, Play, Loader2, CheckCircle, AlertCircle, Clock, X } from 'lucide-react';
 import type { QueueItem } from '../../types';
-
-const API_BASE = (globalThis as any).__API_BASE__ || 'http://localhost:8088';
+import { API_BASE } from '../constants';
 
 const QUEUE_STATUS_ICON: Record<string, React.ReactNode> = {
   pending: <Clock className="w-3.5 h-3.5 text-amber-400" />,
@@ -79,8 +69,8 @@ export const BulkSection = ({
   return (
     <div className="card space-y-4">
       <div className="flex items-center gap-2">
-        <Link2 className="w-4 h-4 text-[var(--text-tertiary)]" />
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">Bulk Apply</h3>
+        <Link2 className="w-4 h-4 text-(--text-tertiary)" />
+        <h3 className="text-sm font-semibold text-(--text-primary)">Bulk Apply</h3>
       </div>
 
       <textarea
@@ -92,14 +82,14 @@ export const BulkSection = ({
       />
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={onAdd} className="btn btn-secondary flex-1 min-w-[120px]">
+        <button onClick={onAdd} className="btn btn-secondary flex-1 min-w-30">
           <Plus className="w-4 h-4" />
           Add to Queue
         </button>
         <button
           onClick={onProcess}
           disabled={isProcessing || !stats || stats.pending === 0}
-          className="btn btn-primary flex-1 min-w-[120px]"
+          className="btn btn-primary flex-1 min-w-30"
         >
           {isProcessing ? (
             <>
@@ -117,13 +107,13 @@ export const BulkSection = ({
 
       {stats && (stats.pending > 0 || stats.completed > 0 || stats.failed > 0) && (
         <div className="flex items-center justify-center gap-4 text-xs">
-          <span className="text-[var(--text-tertiary)]">
+          <span className="text-(--text-tertiary)">
             Pending: <span className="font-semibold text-amber-400">{stats.pending}</span>
           </span>
-          <span className="text-[var(--text-tertiary)]">
+          <span className="text-(--text-tertiary)">
             Done: <span className="font-semibold text-emerald-400">{stats.completed}</span>
           </span>
-          <span className="text-[var(--text-tertiary)]">
+          <span className="text-(--text-tertiary)">
             Failed: <span className="font-semibold text-rose-400">{stats.failed}</span>
           </span>
         </div>
@@ -133,12 +123,12 @@ export const BulkSection = ({
       {hasQueueItems && showQueue && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-[0.6875rem] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
+            <p className="text-[0.6875rem] font-medium text-(--text-tertiary) uppercase tracking-wider">
               Queue ({queueItems.length})
             </p>
             <button
               onClick={() => setShowQueue(false)}
-              className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]"
+              className="p-1 rounded hover:bg-(--bg-tertiary) text-(--text-tertiary)"
               aria-label="Hide queue"
             >
               <X className="w-3 h-3" />
@@ -155,18 +145,15 @@ export const BulkSection = ({
                       ? 'bg-rose-500/5 border border-rose-500/10'
                       : item.status === 'completed'
                         ? 'bg-emerald-500/5 border border-emerald-500/10'
-                        : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)]'
+                        : 'bg-(--bg-primary) border border-(--border-subtle)'
                 }`}
               >
-                <span className="flex-shrink-0">{QUEUE_STATUS_ICON[item.status]}</span>
-                <span className="flex-1 text-[var(--text-secondary)] truncate" title={item.url}>
+                <span className="shrink-0">{QUEUE_STATUS_ICON[item.status]}</span>
+                <span className="flex-1 text-(--text-secondary) truncate" title={item.url}>
                   {extractDomain(item.url)}
                 </span>
                 {item.error && (
-                  <span
-                    className="text-rose-400 truncate max-w-[120px]"
-                    title={item.error}
-                  >
+                  <span className="text-rose-400 truncate max-w-30" title={item.error}>
                     {item.error}
                   </span>
                 )}
@@ -179,7 +166,7 @@ export const BulkSection = ({
       {hasQueueItems && !showQueue && (
         <button
           onClick={() => setShowQueue(true)}
-          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+          className="text-xs text-(--text-tertiary) hover:text-(--text-secondary) transition-colors"
         >
           Show queue details →
         </button>

@@ -1,5 +1,13 @@
 import React, { useRef, useMemo, useState, useEffect } from 'react';
-import { FileText, X, Download, Eye, File as FilePdf, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  FileText,
+  X,
+  Download,
+  Eye,
+  File as FilePdf,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { API_BASE } from '../constants';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
@@ -9,10 +17,7 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
  * Minimal markdown-to-HTML renderer for preview purposes.
  */
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function applyInlineFormatting(text: string): string {
@@ -21,10 +26,7 @@ function applyInlineFormatting(text: string): string {
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(
-      /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener">$1</a>'
-    );
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 }
 
 function renderMarkdown(md: string): string {
@@ -38,21 +40,30 @@ function renderMarkdown(md: string): string {
     const trimmed = raw.trim();
 
     if (!trimmed) {
-      if (inList) { parts.push('</ul>'); inList = false; }
+      if (inList) {
+        parts.push('</ul>');
+        inList = false;
+      }
       const last = parts[parts.length - 1];
       if (last && last.endsWith('</p>')) parts.push('<br />');
       continue;
     }
 
     if (/^[-*_]{3,}$/.test(trimmed)) {
-      if (inList) { parts.push('</ul>'); inList = false; }
+      if (inList) {
+        parts.push('</ul>');
+        inList = false;
+      }
       parts.push('<hr />');
       continue;
     }
 
     const hMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (hMatch) {
-      if (inList) { parts.push('</ul>'); inList = false; }
+      if (inList) {
+        parts.push('</ul>');
+        inList = false;
+      }
       const level = hMatch[1].length;
       parts.push(`<h${level}>${applyInlineFormatting(hMatch[2])}</h${level}>`);
       continue;
@@ -60,12 +71,18 @@ function renderMarkdown(md: string): string {
 
     const bMatch = trimmed.match(/^[-•*]\s+(.*)$/);
     if (bMatch) {
-      if (!inList) { parts.push('<ul>'); inList = true; }
+      if (!inList) {
+        parts.push('<ul>');
+        inList = true;
+      }
       parts.push(`<li>${applyInlineFormatting(bMatch[1])}</li>`);
       continue;
     }
 
-    if (inList) { parts.push('</ul>'); inList = false; }
+    if (inList) {
+      parts.push('</ul>');
+      inList = false;
+    }
     parts.push(`<p>${applyInlineFormatting(raw)}</p>`);
   }
 
@@ -94,7 +111,6 @@ const DocPane = ({
   previewUrl,
   pdfError,
   onDownload,
-  onOpenInTab,
 }: {
   doc: DocPreview;
   activeTab: PreviewTab;
@@ -107,24 +123,24 @@ const DocPane = ({
 }) => (
   <div className="flex flex-col h-full min-h-0">
     {/* Document header */}
-    <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)] shrink-0">
+    <div className="flex items-center justify-between px-4 py-2 border-b border-(--border-subtle) bg-(--bg-secondary) shrink-0">
       <div className="flex items-center gap-2 min-w-0">
         <div className="w-6 h-6 rounded-md bg-purple-500/10 flex items-center justify-center text-purple-500 shrink-0">
           <FileText className="w-3 h-3" />
         </div>
-        <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+        <span className="text-xs font-semibold text-(--text-primary) truncate">
           {doc.type === 'resume' ? 'Resume' : 'Cover Letter'}
         </span>
       </div>
       <div className="flex items-center gap-1">
         {previewUrl && (
-          <div className="flex rounded-lg bg-[var(--bg-tertiary)] p-0.5 border border-[var(--border-subtle)]">
+          <div className="flex rounded-lg bg-(--bg-tertiary) p-0.5 border border-(--border-subtle)">
             <button
               onClick={() => setActiveTab('rendered')}
               className={`px-2 py-0.5 text-[10px] font-medium rounded-md transition-colors ${
                 activeTab === 'rendered'
-                  ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm'
-                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                  ? 'bg-(--bg-elevated) text-(--text-primary) shadow-sm'
+                  : 'text-(--text-tertiary) hover:text-(--text-secondary)'
               }`}
               aria-pressed={activeTab === 'rendered'}
             >
@@ -135,8 +151,8 @@ const DocPane = ({
               onClick={() => setActiveTab('pdf')}
               className={`px-2 py-0.5 text-[10px] font-medium rounded-md transition-colors ${
                 activeTab === 'pdf'
-                  ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm'
-                  : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                  ? 'bg-(--bg-elevated) text-(--text-primary) shadow-sm'
+                  : 'text-(--text-tertiary) hover:text-(--text-secondary)'
               }`}
               aria-pressed={activeTab === 'pdf'}
             >
@@ -148,7 +164,7 @@ const DocPane = ({
         {doc.filename && (
           <button
             onClick={onDownload}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
+            className="p-1.5 rounded-lg hover:bg-(--bg-tertiary) text-(--text-secondary) transition-colors"
             title="Download PDF"
             aria-label="Download PDF"
           >
@@ -187,15 +203,15 @@ const DocPane = ({
             </div>
           )}
           <div
-            className="prose prose-sm max-w-none text-[var(--text-primary)]
-              prose-headings:text-[var(--text-primary)]
+            className="prose prose-sm max-w-none text-(--text-primary)
+              prose-headings:text-(--text-primary)
               prose-headings:font-bold prose-h1:text-lg prose-h2:text-base prose-h3:text-sm
-              prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed prose-p:text-xs
-              prose-li:text-[var(--text-secondary)] prose-li:text-xs
-              prose-code:text-[var(--accent)] prose-code:bg-[var(--bg-tertiary)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-              prose-a:text-[var(--accent)] prose-a:underline
-              prose-strong:text-[var(--text-primary)]
-              prose-hr:border-[var(--border-subtle)]"
+              prose-p:text-(--text-secondary) prose-p:leading-relaxed prose-p:text-xs
+              prose-li:text-(--text-secondary) prose-li:text-xs
+              prose-code:text-(--accent) prose-code:bg-(--bg-tertiary) prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+              prose-a:text-(--accent) prose-a:underline
+              prose-strong:text-(--text-primary)
+              prose-hr:border-(--border-subtle)"
             dangerouslySetInnerHTML={{ __html: renderedHtml }}
           />
         </div>
@@ -254,11 +270,6 @@ export const PreviewModal = ({
     link.click();
   };
 
-  const handleOpenInTab = () => {
-    if (!previewUrl) return;
-    window.open(previewUrl, '_blank');
-  };
-
   const setActiveTabForCurrent = (tab: PreviewTab) => {
     setActiveTabs((prev) => ({ ...prev, [docIndex]: tab }));
   };
@@ -290,10 +301,10 @@ export const PreviewModal = ({
       >
         <div
           ref={containerRef}
-          className="bg-[var(--bg-secondary)] w-full sm:max-w-5xl sm:rounded-xl rounded-t-xl h-[90vh] sm:h-[90vh] flex flex-col animate-slide-up sm:animate-scale-in"
+          className="bg-(--bg-secondary) w-full sm:max-w-5xl sm:rounded-xl rounded-t-xl h-[90vh] sm:h-[90vh] flex flex-col animate-slide-up sm:animate-scale-in"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-(--border-subtle) shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-500 border border-purple-500/20 shrink-0">
                 <FileText className="w-4 h-4" />
@@ -301,11 +312,11 @@ export const PreviewModal = ({
               <div className="min-w-0">
                 <h3
                   id="split-preview-title"
-                  className="text-sm font-semibold text-[var(--text-primary)] truncate"
+                  className="text-sm font-semibold text-(--text-primary) truncate"
                 >
                   Resume & Cover Letter
                 </h3>
-                <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                <p className="text-[10px] text-(--text-tertiary) mt-0.5">
                   Side-by-side preview — scroll each document independently
                 </p>
               </div>
@@ -314,14 +325,14 @@ export const PreviewModal = ({
             <div className="flex items-center gap-2 shrink-0 ml-3">
               <button
                 onClick={() => setShowSplit(false)}
-                className="px-2.5 py-1 text-xs font-medium rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors"
+                className="px-2.5 py-1 text-xs font-medium rounded-lg bg-(--bg-tertiary) hover:bg-(--bg-hover) text-(--text-secondary) transition-colors"
                 title="Single document view"
               >
                 Single View
               </button>
               <button
                 onClick={onClose}
-                className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] transition-colors"
+                className="p-2 rounded-lg hover:bg-(--bg-tertiary) text-(--text-tertiary) transition-colors"
                 aria-label="Close preview"
               >
                 <X className="w-5 h-5" />
@@ -332,7 +343,7 @@ export const PreviewModal = ({
           {/* Body: two panes */}
           <div className="flex-1 flex flex-col sm:flex-row min-h-0">
             {/* Resume pane */}
-            <div className="flex-1 flex flex-col min-h-0 border-r border-[var(--border-subtle)]">
+            <div className="flex-1 flex flex-col min-h-0 border-r border-(--border-subtle)">
               <DocPane
                 doc={doc0}
                 activeTab={tab0}
@@ -387,10 +398,10 @@ export const PreviewModal = ({
     >
       <div
         ref={containerRef}
-        className="bg-[var(--bg-secondary)] w-full sm:max-w-3xl sm:rounded-xl rounded-t-xl h-[88vh] sm:h-auto sm:max-h-[92vh] flex flex-col animate-slide-up sm:animate-scale-in"
+        className="bg-(--bg-secondary) w-full sm:max-w-3xl sm:rounded-xl rounded-t-xl h-[88vh] sm:h-auto sm:max-h-[92vh] flex flex-col animate-slide-up sm:animate-scale-in"
       >
         {/* ── Header ─────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)] shrink-0">
+        <div className="flex items-center justify-between p-4 border-b border-(--border-subtle) shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-500 border border-purple-500/20 shrink-0">
               <FileText className="w-4 h-4" />
@@ -398,7 +409,7 @@ export const PreviewModal = ({
             <div className="min-w-0">
               <h3
                 id="preview-title"
-                className="text-base font-semibold text-[var(--text-primary)] truncate"
+                className="text-base font-semibold text-(--text-primary) truncate"
               >
                 {currentDoc?.title}
               </h3>
@@ -412,12 +423,12 @@ export const PreviewModal = ({
                 <button
                   onClick={() => setDocIndex(Math.max(0, docIndex - 1))}
                   disabled={docIndex === 0}
-                  className="p-1 rounded-md hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="p-1 rounded-md hover:bg-(--bg-tertiary) text-(--text-secondary) disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   title="Previous document"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <span className="text-[10px] font-medium text-[var(--text-tertiary)] min-w-[60px] text-center">
+                <span className="text-[10px] font-medium text-(--text-tertiary) min-w-15 text-center">
                   {docIndex === 0 ? 'Resume' : 'Cover Letter'}
                   <span className="block text-[9px] opacity-60">
                     {docIndex + 1} of {docs.length}
@@ -426,7 +437,7 @@ export const PreviewModal = ({
                 <button
                   onClick={() => setDocIndex(Math.min(docs.length - 1, docIndex + 1))}
                   disabled={docIndex === docs.length - 1}
-                  className="p-1 rounded-md hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="p-1 rounded-md hover:bg-(--bg-tertiary) text-(--text-secondary) disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   title="Next document"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -436,13 +447,13 @@ export const PreviewModal = ({
 
             {/* Tabs */}
             {previewUrl && (
-              <div className="flex rounded-lg bg-[var(--bg-tertiary)] p-0.5 border border-[var(--border-subtle)]">
+              <div className="flex rounded-lg bg-(--bg-tertiary) p-0.5 border border-(--border-subtle)">
                 <button
                   onClick={() => setActiveTabForCurrent('rendered')}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                     activeTab === 'rendered'
-                      ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm'
-                      : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                      ? 'bg-(--bg-elevated) text-(--text-primary) shadow-sm'
+                      : 'text-(--text-tertiary) hover:text-(--text-secondary)'
                   }`}
                   aria-pressed={activeTab === 'rendered'}
                 >
@@ -453,8 +464,8 @@ export const PreviewModal = ({
                   onClick={() => setActiveTabForCurrent('pdf')}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                     activeTab === 'pdf'
-                      ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-sm'
-                      : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                      ? 'bg-(--bg-elevated) text-(--text-primary) shadow-sm'
+                      : 'text-(--text-tertiary) hover:text-(--text-secondary)'
                   }`}
                   aria-pressed={activeTab === 'pdf'}
                 >
@@ -468,7 +479,7 @@ export const PreviewModal = ({
             {docs.length === 2 && (
               <button
                 onClick={() => setShowSplit(true)}
-                className="px-2.5 py-1 text-xs font-medium rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors"
+                className="px-2.5 py-1 text-xs font-medium rounded-lg bg-(--bg-tertiary) hover:bg-(--bg-hover) text-(--text-secondary) transition-colors"
                 title="View side-by-side"
               >
                 Split
@@ -478,7 +489,7 @@ export const PreviewModal = ({
             {currentDoc?.filename && (
               <button
                 onClick={handleDownload}
-                className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
+                className="p-2 rounded-lg hover:bg-(--bg-tertiary) text-(--text-secondary) transition-colors"
                 title="Download PDF"
                 aria-label="Download PDF"
               >
@@ -488,7 +499,7 @@ export const PreviewModal = ({
 
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] transition-colors"
+              className="p-2 rounded-lg hover:bg-(--bg-tertiary) text-(--text-tertiary) transition-colors"
               aria-label="Close preview"
             >
               <X className="w-5 h-5" />
@@ -524,30 +535,30 @@ export const PreviewModal = ({
                 </span>
               </div>
               <div
-                className="prose prose-sm max-w-none text-[var(--text-primary)]
-                  prose-headings:text-[var(--text-primary)]
+                className="prose prose-sm max-w-none text-(--text-primary)
+                  prose-headings:text-(--text-primary)
                   prose-headings:font-bold prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
-                  prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed
-                  prose-li:text-[var(--text-secondary)]
-                  prose-code:text-[var(--accent)] prose-code:bg-[var(--bg-tertiary)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-                  prose-a:text-[var(--accent)] prose-a:underline
-                  prose-strong:text-[var(--text-primary)]
-                  prose-hr:border-[var(--border-subtle)]"
+                  prose-p:text-(--text-secondary) prose-p:leading-relaxed
+                  prose-li:text-(--text-secondary)
+                  prose-code:text-(--accent) prose-code:bg-(--bg-tertiary) prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+                  prose-a:text-(--accent) prose-a:underline
+                  prose-strong:text-(--text-primary)
+                  prose-hr:border-(--border-subtle)"
                 dangerouslySetInnerHTML={{ __html: renderedHtml }}
               />
             </div>
           ) : (
             <div className="h-full overflow-y-auto p-6">
               <div
-                className="prose prose-sm max-w-none text-[var(--text-primary)]
-                  prose-headings:text-[var(--text-primary)]
+                className="prose prose-sm max-w-none text-(--text-primary)
+                  prose-headings:text-(--text-primary)
                   prose-headings:font-bold prose-h1:text-xl prose-h2:text-lg prose-h3:text-base
-                  prose-p:text-[var(--text-secondary)] prose-p:leading-relaxed
-                  prose-li:text-[var(--text-secondary)]
-                  prose-code:text-[var(--accent)] prose-code:bg-[var(--bg-tertiary)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-                  prose-a:text-[var(--accent)] prose-a:underline
-                  prose-strong:text-[var(--text-primary)]
-                  prose-hr:border-[var(--border-subtle)]"
+                  prose-p:text-(--text-secondary) prose-p:leading-relaxed
+                  prose-li:text-(--text-secondary)
+                  prose-code:text-(--accent) prose-code:bg-(--bg-tertiary) prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+                  prose-a:text-(--accent) prose-a:underline
+                  prose-strong:text-(--text-primary)
+                  prose-hr:border-(--border-subtle)"
                 dangerouslySetInnerHTML={{ __html: renderedHtml }}
               />
             </div>

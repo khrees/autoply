@@ -72,6 +72,7 @@ configCommand
     logger.keyValue('  Fill Optional Fields', config.application.fillOptionalFields ? 'Yes' : 'No');
     logger.keyValue('  Save Screenshots', config.application.saveScreenshots ? 'Yes' : 'No');
     logger.keyValue('  Retry Attempts', config.application.retryAttempts.toString());
+    logger.keyValue('  Use Resume for Questions', config.application.useResumeForQuestions ? 'Yes' : 'No');
   });
 
 configCommand

@@ -68,8 +68,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'CHECK_CONNECTION') {
     const apiBase =
-      (typeof globalThis !== 'undefined' && (globalThis as any).__API_BASE__) ||
-      'http://localhost:8088';
+      typeof globalThis !== 'undefined' && typeof (globalThis as Record<string, unknown>).__API_BASE__ === 'string'
+        ? ((globalThis as Record<string, unknown>).__API_BASE__ as string)
+        : 'http://localhost:8088';
 
     fetch(`${apiBase}/health`, { signal: AbortSignal.timeout(5000) })
       .then((res) => res.json())

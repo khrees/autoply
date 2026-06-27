@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { applicationQueue } from '../../core/queue';
 import { applicationOrchestrator } from '../../core/application';
 import { profileRepository } from '../../db/repositories/profile';
-import { configRepository } from '../../db/repositories/config';
 
 // Background queue jobs — keyed by a random ID so clients can poll /queue/jobs/:id
 interface QueueJob {

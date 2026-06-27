@@ -537,7 +537,7 @@ export class LinkedInScraper extends BaseScraper {
             .evaluate((el) => el.tagName.toLowerCase())
             .catch(() => 'input');
           if (tagName === 'select') {
-            await (degreeInput as any).selectOption({ label: edu.degree }).catch(() => {});
+            await degreeInput.selectOption({ label: edu.degree }).catch(() => {});
           } else {
             const currentValue = await degreeInput.inputValue().catch(() => '');
             if (!currentValue) {

@@ -26,7 +26,7 @@ export const ProfileFormModal = ({
 
   useFocusTrap(containerRef, { onClose: onCancel });
 
-  const updateField = (field: keyof Profile, value: string) => {
+  const updateField = <K extends keyof Profile>(field: K, value: Profile[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -37,15 +37,15 @@ export const ProfileFormModal = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="profile-form-title"
-        className="bg-[var(--bg-secondary)] w-full sm:max-w-lg sm:rounded-xl rounded-t-xl h-[85vh] sm:h-auto sm:max-h-[85vh] flex flex-col animate-slide-up sm:animate-scale-in"
+        className="bg-(--bg-secondary) w-full sm:max-w-lg sm:rounded-xl rounded-t-xl h-[85vh] sm:h-auto sm:max-h-[85vh] flex flex-col animate-slide-up sm:animate-scale-in"
       >
-        <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)] shrink-0">
-          <h3 id="profile-form-title" className="text-base font-semibold text-[var(--text-primary)]">
+        <div className="flex items-center justify-between p-4 border-b border-(--border-subtle) shrink-0">
+          <h3 id="profile-form-title" className="text-base font-semibold text-(--text-primary)">
             {profile?.name ? 'Edit Profile' : 'Create Profile'}
           </h3>
           <button
             onClick={onCancel}
-            className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] transition-colors"
+            className="p-2 rounded-lg hover:bg-(--bg-tertiary) text-(--text-tertiary) transition-colors"
             aria-label="Close form"
           >
             <X className="w-5 h-5" />
@@ -165,7 +165,7 @@ export const ProfileFormModal = ({
                   .split(',')
                   .map((s) => s.trim())
                   .filter(Boolean);
-                updateField('skills' as keyof Profile, skills as any);
+                updateField('skills', skills);
               }}
               placeholder="React, TypeScript, Node.js…"
               className="input h-20 resize-none"
@@ -173,7 +173,7 @@ export const ProfileFormModal = ({
           </div>
         </div>
 
-        <div className="p-4 border-t border-[var(--border-subtle)] flex gap-3 shrink-0">
+        <div className="p-4 border-t border-(--border-subtle) flex gap-3 shrink-0">
           <button onClick={onImport} className="btn btn-secondary flex-1" disabled={isSaving}>
             <Upload className="w-4 h-4" />
             Import

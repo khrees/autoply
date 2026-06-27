@@ -1,8 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React from 'react';
 import { FileText, Loader2, RefreshCcw, Eye, Download, LayoutTemplate } from 'lucide-react';
 import { API_BASE, NON_SCRIPTABLE_PROTOCOLS } from '../constants';
 import type { GeneratedDocumentsResult } from '../hooks/mutations';
-import type { DocPreview } from './PreviewModal';
 
 export const GenerateDocumentsCard = ({
   currentUrl,
@@ -24,7 +23,6 @@ export const GenerateDocumentsCard = ({
 
   if (!isValidJobUrl) return null;
 
-  const hostname = currentUrl ? new URL(currentUrl).hostname.replace('www.', '') : '';
 
   const hasResume = !!(generatedDocs?.resume && generatedDocs?.resumeContent);
   const hasCoverLetter = !!(generatedDocs?.coverLetter && generatedDocs?.coverLetterContent);
@@ -36,56 +34,6 @@ export const GenerateDocumentsCard = ({
     link.download = filename;
     link.click();
   };
-
-  /**
-   * Returns preview docs for the modal — either a single doc or both.
-   * Used by the parent when the user clicks "View Both" or individual preview buttons.
-   */
-  const getPreviewDocs = (type?: 'resume' | 'cover-letter'): DocPreview[] | null => {
-    if (!generatedDocs) return null;
-
-    if (type === 'resume' && generatedDocs.resumeContent) {
-      return [
-        {
-          title: `Resume — ${hostname}`,
-          content: generatedDocs.resumeContent,
-          filename: generatedDocs.resume,
-          type: 'resume',
-        },
-      ];
-    }
-
-    if (type === 'cover-letter' && generatedDocs.coverLetterContent) {
-      return [
-        {
-          title: `Cover Letter — ${hostname}`,
-          content: generatedDocs.coverLetterContent,
-          filename: generatedDocs.coverLetter,
-          type: 'cover-letter',
-        },
-      ];
-    }
-
-    // Return both
-    const docs: DocPreview[] = [];
-    if (generatedDocs.resumeContent) {
-      docs.push({
-        title: `Resume — ${hostname}`,
-        content: generatedDocs.resumeContent,
-        filename: generatedDocs.resume,
-        type: 'resume',
-      });
-    }
-    if (generatedDocs.coverLetterContent) {
-      docs.push({
-        title: `Cover Letter — ${hostname}`,
-        content: generatedDocs.coverLetterContent,
-        filename: generatedDocs.coverLetter,
-        type: 'cover-letter',
-      });
-    }
-    return docs.length > 0 ? docs : null;
-  };
   return (
     <div className="card space-y-4">
       <div className="flex items-center gap-3">
@@ -93,8 +41,8 @@ export const GenerateDocumentsCard = ({
           <FileText className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-lg font-bold text-[var(--text-primary)]">Generate Documents</h2>
-          <p className="text-xs text-[var(--text-tertiary)]">AI-tailored for this job</p>
+          <h2 className="text-lg font-bold text-(--text-primary)">Generate Documents</h2>
+          <p className="text-xs text-(--text-tertiary)">AI-tailored for this job</p>
         </div>
       </div>
 
@@ -102,31 +50,31 @@ export const GenerateDocumentsCard = ({
         <div className="space-y-3">
           {/* Dual document preview area (when both exist) */}
           {hasBoth && (
-            <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden">
+            <div className="rounded-xl border border-(--border-subtle) overflow-hidden">
               {/* Dual mini-preview */}
-              <div className="grid grid-cols-2 divide-x divide-[var(--border-subtle)]">
+              <div className="grid grid-cols-2 divide-x divide-(--border-subtle)">
                 {/* Resume mini-card */}
                 <div className="p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-purple-500" />
-                    <span className="text-xs font-semibold text-[var(--text-primary)]">Resume</span>
+                    <span className="text-xs font-semibold text-(--text-primary)">Resume</span>
                   </div>
-                  <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed line-clamp-3">
+                  <p className="text-[10px] text-(--text-tertiary) leading-relaxed line-clamp-3">
                     {generatedDocs.resumeContent?.slice(0, 180)}
                     {(generatedDocs.resumeContent?.length ?? 0) > 180 ? '…' : ''}
                   </p>
                   <div className="flex gap-1.5 pt-1">
                     <button
                       onClick={() => onPreview('resume')}
-                      className="flex-1 text-[10px] font-medium px-2 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors flex items-center justify-center gap-1"
+                      className="flex-1 text-[10px] font-medium px-2 py-1.5 rounded-lg bg-(--bg-tertiary) hover:bg-(--bg-hover) text-(--text-secondary) transition-colors flex items-center justify-center gap-1"
                     >
                       <Eye className="w-3 h-3" />
                       Preview
                     </button>
                     {generatedDocs.resume && (
                       <button
-                        onClick={() => handleDownload(generatedDocs.resume!)}
-                        className="px-2 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors"
+                        onClick={() => handleDownload(generatedDocs.resume ?? '')}
+                        className="px-2 py-1.5 rounded-lg bg-(--bg-tertiary) hover:bg-(--bg-hover) text-(--text-secondary) transition-colors"
                         title="Download Resume PDF"
                       >
                         <Download className="w-3 h-3" />
@@ -139,24 +87,24 @@ export const GenerateDocumentsCard = ({
                 <div className="p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-semibold text-[var(--text-primary)]">Cover Letter</span>
+                    <span className="text-xs font-semibold text-(--text-primary)">Cover Letter</span>
                   </div>
-                  <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed line-clamp-3">
+                  <p className="text-[10px] text-(--text-tertiary) leading-relaxed line-clamp-3">
                     {generatedDocs.coverLetterContent?.slice(0, 180)}
                     {(generatedDocs.coverLetterContent?.length ?? 0) > 180 ? '…' : ''}
                   </p>
                   <div className="flex gap-1.5 pt-1">
                     <button
                       onClick={() => onPreview('cover-letter')}
-                      className="flex-1 text-[10px] font-medium px-2 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors flex items-center justify-center gap-1"
+                      className="flex-1 text-[10px] font-medium px-2 py-1.5 rounded-lg bg-(--bg-tertiary) hover:bg-(--bg-hover) text-(--text-secondary) transition-colors flex items-center justify-center gap-1"
                     >
                       <Eye className="w-3 h-3" />
                       Preview
                     </button>
                     {generatedDocs.coverLetter && (
                       <button
-                        onClick={() => handleDownload(generatedDocs.coverLetter!)}
-                        className="px-2 py-1.5 rounded-lg bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors"
+                        onClick={() => handleDownload(generatedDocs.coverLetter ?? '')}
+                        className="px-2 py-1.5 rounded-lg bg-(--bg-tertiary) hover:bg-(--bg-hover) text-(--text-secondary) transition-colors"
                         title="Download Cover Letter PDF"
                       >
                         <Download className="w-3 h-3" />
@@ -169,7 +117,7 @@ export const GenerateDocumentsCard = ({
               {/* "View Both" CTA */}
               <button
                 onClick={() => onPreview('both')}
-                className="w-full flex items-center justify-center gap-1.5 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] text-[10px] font-medium text-[var(--accent)] transition-colors border-t border-[var(--border-subtle)]"
+                className="w-full flex items-center justify-center gap-1.5 py-2 bg-(--bg-tertiary) hover:bg-(--bg-hover) text-[10px] font-medium text-(--accent) transition-colors border-t border-(--border-subtle)"
               >
                 <LayoutTemplate className="w-3.5 h-3.5" />
                 View side-by-side
@@ -189,7 +137,7 @@ export const GenerateDocumentsCard = ({
               </button>
               {generatedDocs.resume && (
                 <button
-                  onClick={() => handleDownload(generatedDocs.resume!)}
+                  onClick={() => handleDownload(generatedDocs.resume ?? '')}
                   className="btn btn-secondary px-3 justify-center"
                   title="Download PDF"
                 >
@@ -209,7 +157,7 @@ export const GenerateDocumentsCard = ({
               </button>
               {generatedDocs.coverLetter && (
                 <button
-                  onClick={() => handleDownload(generatedDocs.coverLetter!)}
+                  onClick={() => handleDownload(generatedDocs.coverLetter ?? '')}
                   className="btn btn-secondary px-3 justify-center"
                   title="Download PDF"
                 >

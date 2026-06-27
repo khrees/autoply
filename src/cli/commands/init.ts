@@ -5,8 +5,7 @@ import { configRepository } from '../../db/repositories/config';
 import { promptForProfile, promptForPreferences } from '../prompts/profile';
 import { logger } from '../../utils/logger';
 import { DEFAULT_CONFIG } from '../../types';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { getDb, ensureAutoplyDir, getAutoplyDir, getDbPath } from '../../db';
+import { getDb, ensureAutoplyDir, getAutoplyDir } from '../../db';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { extractTextFromFile } from '../../utils/document-extractor';

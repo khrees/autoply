@@ -37,8 +37,8 @@ export const FilterTabs = ({
           onClick={() => onChange(filter)}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
             active === filter
-              ? 'bg-[var(--text-primary)] text-[var(--bg-primary)]'
-              : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+              ? 'bg-(--text-primary) text-(--bg-primary)'
+              : 'text-(--text-tertiary) hover:text-(--text-secondary) hover:bg-(--bg-tertiary)'
           }`}
         >
           {filter.charAt(0).toUpperCase() + filter.slice(1)}
@@ -80,15 +80,15 @@ export const ApplicationCard = ({
 
   return (
     <div className="card card-interactive p-4 flex items-center gap-4 group">
-      <div className="w-10 h-10 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center text-[var(--text-tertiary)] group-hover:bg-blue-500/10 group-hover:text-blue-400 transition-colors">
+      <div className="w-10 h-10 rounded-lg bg-(--bg-tertiary) flex items-center justify-center text-(--text-tertiary) group-hover:bg-blue-500/10 group-hover:text-blue-400 transition-colors">
         {statusIcon[application.status as keyof typeof statusIcon] || statusIcon.pending}
       </div>
 
       <div className="flex-1 min-w-0">
-        <h4 className="text-sm font-semibold text-[var(--text-primary)] truncate">
+        <h4 className="text-sm font-semibold text-(--text-primary) truncate">
           {application.company || 'Unknown Company'}
         </h4>
-        <p className="text-xs text-[var(--text-tertiary)] truncate">
+        <p className="text-xs text-(--text-tertiary) truncate">
           {application.job_title || 'Untitled position'}
         </p>
       </div>
@@ -99,7 +99,7 @@ export const ApplicationCard = ({
         {(application.generated_resume || application.generated_cover_letter) && (
           <button
             onClick={onPreview}
-            className="p-2 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+            className="p-2 rounded-lg hover:bg-(--bg-tertiary) text-(--text-tertiary) hover:text-(--text-primary) transition-colors"
             aria-label="Preview documents"
             title="Preview documents"
           >
@@ -108,7 +108,7 @@ export const ApplicationCard = ({
         )}
         <button
           onClick={handleDelete}
-          className="p-2 rounded-lg hover:bg-rose-500/10 text-[var(--text-tertiary)] hover:text-rose-400 transition-colors"
+          className="p-2 rounded-lg hover:bg-rose-500/10 text-(--text-tertiary) hover:text-rose-400 transition-colors"
           aria-label="Delete application"
         >
           <Trash2 className="w-4 h-4" />

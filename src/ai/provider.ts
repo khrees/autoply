@@ -86,7 +86,7 @@ async function createModel(config: AIConfigExtended) {
   switch (config.provider) {
     case 'openai': {
       const openai = createOpenAI({
-        apiKey: apiKey!,
+        apiKey: apiKey ?? '',
         headers: {
           'OpenAI-Beta': 'prompt-caching=v1',
         },
@@ -97,7 +97,7 @@ async function createModel(config: AIConfigExtended) {
     }
     case 'anthropic': {
       const anthropic = createAnthropic({
-        apiKey: apiKey!,
+        apiKey: apiKey ?? '',
         headers: {
           'anthropic-beta': 'prompt-caching-2024-07-31',
         },
@@ -108,7 +108,7 @@ async function createModel(config: AIConfigExtended) {
     }
     case 'google': {
       const google = createGoogleGenerativeAI({
-        apiKey: apiKey!,
+        apiKey: apiKey ?? '',
       });
       const googleModel = google(modelId);
       modelCache.set(cacheKey, googleModel);
