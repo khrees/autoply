@@ -7,14 +7,19 @@ export class AshbyScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('[data-testid="job-post-title"], .ashby-job-posting-heading, h1', {
-      timeout: 10000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('[data-testid="job-post-title"], .ashby-job-posting-heading, h1', {
+        timeout: 10000,
+      })
+      .catch(() => {});
   }
 
   // ============ Ashby Form Submission ============
 
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
+  override async submitApplication(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<SubmissionResult> {
     const errors: string[] = [];
 
     try {
@@ -31,12 +36,18 @@ export class AshbyScraper extends BaseScraper {
       await this.waitForAshbyApplicationForm();
 
       const context = await this.getAshbyContext();
-      const filler = new FormFiller(this.page, options.profile, options.jobData, {
-        resumePath: options.resumePath,
-        coverLetterPath: options.coverLetterPath,
-        answeredQuestions: options.answeredQuestions,
-        autoMode: options.autoMode,
-      }, context);
+      const filler = new FormFiller(
+        this.page,
+        options.profile,
+        options.jobData,
+        {
+          resumePath: options.resumePath,
+          coverLetterPath: options.coverLetterPath,
+          answeredQuestions: options.answeredQuestions,
+          autoMode: options.autoMode,
+        },
+        context
+      );
 
       // Fill form
       await this.fillAshbyForm(options, errors, context, filler);
@@ -49,7 +60,10 @@ export class AshbyScraper extends BaseScraper {
 
       // Wait for confirmation
       let confirmation = await this.waitForAshbyConfirmation(context);
-      if (!confirmation.success && confirmation.message.includes('Missing entry for required field')) {
+      if (
+        !confirmation.success &&
+        confirmation.message.includes('Missing entry for required field')
+      ) {
         const missingLabels = confirmation.message
           .split('Missing entry for required field:')
           .slice(1)
@@ -77,7 +91,12 @@ export class AshbyScraper extends BaseScraper {
         await this.takeScreenshot(screenshotPath);
       }
 
-      return { success: confirmation.success, message: confirmation.message, screenshotPath, errors };
+      return {
+        success: confirmation.success,
+        message: confirmation.message,
+        screenshotPath,
+        errors,
+      };
     } catch (error) {
       errors.push(error instanceof Error ? error.message : 'Unknown error');
       return { success: false, message: 'Ashby submission failed', errors };
@@ -121,9 +140,11 @@ export class AshbyScraper extends BaseScraper {
   private async waitForAshbyApplicationForm(): Promise<void> {
     if (!this.page) return;
 
-    await this.page.waitForSelector('form, [data-testid*="application"], .ashby-application-form', {
-      timeout: 10000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('form, [data-testid*="application"], .ashby-application-form', {
+        timeout: 10000,
+      })
+      .catch(() => {});
     await this.humanDelay(true);
   }
 
@@ -148,13 +169,21 @@ export class AshbyScraper extends BaseScraper {
       errors.push(...formResult.errors);
     } else {
       // Fallback: fill basic fields manually if extraction found nothing
-      await this.fillInput(context, 'input[name*="name"], input[data-testid*="name"]', profile.name);
+      await this.fillInput(
+        context,
+        'input[name*="name"], input[data-testid*="name"]',
+        profile.name
+      );
       await this.fillInput(context, 'input[name*="email"], input[type="email"]', profile.email);
       if (profile.phone) {
         await this.fillInput(context, 'input[name*="phone"], input[type="tel"]', profile.phone);
       }
       if (profile.linkedin_url) {
-        await this.fillInput(context, 'input[name*="linkedin"], input[placeholder*="LinkedIn"]', profile.linkedin_url);
+        await this.fillInput(
+          context,
+          'input[name*="linkedin"], input[placeholder*="LinkedIn"]',
+          profile.linkedin_url
+        );
       }
     }
 
@@ -168,7 +197,8 @@ export class AshbyScraper extends BaseScraper {
     }
 
     // Custom questions — use live-extracted questions merged with AI-answered ones
-    const questionsToFill = liveCustomQuestions.length > 0 ? liveCustomQuestions : (options.answeredQuestions ?? []);
+    const questionsToFill =
+      liveCustomQuestions.length > 0 ? liveCustomQuestions : (options.answeredQuestions ?? []);
     // Merge AI answers into live questions
     if (options.answeredQuestions) {
       for (const liveQ of questionsToFill) {
@@ -221,7 +251,9 @@ export class AshbyScraper extends BaseScraper {
     const { profile, jobData } = options;
 
     // Helper to get a reasonable label for a field container
-    const getLabelText = async (container: Awaited<ReturnType<typeof this.page.$>>): Promise<string> => {
+    const getLabelText = async (
+      container: Awaited<ReturnType<typeof this.page.$>>
+    ): Promise<string> => {
       if (!container) return '';
       const label = await container.$('label, [data-testid*="label"], [class*="label"]');
       if (label) {
@@ -232,7 +264,9 @@ export class AshbyScraper extends BaseScraper {
       return text?.trim().split('\n')[0] ?? '';
     };
 
-    const isRequired = async (container: Awaited<ReturnType<typeof this.page.$>>): Promise<boolean> => {
+    const isRequired = async (
+      container: Awaited<ReturnType<typeof this.page.$>>
+    ): Promise<boolean> => {
       if (!container) return false;
       const requiredFlag = await container.$('[required], [aria-required="true"]');
       if (requiredFlag) return true;
@@ -240,7 +274,9 @@ export class AshbyScraper extends BaseScraper {
       return /\*\s*$/.test(label);
     };
 
-    const containers = await context.$$('.ashby-application-form-field, [data-testid*="application"], [data-testid*="field"]');
+    const containers = await context.$$(
+      '.ashby-application-form-field, [data-testid*="application"], [data-testid*="field"]'
+    );
 
     const { getOptionLabel } = await import('./helpers');
 
@@ -269,14 +305,18 @@ export class AshbyScraper extends BaseScraper {
         }
 
         // Combobox/select (Ashby custom)
-        const combobox = await container.$('[role="combobox"], [aria-haspopup="listbox"], [data-testid*="select"]');
+        const combobox = await container.$(
+          '[role="combobox"], [aria-haspopup="listbox"], [data-testid*="select"]'
+        );
         if (combobox) {
           const existingValue = await combobox.textContent().catch(() => '');
           if (!existingValue || /select|choose/i.test(existingValue)) {
-            await combobox.click().catch(() => { });
+            await combobox.click().catch(() => {});
             await this.page.waitForTimeout(300);
 
-            const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
+            const optionElements = await context.$$(
+              'li[role="option"], [role="option"], [data-testid*="option"]'
+            );
             const dropdownOptions = [];
             for (const opt of optionElements) {
               const text = await opt.textContent();
@@ -288,7 +328,12 @@ export class AshbyScraper extends BaseScraper {
 
             if (dropdownOptions.length > 0) {
               const defaultAnswer = filler.getValueForLabel(label, 'select', dropdownOptions);
-              const answer = defaultAnswer ?? (await this.getAIAnswer(profile, jobData, label, { type: 'select', choices: dropdownOptions }));
+              const answer =
+                defaultAnswer ??
+                (await this.getAIAnswer(profile, jobData, label, {
+                  type: 'select',
+                  choices: dropdownOptions,
+                }));
               if (answer) {
                 const target = filler.findBestMatchingOption(answer, dropdownOptions);
                 const clickText = target ?? answer;
@@ -302,13 +347,13 @@ export class AshbyScraper extends BaseScraper {
                   }
                 }
                 if (!clicked) {
-                  await optionElements[0].click().catch(() => { });
+                  await optionElements[0].click().catch(() => {});
                 }
                 await this.humanDelay(true);
                 continue;
               }
               if (options.autoMode) {
-                await optionElements[0].click().catch(() => { });
+                await optionElements[0].click().catch(() => {});
                 await this.humanDelay(true);
                 continue;
               }
@@ -351,12 +396,17 @@ export class AshbyScraper extends BaseScraper {
 
           if (optionLabels.length > 0) {
             const defaultAnswer = filler.getValueForLabel(label, 'radio', optionLabels);
-            const answer = defaultAnswer ?? (await this.getAIAnswer(profile, jobData, label, { type: 'radio', choices: optionLabels }));
+            const answer =
+              defaultAnswer ??
+              (await this.getAIAnswer(profile, jobData, label, {
+                type: 'radio',
+                choices: optionLabels,
+              }));
             const target = answer ? filler.findBestMatchingOption(answer, optionLabels) : null;
             if (target) {
               for (const opt of optionData) {
                 if (opt.label.toLowerCase() === target.toLowerCase()) {
-                  await opt.el.click().catch(() => { });
+                  await opt.el.click().catch(() => {});
                   await this.humanDelay(true);
                   break;
                 }
@@ -364,7 +414,7 @@ export class AshbyScraper extends BaseScraper {
               continue;
             }
             if (options.autoMode) {
-              await optionData[0].el.click().catch(() => { });
+              await optionData[0].el.click().catch(() => {});
               await this.humanDelay(true);
               continue;
             }
@@ -377,10 +427,11 @@ export class AshbyScraper extends BaseScraper {
                 options: optionLabels,
               });
               if (userAnswer) {
-                const targetAnswer = filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
+                const targetAnswer =
+                  filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
                 for (const opt of optionData) {
                   if (opt.label.toLowerCase() === targetAnswer.toLowerCase()) {
-                    await opt.el.click().catch(() => { });
+                    await opt.el.click().catch(() => {});
                     await this.humanDelay(true);
                     break;
                   }
@@ -390,7 +441,9 @@ export class AshbyScraper extends BaseScraper {
           }
         }
       } catch (err) {
-        errors.push(`Ashby custom control fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        errors.push(
+          `Ashby custom control fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
       }
     }
 
@@ -404,12 +457,16 @@ export class AshbyScraper extends BaseScraper {
         if (!required) continue;
 
         const forId = await labelEl.getAttribute('for');
-        const fieldContainer = await labelEl.evaluateHandle((el) =>
-          el.closest('.ashby-application-form-field, [data-testid*="field"], fieldset') || el.parentElement
+        const fieldContainer = await labelEl.evaluateHandle(
+          (el) =>
+            el.closest('.ashby-application-form-field, [data-testid*="field"], fieldset') ||
+            el.parentElement
         );
         let fieldEl = forId ? await context.$(`#${forId}`) : null;
         if (!fieldEl && fieldContainer) {
-          fieldEl = await (fieldContainer.asElement() ?? context).$('input, textarea, select, [role="combobox"], [role="radiogroup"]');
+          fieldEl = await (fieldContainer.asElement() ?? context).$(
+            'input, textarea, select, [role="combobox"], [role="radiogroup"]'
+          );
         }
         if (!fieldEl) continue;
 
@@ -426,9 +483,11 @@ export class AshbyScraper extends BaseScraper {
             }
           }
         } else if (tag === 'select' || role === 'combobox') {
-          await fieldEl.click().catch(() => { });
+          await fieldEl.click().catch(() => {});
           await this.page.waitForTimeout(300);
-          const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
+          const optionElements = await context.$$(
+            'li[role="option"], [role="option"], [data-testid*="option"]'
+          );
           const options = [];
           for (const opt of optionElements) {
             const text = await opt.textContent();
@@ -438,7 +497,10 @@ export class AshbyScraper extends BaseScraper {
             }
           }
           if (options.length > 0) {
-            const answer = await this.getAIAnswer(profile, jobData, labelText, { type: 'select', choices: options });
+            const answer = await this.getAIAnswer(profile, jobData, labelText, {
+              type: 'select',
+              choices: options,
+            });
             if (answer) {
               let clicked = false;
               for (const el of optionElements) {
@@ -450,19 +512,23 @@ export class AshbyScraper extends BaseScraper {
                 }
               }
               if (!clicked) {
-                await optionElements[0].click().catch(() => { });
+                await optionElements[0].click().catch(() => {});
               }
               await this.humanDelay(true);
             }
           }
         }
       } catch (err) {
-        errors.push(`Ashby label-based fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        errors.push(
+          `Ashby label-based fill failed: ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
       }
     }
   }
 
-  private async clickAshbySubmit(context: import('playwright').Page | import('playwright').Frame): Promise<boolean> {
+  private async clickAshbySubmit(
+    context: import('playwright').Page | import('playwright').Frame
+  ): Promise<boolean> {
     if (!this.page) return false;
 
     const selectors = [
@@ -492,7 +558,7 @@ export class AshbyScraper extends BaseScraper {
 
     try {
       // Wait for page to settle after submit — try to detect navigation or DOM change first
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
       await this.page.waitForTimeout(5000);
 
       const errorSelectors = [
@@ -515,7 +581,11 @@ export class AshbyScraper extends BaseScraper {
       const classErrorElements = await context.$$('[class*="error"]');
       for (const el of classErrorElements) {
         const text = await el.textContent().catch(() => null);
-        if (text && text.trim().length > 5 && /error|required|missing|invalid|correction/i.test(text)) {
+        if (
+          text &&
+          text.trim().length > 5 &&
+          /error|required|missing|invalid|correction/i.test(text)
+        ) {
           return { success: false, message: text.trim() };
         }
       }
@@ -561,7 +631,12 @@ export class AshbyScraper extends BaseScraper {
     errors: string[],
     filler: FormFiller
   ): Promise<void> {
-    const { normalizeLabel: normalize, getOptionLabel, getAccessibleName, clickMatchingOption } = await import('./helpers');
+    const {
+      normalizeLabel: normalize,
+      getOptionLabel,
+      getAccessibleName,
+      clickMatchingOption,
+    } = await import('./helpers');
 
     const pickBestOption = (label: string, optionsList: string[]): string | null => {
       const candidates: string[] = [];
@@ -584,7 +659,9 @@ export class AshbyScraper extends BaseScraper {
     };
 
     const selectFromOpenList = async (label: string, forceFirst = false): Promise<boolean> => {
-      const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
+      const optionElements = await context.$$(
+        'li[role="option"], [role="option"], [data-testid*="option"]'
+      );
       if (optionElements.length === 0) return false;
       const optionTexts: string[] = [];
       for (const opt of optionElements) {
@@ -593,18 +670,25 @@ export class AshbyScraper extends BaseScraper {
       }
       const target = pickBestOption(label, optionTexts);
       if (!target && forceFirst) {
-        await optionElements[0].click().catch(() => { });
+        await optionElements[0].click().catch(() => {});
         await this.humanDelay(true);
         return true;
       }
       if (!target) return false;
-      
-      const clicked = await clickMatchingOption(optionElements, target, false, async (el) => (await el.textContent())?.trim() ?? '');
+
+      const clicked = await clickMatchingOption(
+        optionElements,
+        target,
+        false,
+        async (el) => (await el.textContent())?.trim() ?? ''
+      );
       if (clicked) await this.humanDelay(true);
       return clicked;
     };
 
-    const findComboboxByLabel = async (label: string): Promise<import('playwright').ElementHandle | null> => {
+    const findComboboxByLabel = async (
+      label: string
+    ): Promise<import('playwright').ElementHandle | null> => {
       const normalizedLabel = normalize(label);
       const comboboxes = await context.$$('[role="combobox"], [aria-haspopup="listbox"]');
       for (const combobox of comboboxes) {
@@ -618,7 +702,9 @@ export class AshbyScraper extends BaseScraper {
       return null;
     };
 
-    const findRadioContainerByLabel = async (label: string): Promise<import('playwright').ElementHandle | null> => {
+    const findRadioContainerByLabel = async (
+      label: string
+    ): Promise<import('playwright').ElementHandle | null> => {
       const normalizedLabel = normalize(label);
       const containers = await context.$$(
         '[role="radiogroup"], fieldset, .ashby-application-form-field, [data-testid*="question"], [data-testid*="field"]'
@@ -630,7 +716,10 @@ export class AshbyScraper extends BaseScraper {
         const name = await getAccessibleName(container);
         if (name) {
           const normalizedName = normalize(name);
-          if (normalizedName.includes(normalizedLabel) || normalizedLabel.includes(normalizedName)) {
+          if (
+            normalizedName.includes(normalizedLabel) ||
+            normalizedLabel.includes(normalizedName)
+          ) {
             return container;
           }
         }
@@ -638,7 +727,10 @@ export class AshbyScraper extends BaseScraper {
       return null;
     };
 
-    const selectFromRadioContainer = async (container: import('playwright').ElementHandle, label: string): Promise<boolean> => {
+    const selectFromRadioContainer = async (
+      container: import('playwright').ElementHandle,
+      label: string
+    ): Promise<boolean> => {
       const radioOptions = await container.$$(
         'input[type="radio"], [role="radio"], button, input[type="checkbox"]'
       );
@@ -651,7 +743,7 @@ export class AshbyScraper extends BaseScraper {
       }
       if (optionData.length === 0) {
         if (options.autoMode) {
-          await radioOptions[0].click().catch(() => { });
+          await radioOptions[0].click().catch(() => {});
           await this.humanDelay(true);
           return true;
         }
@@ -660,12 +752,13 @@ export class AshbyScraper extends BaseScraper {
 
       const optionLabels = optionData.map((o) => o.label);
       const target = pickBestOption(label, optionLabels);
-      
-      const getLabelFn = async (el: import('playwright').ElementHandle) => optionData.find(o => o.el === el)?.label ?? '';
-      
+
+      const getLabelFn = async (el: import('playwright').ElementHandle) =>
+        optionData.find((o) => o.el === el)?.label ?? '';
+
       if (target) {
         const clicked = await clickMatchingOption(
-          optionData.map(o => o.el),
+          optionData.map((o) => o.el),
           target,
           false,
           getLabelFn
@@ -677,7 +770,7 @@ export class AshbyScraper extends BaseScraper {
       }
 
       if (options.autoMode) {
-        await optionData[0].el.click().catch(() => { });
+        await optionData[0].el.click().catch(() => {});
         await this.humanDelay(true);
         return true;
       }
@@ -691,9 +784,10 @@ export class AshbyScraper extends BaseScraper {
           options: optionLabels,
         });
         if (userAnswer) {
-          const targetAnswer = filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
+          const targetAnswer =
+            filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
           const clicked = await clickMatchingOption(
-            optionData.map(o => o.el),
+            optionData.map((o) => o.el),
             targetAnswer,
             false,
             getLabelFn
@@ -717,11 +811,15 @@ export class AshbyScraper extends BaseScraper {
       ].join(', ');
       const field = await context.$(selector);
       if (!field) return false;
-      await field.click().catch(() => { });
+      await field.click().catch(() => {});
       await this.page?.waitForTimeout(200);
 
       let didFill = false;
-      const answer = pickBestOption(label, []) ?? filler.getValueForLabel(label, 'text') ?? options.profile.location ?? '';
+      const answer =
+        pickBestOption(label, []) ??
+        filler.getValueForLabel(label, 'text') ??
+        options.profile.location ??
+        '';
       const tag = await field.evaluate((el) => el.tagName.toLowerCase());
       if (tag === 'input' || tag === 'textarea') {
         if (answer) {
@@ -736,8 +834,8 @@ export class AshbyScraper extends BaseScraper {
       // Fallback: keyboard select first option if list exists but options not matched.
       const listbox = await context.$('[role="listbox"]');
       if (this.page && listbox) {
-        await this.page.keyboard.press('ArrowDown').catch(() => { });
-        await this.page.keyboard.press('Enter').catch(() => { });
+        await this.page.keyboard.press('ArrowDown').catch(() => {});
+        await this.page.keyboard.press('Enter').catch(() => {});
         await this.humanDelay(true);
         return true;
       }
@@ -756,13 +854,13 @@ export class AshbyScraper extends BaseScraper {
           if (keywordFilled) continue;
           const combobox = await findComboboxByLabel(label);
           if (combobox) {
-            await combobox.click().catch(() => { });
+            await combobox.click().catch(() => {});
             await this.page?.waitForTimeout(200);
             const picked = await selectFromOpenList(label, options.autoMode);
             if (picked) continue;
             if (options.autoMode && this.page) {
-              await this.page.keyboard.press('ArrowDown').catch(() => { });
-              await this.page.keyboard.press('Enter').catch(() => { });
+              await this.page.keyboard.press('ArrowDown').catch(() => {});
+              await this.page.keyboard.press('Enter').catch(() => {});
               await this.humanDelay(true);
               continue;
             }
@@ -793,13 +891,19 @@ export class AshbyScraper extends BaseScraper {
 
         let container = labelEl
           ? await labelEl.evaluateHandle((el) => {
-            const element = el as HTMLElement;
-            return element.closest('.ashby-application-form-field, [data-testid*="field"], [data-testid*="question"], fieldset') || element.parentElement;
-          })
+              const element = el as HTMLElement;
+              return (
+                element.closest(
+                  '.ashby-application-form-field, [data-testid*="field"], [data-testid*="question"], fieldset'
+                ) || element.parentElement
+              );
+            })
           : null;
 
         if (!container) {
-          const containers = await context.$$('.ashby-application-form-field, [data-testid*="field"], [data-testid*="question"], fieldset');
+          const containers = await context.$$(
+            '.ashby-application-form-field, [data-testid*="field"], [data-testid*="question"], fieldset'
+          );
           for (const candidate of containers) {
             const text = (await candidate.textContent()) ?? '';
             const normalized = normalize(text);
@@ -812,13 +916,18 @@ export class AshbyScraper extends BaseScraper {
 
         if (!container) {
           if (/location/i.test(label)) {
-            const fallbackField = await context.$('[name*="location" i], [id*="location" i], [aria-label*="location" i], [placeholder*="location" i]');
+            const fallbackField = await context.$(
+              '[name*="location" i], [id*="location" i], [aria-label*="location" i], [placeholder*="location" i]'
+            );
             if (fallbackField) {
-              const answer = filler.getValueForLabel(label, 'text') ?? options.profile.location ?? '';
+              const answer =
+                filler.getValueForLabel(label, 'text') ?? options.profile.location ?? '';
               if (answer) {
-                await fallbackField.fill(answer).catch(() => { });
+                await fallbackField.fill(answer).catch(() => {});
                 await this.humanDelay(true);
-                const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
+                const optionElements = await context.$$(
+                  'li[role="option"], [role="option"], [data-testid*="option"]'
+                );
                 if (optionElements.length > 0) {
                   const optionTexts: string[] = [];
                   for (const opt of optionElements) {
@@ -830,26 +939,30 @@ export class AshbyScraper extends BaseScraper {
                     for (const opt of optionElements) {
                       const t = await opt.textContent();
                       if (t?.trim().toLowerCase() === target.toLowerCase()) {
-                        await opt.click().catch(() => { });
+                        await opt.click().catch(() => {});
                         await this.humanDelay(true);
                         break;
                       }
                     }
                   } else if (options.autoMode) {
-                    await optionElements[0].click().catch(() => { });
+                    await optionElements[0].click().catch(() => {});
                     await this.humanDelay(true);
                   }
                 }
               }
             }
           } else if (/office/i.test(label)) {
-            const fallbackField = await context.$('[name*="office" i], [id*="office" i], [aria-label*="office" i], [placeholder*="office" i]');
+            const fallbackField = await context.$(
+              '[name*="office" i], [id*="office" i], [aria-label*="office" i], [placeholder*="office" i]'
+            );
             if (fallbackField) {
-              await fallbackField.click().catch(() => { });
+              await fallbackField.click().catch(() => {});
               await this.page?.waitForTimeout(300);
-              const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
+              const optionElements = await context.$$(
+                'li[role="option"], [role="option"], [data-testid*="option"]'
+              );
               if (optionElements.length > 0) {
-                await optionElements[0].click().catch(() => { });
+                await optionElements[0].click().catch(() => {});
                 await this.humanDelay(true);
               }
             }
@@ -863,10 +976,16 @@ export class AshbyScraper extends BaseScraper {
           const safeForId = forId ? forId.replace(/"/g, '\\"') : null;
           fieldEl = safeForId ? await context.$(`[id="${safeForId}"]`) : null;
           if (!fieldEl) {
-            fieldEl = await labelEl.evaluateHandle((el) => {
-              const parent = el.parentElement;
-              return parent?.querySelector('input, textarea, select, [role="combobox"], [aria-haspopup="listbox"], [role="radiogroup"]') || null;
-            }).then((h) => h.asElement());
+            fieldEl = await labelEl
+              .evaluateHandle((el) => {
+                const parent = el.parentElement;
+                return (
+                  parent?.querySelector(
+                    'input, textarea, select, [role="combobox"], [aria-haspopup="listbox"], [role="radiogroup"]'
+                  ) || null
+                );
+              })
+              .then((h) => h.asElement());
           }
         }
         if (!fieldEl) {
@@ -883,11 +1002,15 @@ export class AshbyScraper extends BaseScraper {
           const currentVal = await fieldEl.inputValue().catch(() => '');
           if (!currentVal) {
             const defaultAnswer = filler.getValueForLabel(label, 'text');
-            const answer = defaultAnswer ?? (await this.getAIAnswer(options.profile, options.jobData, label, { type: 'text' }));
+            const answer =
+              defaultAnswer ??
+              (await this.getAIAnswer(options.profile, options.jobData, label, { type: 'text' }));
             if (answer) {
               await fieldEl.fill(answer);
               await this.humanDelay(true);
-              const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
+              const optionElements = await context.$$(
+                'li[role="option"], [role="option"], [data-testid*="option"]'
+              );
               if (optionElements.length > 0) {
                 const optionTexts: string[] = [];
                 for (const opt of optionElements) {
@@ -899,13 +1022,13 @@ export class AshbyScraper extends BaseScraper {
                   for (const opt of optionElements) {
                     const t = await opt.textContent();
                     if (t?.trim().toLowerCase() === target.toLowerCase()) {
-                      await opt.click().catch(() => { });
+                      await opt.click().catch(() => {});
                       await this.humanDelay(true);
                       break;
                     }
                   }
                 } else if (options.autoMode) {
-                  await optionElements[0].click().catch(() => { });
+                  await optionElements[0].click().catch(() => {});
                   await this.humanDelay(true);
                 }
               }
@@ -923,9 +1046,11 @@ export class AshbyScraper extends BaseScraper {
             }
           }
         } else if (tag === 'select' || role === 'combobox') {
-          await fieldEl.click().catch(() => { });
+          await fieldEl.click().catch(() => {});
           await this.page?.waitForTimeout(300);
-          const optionElements = await context.$$('li[role="option"], [role="option"], [data-testid*="option"]');
+          const optionElements = await context.$$(
+            'li[role="option"], [role="option"], [data-testid*="option"]'
+          );
           const optionTexts: string[] = [];
           for (const opt of optionElements) {
             const t = await opt.textContent();
@@ -933,24 +1058,29 @@ export class AshbyScraper extends BaseScraper {
           }
           if (optionTexts.length > 0) {
             const defaultAnswer = filler.getValueForLabel(label, 'select', optionTexts);
-            const answer = defaultAnswer ?? (await this.getAIAnswer(options.profile, options.jobData, label, { type: 'select', choices: optionTexts }));
+            const answer =
+              defaultAnswer ??
+              (await this.getAIAnswer(options.profile, options.jobData, label, {
+                type: 'select',
+                choices: optionTexts,
+              }));
             const target = answer ? filler.findBestMatchingOption(answer, optionTexts) : null;
             if (target) {
               let clicked = false;
               for (const opt of optionElements) {
                 const t = await opt.textContent();
                 if (t?.trim().toLowerCase() === target.toLowerCase()) {
-                  await opt.click().catch(() => { });
+                  await opt.click().catch(() => {});
                   clicked = true;
                   break;
                 }
               }
               if (!clicked) {
-                await optionElements[0].click().catch(() => { });
+                await optionElements[0].click().catch(() => {});
               }
               await this.humanDelay(true);
             } else if (options.autoMode) {
-              await optionElements[0].click().catch(() => { });
+              await optionElements[0].click().catch(() => {});
               await this.humanDelay(true);
             } else if (filler.isInteractive()) {
               const userAnswer = await filler.promptForField({
@@ -961,11 +1091,12 @@ export class AshbyScraper extends BaseScraper {
                 options: optionTexts,
               });
               if (userAnswer) {
-                const targetAnswer = filler.findBestMatchingOption(userAnswer, optionTexts) ?? userAnswer;
+                const targetAnswer =
+                  filler.findBestMatchingOption(userAnswer, optionTexts) ?? userAnswer;
                 for (const opt of optionElements) {
                   const t = await opt.textContent();
                   if (t?.trim().toLowerCase() === targetAnswer.toLowerCase()) {
-                    await opt.click().catch(() => { });
+                    await opt.click().catch(() => {});
                     await this.humanDelay(true);
                     break;
                   }
@@ -975,7 +1106,9 @@ export class AshbyScraper extends BaseScraper {
           }
         }
 
-        const radioOptions = await (container.asElement() ?? context).$$('input[type="radio"], [role="radio"], button');
+        const radioOptions = await (container.asElement() ?? context).$$(
+          'input[type="radio"], [role="radio"], button'
+        );
         if (radioOptions.length > 0) {
           const optionData: { el: import('playwright').ElementHandle; label: string }[] = [];
           for (const opt of radioOptions) {
@@ -985,18 +1118,23 @@ export class AshbyScraper extends BaseScraper {
           const optionLabels = optionData.map((o) => o.label);
           if (optionLabels.length > 0) {
             const defaultAnswer = filler.getValueForLabel(label, 'radio', optionLabels);
-            const answer = defaultAnswer ?? (await this.getAIAnswer(options.profile, options.jobData, label, { type: 'radio', choices: optionLabels }));
+            const answer =
+              defaultAnswer ??
+              (await this.getAIAnswer(options.profile, options.jobData, label, {
+                type: 'radio',
+                choices: optionLabels,
+              }));
             const target = answer ? filler.findBestMatchingOption(answer, optionLabels) : null;
             if (target) {
               for (const opt of optionData) {
                 if (opt.label.toLowerCase() === target.toLowerCase()) {
-                  await opt.el.click().catch(() => { });
+                  await opt.el.click().catch(() => {});
                   await this.humanDelay(true);
                   break;
                 }
               }
             } else if (options.autoMode) {
-              await optionData[0].el.click().catch(() => { });
+              await optionData[0].el.click().catch(() => {});
               await this.humanDelay(true);
             } else if (filler.isInteractive()) {
               const userAnswer = await filler.promptForField({
@@ -1007,10 +1145,11 @@ export class AshbyScraper extends BaseScraper {
                 options: optionLabels,
               });
               if (userAnswer) {
-                const targetAnswer = filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
+                const targetAnswer =
+                  filler.findBestMatchingOption(userAnswer, optionLabels) ?? userAnswer;
                 for (const opt of optionData) {
                   if (opt.label.toLowerCase() === targetAnswer.toLowerCase()) {
-                    await opt.el.click().catch(() => { });
+                    await opt.el.click().catch(() => {});
                     await this.humanDelay(true);
                     break;
                   }
@@ -1020,7 +1159,9 @@ export class AshbyScraper extends BaseScraper {
           }
         }
       } catch (err) {
-        errors.push(`Ashby missing-label fill failed for "${label}": ${err instanceof Error ? err.message : 'Unknown error'}`);
+        errors.push(
+          `Ashby missing-label fill failed for "${label}": ${err instanceof Error ? err.message : 'Unknown error'}`
+        );
       }
     }
   }
@@ -1078,9 +1219,7 @@ export class AshbyScraper extends BaseScraper {
   }
 
   private formatCompanyName(name: string): string {
-    return name
-      .replace(/-/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   private async extractAshbyFormFields(
@@ -1090,9 +1229,12 @@ export class AshbyScraper extends BaseScraper {
     const inputs = await context.$$('input:not([type="hidden"]):not([type="submit"])');
     for (const input of inputs) {
       const name = (await input.getAttribute('name')) ?? '';
-      const type = ((await input.getAttribute('type')) ?? 'text') as JobData['form_fields'][number]['type'];
+      const type = ((await input.getAttribute('type')) ??
+        'text') as JobData['form_fields'][number]['type'];
       const label = await this.findLabelForInputInContext(context, input);
-      const required = (await input.getAttribute('required')) !== null || (await input.getAttribute('aria-required')) === 'true';
+      const required =
+        (await input.getAttribute('required')) !== null ||
+        (await input.getAttribute('aria-required')) === 'true';
       if (name || label) {
         fields.push({ name, type, label, required });
       }
@@ -1101,7 +1243,9 @@ export class AshbyScraper extends BaseScraper {
     for (const textarea of textareas) {
       const name = (await textarea.getAttribute('name')) ?? '';
       const label = await this.findLabelForInputInContext(context, textarea);
-      const required = (await textarea.getAttribute('required')) !== null || (await textarea.getAttribute('aria-required')) === 'true';
+      const required =
+        (await textarea.getAttribute('required')) !== null ||
+        (await textarea.getAttribute('aria-required')) === 'true';
       if (name || label) {
         fields.push({ name, type: 'textarea', label, required });
       }
@@ -1110,7 +1254,9 @@ export class AshbyScraper extends BaseScraper {
     for (const select of selects) {
       const name = (await select.getAttribute('name')) ?? '';
       const label = await this.findLabelForInputInContext(context, select);
-      const required = (await select.getAttribute('required')) !== null || (await select.getAttribute('aria-required')) === 'true';
+      const required =
+        (await select.getAttribute('required')) !== null ||
+        (await select.getAttribute('aria-required')) === 'true';
       const options = await select.$$eval('option', (opts) =>
         opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
       );
@@ -1126,7 +1272,9 @@ export class AshbyScraper extends BaseScraper {
     input: unknown
   ): Promise<string> {
     try {
-      const id = await (input as { getAttribute: (attr: string) => Promise<string | null> }).getAttribute('id');
+      const id = await (
+        input as { getAttribute: (attr: string) => Promise<string | null> }
+      ).getAttribute('id');
       if (id) {
         const label = await context.$(`label[for="${id}"]`);
         if (label) {
@@ -1141,10 +1289,14 @@ export class AshbyScraper extends BaseScraper {
       });
       if (parentLabel) return parentLabel;
 
-      const ariaLabel = await (input as { getAttribute: (attr: string) => Promise<string | null> }).getAttribute('aria-label');
+      const ariaLabel = await (
+        input as { getAttribute: (attr: string) => Promise<string | null> }
+      ).getAttribute('aria-label');
       if (ariaLabel) return ariaLabel;
 
-      const placeholder = await (input as { getAttribute: (attr: string) => Promise<string | null> }).getAttribute('placeholder');
+      const placeholder = await (
+        input as { getAttribute: (attr: string) => Promise<string | null> }
+      ).getAttribute('placeholder');
       if (placeholder) return placeholder;
     } catch {
       // fall through
@@ -1167,10 +1319,12 @@ export class AshbyScraper extends BaseScraper {
 
     for (let i = 0; i < customFields.length; i++) {
       const field = customFields[i];
-      const questionText = await field.$eval(
-        'label, [class*="label"], [data-testid*="label"]',
-        (el) => el.textContent?.trim() ?? ''
-      ).catch(() => '');
+      const questionText = await field
+        .$eval(
+          'label, [class*="label"], [data-testid*="label"]',
+          (el) => el.textContent?.trim() ?? ''
+        )
+        .catch(() => '');
 
       if (!questionText) continue;
 
@@ -1187,37 +1341,51 @@ export class AshbyScraper extends BaseScraper {
         type = 'textarea';
       } else if (hasSelect) {
         type = 'select';
-        options = await field.$$eval('select option', (opts) =>
-          opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
-        ).catch(() => []);
+        options = await field
+          .$$eval('select option', (opts) =>
+            opts.map((o) => o.textContent?.trim() ?? '').filter(Boolean)
+          )
+          .catch(() => []);
       } else if (hasRadio) {
         type = 'radio';
-        options = await field.$$eval('input[type="radio"]', (inputs) =>
-          inputs.map((inp) => {
-            const id = inp.getAttribute('id');
-            if (id) {
-              const label = document.querySelector(`label[for="${id}"]`);
-              if (label?.textContent?.trim()) return label.textContent.trim();
-            }
-            const parentLabel = inp.closest('label');
-            if (parentLabel?.textContent?.trim()) return parentLabel.textContent.trim();
-            return inp.getAttribute('aria-label')?.trim() || inp.getAttribute('value')?.trim() || '';
-          }).filter(Boolean)
-        ).catch(() => []);
+        options = await field
+          .$$eval('input[type="radio"]', (inputs) =>
+            inputs
+              .map((inp) => {
+                const id = inp.getAttribute('id');
+                if (id) {
+                  const label = document.querySelector(`label[for="${id}"]`);
+                  if (label?.textContent?.trim()) return label.textContent.trim();
+                }
+                const parentLabel = inp.closest('label');
+                if (parentLabel?.textContent?.trim()) return parentLabel.textContent.trim();
+                return (
+                  inp.getAttribute('aria-label')?.trim() || inp.getAttribute('value')?.trim() || ''
+                );
+              })
+              .filter(Boolean)
+          )
+          .catch(() => []);
       } else if (hasCheckbox) {
         type = 'checkbox';
-        options = await field.$$eval('input[type="checkbox"]', (inputs) =>
-          inputs.map((inp) => {
-            const id = inp.getAttribute('id');
-            if (id) {
-              const label = document.querySelector(`label[for="${id}"]`);
-              if (label?.textContent?.trim()) return label.textContent.trim();
-            }
-            const parentLabel = inp.closest('label');
-            if (parentLabel?.textContent?.trim()) return parentLabel.textContent.trim();
-            return inp.getAttribute('aria-label')?.trim() || inp.getAttribute('value')?.trim() || '';
-          }).filter(Boolean)
-        ).catch(() => []);
+        options = await field
+          .$$eval('input[type="checkbox"]', (inputs) =>
+            inputs
+              .map((inp) => {
+                const id = inp.getAttribute('id');
+                if (id) {
+                  const label = document.querySelector(`label[for="${id}"]`);
+                  if (label?.textContent?.trim()) return label.textContent.trim();
+                }
+                const parentLabel = inp.closest('label');
+                if (parentLabel?.textContent?.trim()) return parentLabel.textContent.trim();
+                return (
+                  inp.getAttribute('aria-label')?.trim() || inp.getAttribute('value')?.trim() || ''
+                );
+              })
+              .filter(Boolean)
+          )
+          .catch(() => []);
       }
 
       const required = (await field.$('[required], [aria-required="true"]')) !== null;

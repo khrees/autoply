@@ -69,13 +69,13 @@ export const FillReportCard = ({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-emerald-400" />
-          <span className="text-sm font-semibold text-[var(--text-primary)]">
+          <span className="text-sm font-semibold text-(--text-primary)">
             {report.filled.length} field{report.filled.length !== 1 ? 's' : ''} filled
           </span>
         </div>
         <button
           onClick={onDismiss}
-          className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]"
+          className="p-1 rounded hover:bg-(--bg-tertiary) text-(--text-tertiary)"
           aria-label="Dismiss"
         >
           <X className="w-3.5 h-3.5" />
@@ -109,7 +109,7 @@ export const FillReportCard = ({
 
       {editingKey && (
         <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3 space-y-2">
-          <p className="text-xs text-[var(--text-tertiary)]">
+          <p className="text-xs text-(--text-tertiary)">
             Correct{' '}
             <span className="text-blue-300 font-medium">
               {FILL_DISPLAY_NAMES[editingKey] || editingKey}
@@ -173,7 +173,7 @@ export const FillReportCard = ({
       )}
 
       {report.skipped > 0 && (
-        <p className="text-xs text-[var(--text-tertiary)]">
+        <p className="text-xs text-(--text-tertiary)">
           {report.skipped} field{report.skipped !== 1 ? 's' : ''} may need manual review
         </p>
       )}

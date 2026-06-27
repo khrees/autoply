@@ -41,10 +41,10 @@ export const StatCard = ({
 }) => (
   <div className="card p-4 flex flex-col gap-1">
     <span className="stat-label">{label}</span>
-    <span className="stat-value text-[var(--text-primary)]">
+    <span className="stat-value text-(--text-primary)">
       {value}
       {suffix && (
-        <span className="text-sm font-normal text-[var(--text-tertiary)] ml-0.5">{suffix}</span>
+        <span className="text-sm font-normal text-(--text-tertiary) ml-0.5">{suffix}</span>
       )}
     </span>
   </div>

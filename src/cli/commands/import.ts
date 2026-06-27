@@ -37,7 +37,9 @@ export const importCommand = new Command('import')
       process.exit(1);
     }
 
-    logger.success(`Extracted ${result.content ? result.content.length : 0} characters from ${result.fileType} file`);
+    logger.success(
+      `Extracted ${result.content ? result.content.length : 0} characters from ${result.fileType} file`
+    );
     logger.newline();
 
     // Show preview

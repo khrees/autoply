@@ -63,8 +63,15 @@ async function resolveApiKey(provider: AIProviderType): Promise<string | null> {
   return null;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const modelCache = new Map<string, any>();
+
 async function createModel(config: AIConfigExtended) {
   const modelId = config.model || MODEL_DEFAULTS[config.provider];
+  const cacheKey = `${config.provider}:${modelId}:${config.baseUrl ?? ''}`;
+
+  const cached = modelCache.get(cacheKey);
+  if (cached) return cached;
 
   // Resolve API key from secure storage (priority: env > keychain > config)
   const apiKey = await resolveApiKey(config.provider);
@@ -79,27 +86,33 @@ async function createModel(config: AIConfigExtended) {
   switch (config.provider) {
     case 'openai': {
       const openai = createOpenAI({
-        apiKey: apiKey!,
+        apiKey: apiKey ?? '',
         headers: {
           'OpenAI-Beta': 'prompt-caching=v1',
         },
       });
-      return openai(modelId);
+      const openaiModel = openai(modelId);
+      modelCache.set(cacheKey, openaiModel);
+      return openaiModel;
     }
     case 'anthropic': {
       const anthropic = createAnthropic({
-        apiKey: apiKey!,
+        apiKey: apiKey ?? '',
         headers: {
           'anthropic-beta': 'prompt-caching-2024-07-31',
         },
       });
-      return anthropic(modelId);
+      const anthropicModel = anthropic(modelId);
+      modelCache.set(cacheKey, anthropicModel);
+      return anthropicModel;
     }
     case 'google': {
       const google = createGoogleGenerativeAI({
-        apiKey: apiKey!,
+        apiKey: apiKey ?? '',
       });
-      return google(modelId);
+      const googleModel = google(modelId);
+      modelCache.set(cacheKey, googleModel);
+      return googleModel;
     }
     case 'ollama': {
       // Ollama uses OpenAI-compatible API
@@ -111,7 +124,9 @@ async function createModel(config: AIConfigExtended) {
         baseURL: baseUrl,
         apiKey: 'ollama',
       });
-      return ollama(modelId);
+      const ollamaModel = ollama(modelId);
+      modelCache.set(cacheKey, ollamaModel);
+      return ollamaModel;
     }
     case 'lmstudio': {
       // LMStudio uses OpenAI-compatible API
@@ -123,7 +138,9 @@ async function createModel(config: AIConfigExtended) {
         baseURL: lmBaseUrl,
         apiKey: 'lmstudio',
       });
-      return lmstudio(modelId);
+      const lmModel = lmstudio(modelId);
+      modelCache.set(cacheKey, lmModel);
+      return lmModel;
     }
     default:
       throw new Error(`Unknown AI provider: ${config.provider}`);
@@ -173,10 +190,14 @@ class UnifiedAIProvider implements AIProvider {
             maxTimeout: 15000,
             operationName: `AI generateText (${this.name})`,
             onRetry: (error, attempt) => {
-              logger.warn(`AI call retry ${attempt}/3: ${error.message}`, {
-                provider: this.name,
-                attempt,
-              }, 'ai');
+              logger.warn(
+                `AI call retry ${attempt}/3: ${error.message}`,
+                {
+                  provider: this.name,
+                  attempt,
+                },
+                'ai'
+              );
             },
           }
         );

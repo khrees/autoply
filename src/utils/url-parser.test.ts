@@ -9,9 +9,7 @@ describe('normalizeUrl', () => {
   });
 
   test('strips fragment', () => {
-    expect(normalizeUrl('https://example.com/job#apply')).toBe(
-      'https://example.com/job'
-    );
+    expect(normalizeUrl('https://example.com/job#apply')).toBe('https://example.com/job');
   });
 
   test('strips utm params but keeps job params', () => {
@@ -21,15 +19,13 @@ describe('normalizeUrl', () => {
   });
 
   test('strips multiple tracking params', () => {
-    expect(
-      normalizeUrl('https://example.com/job?fbclid=abc&gclid=def&ref=twitter&id=42')
-    ).toBe('https://example.com/job?id=42');
+    expect(normalizeUrl('https://example.com/job?fbclid=abc&gclid=def&ref=twitter&id=42')).toBe(
+      'https://example.com/job?id=42'
+    );
   });
 
   test('sorts query params', () => {
-    expect(normalizeUrl('https://example.com/job?b=2&a=1')).toBe(
-      'https://example.com/job?a=1&b=2'
-    );
+    expect(normalizeUrl('https://example.com/job?b=2&a=1')).toBe('https://example.com/job?a=1&b=2');
   });
 
   test('returns original on invalid URL', () => {

@@ -71,63 +71,10 @@ interface Profile {
   address?: string;
   city?: string;
   postcode?: string;
-  zip?: string;
   country?: string;
   state?: string;
   headline?: string;
-  linkedinUrl?: string;
 }
-
-const SEMANTIC_SELECTORS: Record<string, string[]> = {
-  firstName: [
-    '[autocomplete="given-name"]',
-    '[name*="first" i]',
-    '[id*="first" i]',
-    '[data-first-name]',
-    '[data-testid*="first"]',
-  ],
-  lastName: [
-    '[autocomplete="family-name"]',
-    '[name*="last" i]',
-    '[id*="last" i]',
-    '[name*="surname" i]',
-    '[data-last-name]',
-  ],
-  fullName: ['[autocomplete="name"]', '[name="name"]', '[id="name"]', '[name*="full-name" i]'],
-  email: ['[autocomplete="email"]', '[type="email"]', '[name*="email" i]', '[id*="email" i]'],
-  phone: [
-    '[autocomplete="tel"]',
-    '[type="tel"]',
-    '[name*="phone" i]',
-    '[name*="mobile" i]',
-    '[id*="phone" i]',
-  ],
-  linkedin: [
-    '[autocomplete="url"]',
-    '[name*="linkedin" i]',
-    '[id*="linkedin" i]',
-    '[placeholder*="linkedin" i]',
-    '[aria-label*="linkedin" i]',
-  ],
-  github: [
-    '[name*="github" i]',
-    '[id*="github" i]',
-    '[placeholder*="github" i]',
-    '[aria-label*="github" i]',
-  ],
-  portfolio: [
-    '[name*="portfolio" i]',
-    '[name*="website" i]',
-    '[name*="personal" i]',
-    '[placeholder*="portfolio" i]',
-  ],
-  location: [
-    '[autocomplete="address-level2"]',
-    '[name*="city" i]',
-    '[name*="location" i]',
-    '[id*="city" i]',
-  ],
-};
 
 const HUMAN_ONLY_PATTERNS = [
   /gender|sex/i,
@@ -158,13 +105,10 @@ function isFormElement(el: Element): boolean {
 
 function isVisible(el: Element): boolean {
   const style = window.getComputedStyle(el);
-  return (
-    style.display !== 'none' &&
-    style.visibility !== 'hidden' &&
-    style.opacity !== '0' &&
-    (el as HTMLElement).getBoundingClientRect().width > 0 &&
-    (el as HTMLElement).getBoundingClientRect().height > 0
-  );
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')
+    return false;
+  const rect = (el as HTMLElement).getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
 }
 
 function getFieldLabel(el: Element): string {
@@ -245,13 +189,8 @@ async function fillTextInput(el: Element, value: string): Promise<boolean> {
     }
 
     input.focus();
-    await sleep(50);
-
-    // Clear existing value using keyboard shortcut
+    await humanJitter(20, 80); // brief pause after focus — mimics human reading the field
     input.select?.();
-    await sleep(50);
-
-    // Set new value using native setter (works for React controlled components)
     setNativeInputValue(input, value);
 
     return true;
@@ -267,51 +206,74 @@ function isCustomDropdown(el: HTMLElement): boolean {
   return parent !== null;
 }
 
+// Small random delay to mimic human reaction time and avoid bot-detection heuristics.
+// Kept short (30–120ms) so it doesn't noticeably slow fills but breaks timing fingerprints.
+function humanJitter(minMs = 30, maxMs = 120): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, minMs + Math.random() * (maxMs - minMs)));
+}
+
+function waitForElement(selector: string, timeoutMs = 400): Promise<Element | null> {
+  return new Promise((resolve) => {
+    const existing = document.querySelector(selector);
+    if (existing) return resolve(existing);
+
+    const observer = new MutationObserver(() => {
+      const el = document.querySelector(selector);
+      if (el) {
+        observer.disconnect();
+        resolve(el);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => {
+      observer.disconnect();
+      resolve(null);
+    }, timeoutMs);
+  });
+}
+
 async function fillCustomDropdown(el: HTMLElement, value: string): Promise<boolean> {
   try {
-    // Click the trigger
     el.click();
-    await sleep(300);
 
-    // Find options in various dropdown patterns
-    const optionSelectors = [
-      '[role="option"]',
-      '[role="listbox"] [role="option"]',
-      '[class*="option"]',
-      '[class*="menu"] li',
-      'ul[role="listbox"] li',
-    ];
+    // Wait for options to appear rather than sleeping a fixed time
+    const optionEl = await waitForElement(
+      '[role="option"], [role="listbox"] li, [class*="option"], [class*="menu"] li, ul[role="listbox"] li'
+    );
 
-    for (const selector of optionSelectors) {
-      const options = Array.from(Array.from(document.querySelectorAll(selector)));
-      for (const option of options) {
+    if (optionEl) {
+      const allOptions = Array.from(
+        document.querySelectorAll(
+          '[role="option"], [role="listbox"] li, [class*="option"], [class*="menu"] li, ul[role="listbox"] li'
+        )
+      );
+      const lv = value.toLowerCase();
+      for (const option of allOptions) {
         const text = option.textContent?.toLowerCase() || '';
-        if (text.includes(value.toLowerCase()) || value.toLowerCase().includes(text)) {
+        if (text.includes(lv) || lv.includes(text)) {
+          await humanJitter(60, 180); // pause before selecting — mimics scanning the list
           (option as HTMLElement).click();
           return true;
         }
       }
     }
 
-    // Try typing to filter
+    // Fallback: type to filter via combobox input
     const combobox = document.querySelector(
       '[role="combobox"], input[class*="select"]'
-    ) as HTMLInputElement;
+    ) as HTMLInputElement | null;
     if (combobox) {
       combobox.value = value;
       combobox.dispatchEvent(new InputEvent('input', { bubbles: true }));
-      await sleep(200);
 
-      const firstOption = document.querySelector('[role="option"]') as HTMLElement;
+      const firstOption = await waitForElement('[role="option"]');
       if (firstOption) {
-        firstOption.click();
+        (firstOption as HTMLElement).click();
         return true;
       }
     }
 
-    // Close dropdown
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-
     return false;
   } catch {
     return false;
@@ -392,11 +354,6 @@ async function fillCheckbox(el: Element, value: string): Promise<boolean> {
   }
 }
 
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function findAndFillField(
   profile: Profile,
   profileKey: string,
@@ -438,40 +395,6 @@ async function findAndFillField(
   return false;
 }
 
-async function findAndFillByAutocomplete(
-  profile: Profile,
-  autocompleteValue: string
-): Promise<boolean> {
-  const profileKey = AUTOCOMPLETE_TO_PROFILE_KEY[autocompleteValue.toLowerCase()];
-  if (!profileKey) return false;
-
-  const value = profile[profileKey as keyof Profile];
-  if (!value) return false;
-
-  const selector = `[autocomplete="${autocompleteValue}"]`;
-  const elements = Array.from(document.querySelectorAll(selector));
-
-  for (const el of elements) {
-    if (!isFormElement(el)) continue;
-    if (!isVisible(el)) continue;
-
-    const label = getFieldLabel(el);
-    if (shouldSkipField(label)) continue;
-
-    const fieldType = (el as HTMLInputElement).type;
-
-    if (fieldType === 'select' || el.tagName === 'SELECT') {
-      if (await fillSelect(el, value)) return true;
-    } else if (fieldType === 'file') {
-      continue;
-    } else {
-      if (await fillTextInput(el, value)) return true;
-    }
-  }
-
-  return false;
-}
-
 async function findAndFillByLabelMatch(profile: Profile, labelText: string): Promise<boolean> {
   // Match label text to profile fields
   if (/first|given|fname/i.test(labelText)) {
@@ -502,23 +425,6 @@ async function findAndFillByLabelMatch(profile: Profile, labelText: string): Pro
   return false;
 }
 
-function findLabelAssociatedInput(labelEl: Element): Element | null {
-  const htmlEl = labelEl as HTMLElement;
-  const forAttr = htmlEl.getAttribute('for');
-  if (forAttr) {
-    const input = document.getElementById(forAttr);
-    if (input && isFormElement(input)) return input;
-  }
-
-  const input = labelEl.querySelector('input, textarea, select');
-  if (input && isFormElement(input)) return input;
-
-  const next = labelEl.nextElementSibling;
-  if (next && isFormElement(next)) return next;
-
-  return null;
-}
-
 async function uploadResumeFile(base64: string, filename: string): Promise<boolean> {
   const fileInputs = Array.from(
     document.querySelectorAll('input[type="file"]')
@@ -528,10 +434,14 @@ async function uploadResumeFile(base64: string, filename: string): Promise<boole
     if (!isVisible(input)) continue;
 
     const context = (
-      input.name + ' ' +
-      input.id + ' ' +
-      (input.getAttribute('aria-label') || '') + ' ' +
-      (input.closest('label')?.textContent || '') + ' ' +
+      input.name +
+      ' ' +
+      input.id +
+      ' ' +
+      (input.getAttribute('aria-label') || '') +
+      ' ' +
+      (input.closest('label')?.textContent || '') +
+      ' ' +
       (input.getAttribute('accept') || '')
     ).toLowerCase();
 
@@ -564,196 +474,148 @@ async function uploadResumeFile(base64: string, filename: string): Promise<boole
   return false;
 }
 
+// Classify a form element to a profile key using a single ordered lookup chain.
+// Checks: autocomplete attr → name attr → id attr → label/placeholder text.
+function classifyElement(el: Element, label: string): string | null {
+  const input = el as HTMLInputElement;
+
+  // 1. Autocomplete attribute — most reliable signal
+  const autocomplete = input.getAttribute('autocomplete');
+  if (autocomplete) {
+    const key = AUTOCOMPLETE_TO_PROFILE_KEY[autocomplete.toLowerCase()];
+    if (key) return key;
+  }
+
+  // 2. Name attribute — direct and partial match
+  const name = input.name?.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (name) {
+    for (const [nameAttr, profileKey] of Object.entries(NAME_TO_PROFILE_KEY)) {
+      const normalized = nameAttr.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (name === normalized || name.includes(normalized) || normalized.includes(name)) {
+        return profileKey;
+      }
+    }
+  }
+
+  // 3. ID attribute — same pattern
+  const id = input.id?.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (id) {
+    for (const [nameAttr, profileKey] of Object.entries(NAME_TO_PROFILE_KEY)) {
+      const normalized = nameAttr.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (id === normalized || id.includes(normalized) || normalized.includes(id)) {
+        return profileKey;
+      }
+    }
+  }
+
+  // 4. Label / placeholder / aria-label text
+  if (label) {
+    const l = label.toLowerCase();
+    if (/first|given|\bfname\b/.test(l) && !/last/.test(l)) return 'firstName';
+    if (/last|surname|family|\blname\b/.test(l)) return 'lastName';
+    if (/full[\s-]?name|your[\s-]?name/.test(l)) return 'fullName';
+    if (/\bemail\b|e-?mail/.test(l)) return 'email';
+    if (/\bphone\b|\btel\b|mobile|cell/.test(l)) return 'phone';
+    if (/linkedin/.test(l)) return 'linkedin';
+    if (/\bgithub\b/.test(l)) return 'github';
+    if (/portfolio|personal[\s-]?site|personal[\s-]?url/.test(l)) return 'portfolio';
+    if (/\bcity\b|location/.test(l)) return 'location';
+    if (/\bwebsite\b/.test(l)) return 'portfolio';
+  }
+
+  return null;
+}
+
 async function fillAllFields(profile: Profile): Promise<{ filled: string[]; errors: string[] }> {
   const filled: string[] = [];
-  const errors: string[] = [];
+  const filledKeys = new Set<string>();
 
-  // Debug: Check for shadow DOMs
-  const shadowHosts = Array.from(document.querySelectorAll('*')).filter((el) => el.shadowRoot);
-  if (shadowHosts.length > 0) {
-    debugLog('Autoply: Shadow DOMs found:', shadowHosts.map((el) => el.tagName).join(', '));
-  }
-
-  // Debug: Check for iframes
-  const allIframes = Array.from(document.querySelectorAll('iframe'));
-  debugLog('Autoply: iframes on page:', allIframes.length);
-
-  // Step 1: Fill using autocomplete attribute (fastest, most reliable)
-  for (const autocompleteValue of Object.keys(AUTOCOMPLETE_TO_PROFILE_KEY)) {
-    const profileKey = AUTOCOMPLETE_TO_PROFILE_KEY[autocompleteValue];
-    const value = profile[profileKey as keyof Profile];
-
-    if (value) {
-      const success = await findAndFillByAutocomplete(profile, autocompleteValue);
-      if (success) {
-        filled.push(profileKey);
-      }
-    }
-  }
-
-  // Step 2: Fill using semantic selectors
-  for (const [profileKey, selectors] of Object.entries(SEMANTIC_SELECTORS)) {
-    if (filled.includes(profileKey)) continue;
-
-    const value = profile[profileKey as keyof Profile];
-    if (!value) continue;
-
-    const success = await findAndFillField(profile, profileKey, selectors);
-    if (success) {
-      filled.push(profileKey);
-    }
-  }
-
-  // Step 2.5: Fill by name attribute (handles Workable: firstname, lastname, etc.)
-  // Debug: log all inputs on page
-  debugLog(
-    'Autoply: All inputs on page:',
-    Array.from(document.querySelectorAll('input, select, textarea')).map((el) => ({
-      name: (el as HTMLElement).getAttribute('name'),
-      type: (el as HTMLInputElement).type,
-      id: (el as HTMLElement).id,
-      tag: el.tagName,
-    }))
+  // Single DOM query — eliminates the previous 3–4 separate querySelectorAll passes.
+  const allInputs = Array.from(
+    document.querySelectorAll<Element>(
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), select, textarea'
+    )
   );
 
-  // Try each name attribute with fast retry
-  for (const [nameAttr, profileKey] of Object.entries(NAME_TO_PROFILE_KEY)) {
+  for (const el of allInputs) {
+    if (!isVisible(el)) continue;
+
+    const label = getFieldLabel(el);
+    if (shouldSkipField(label)) continue;
+
+    const profileKey = classifyElement(el, label);
+    if (!profileKey || filledKeys.has(profileKey)) continue;
+
     const value = profile[profileKey as keyof Profile];
     if (!value) continue;
-    if (filled.includes(profileKey)) continue;
 
-    const selector = `[name="${nameAttr}"]`;
+    const fieldType = (el as HTMLInputElement).type;
+    let success = false;
 
-    // Quick check - no retry for speed
-    const elements = Array.from(document.querySelectorAll(selector));
-
-    if (elements.length === 0) {
-      debugLog(`Autoply: No element found for [name="${nameAttr}"]`);
-      continue;
+    if (fieldType === 'select' || el.tagName === 'SELECT') {
+      success = await fillSelect(el, value);
+    } else if (fieldType === 'radio') {
+      success = await fillRadio(el, value);
+    } else if (fieldType === 'checkbox') {
+      success = await fillCheckbox(el, value);
+    } else if (fieldType !== 'file') {
+      success = await fillTextInput(el, value);
     }
 
-    for (const el of elements) {
-      if (!isFormElement(el)) continue;
-
-      const label = getFieldLabel(el);
-      if (shouldSkipField(label)) continue;
-
-      const fieldType = (el as HTMLInputElement).type;
-      debugLog(
-        `Autoply: Found [name="${nameAttr}"], type=${fieldType}, trying to fill with "${value}"`
-      );
-
-      if (fieldType === 'select' || el.tagName === 'SELECT') {
-        if (await fillSelect(el, value)) {
-          debugLog(`Autoply: SUCCESS filled [name="${nameAttr}"]`);
-          filled.push(profileKey);
-          break;
-        }
-      } else if (fieldType !== 'file') {
-        if (await fillTextInput(el, value)) {
-          // Verify value was set
-          const input = el as HTMLInputElement;
-          if (input.value === value || input.value.includes(value)) {
-            debugLog(`Autoply: SUCCESS filled [name="${nameAttr}"] = "${input.value}"`);
-            filled.push(profileKey);
-            break;
-          } else {
-            debugLog(
-              `Autoply: Fill appeared to work but value is "${input.value}" not "${value}"`
-            );
-          }
-        }
-      }
+    if (success) {
+      filledKeys.add(profileKey);
+      filled.push(profileKey);
+      debugLog(`Autoply: filled ${profileKey} = "${value}"`);
+      await humanJitter(80, 250); // inter-field delay — breaks robotic fill timing fingerprint
     }
   }
 
-  // Step 3: Fill by scanning all labels
-  const labels = Array.from(document.querySelectorAll('label'));
-  for (const label of labels) {
-    const text = label.textContent?.trim() || '';
-    if (!text) continue;
-    if (shouldSkipField(text)) continue;
-
-    const input = findLabelAssociatedInput(label);
-    if (!input || !isFormElement(input)) continue;
-    if (!isVisible(input)) continue;
-
-    const filledAny = await findAndFillByLabelMatch(profile, text);
-    if (filledAny) {
-      // Add to filled if not already
-      const profileKey = label.textContent.toLowerCase();
-      if (/first/i.test(profileKey) && !filled.includes('firstName')) filled.push('firstName');
-      else if (/last|surname/i.test(profileKey) && !filled.includes('lastName'))
-        filled.push('lastName');
-      else if (/email/i.test(profileKey) && !filled.includes('email')) filled.push('email');
-      else if (/phone/i.test(profileKey) && !filled.includes('phone')) filled.push('phone');
-      else if (/linkedin/i.test(profileKey) && !filled.includes('linkedin'))
-        filled.push('linkedin');
-      else if (/github/i.test(profileKey) && !filled.includes('github')) filled.push('github');
-    }
-  }
-
-  // Step 4: Handle file uploads (resume upload requires server-side delivery — not yet implemented)
-
-  // Step 5: Fill inside iframes (Ashby and other platforms)
+  // Fill inside iframes (Ashby and other platforms that embed forms)
   const iframes = Array.from(document.querySelectorAll('iframe'));
-  debugLog('Autoply: Trying to fill iframes, count:', iframes.length);
-
   for (const iframe of iframes) {
     try {
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!iframeDoc) {
-        debugLog('Autoply: Cannot access iframe doc:', iframe.src);
-        continue;
-      }
+      if (!iframeDoc) continue;
 
-      debugLog('Autoply: Accessing iframe, searching for inputs...');
       const iframeInputs = Array.from(
-        iframeDoc.querySelectorAll('input[name]')
-      ) as HTMLInputElement[];
-      debugLog(
-        'Autoply: Iframe inputs found:',
-        iframeInputs.map((i) => i.name)
+        iframeDoc.querySelectorAll<Element>(
+          'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]), select, textarea'
+        )
       );
 
-      const iframeFields = Array.from(
-        iframeDoc.querySelectorAll('input:not([type="hidden"]), select, textarea')
-      );
-      for (const field of iframeFields) {
+      for (const field of iframeInputs) {
         if (!isFormElement(field)) continue;
         if (!isVisible(field)) continue;
 
-        const name = (field as HTMLInputElement).name;
-        const profileKey = name ? NAME_TO_PROFILE_KEY[name.toLowerCase()] : null;
+        const label = getFieldLabel(field);
+        if (shouldSkipField(label)) continue;
 
-        if (profileKey) {
-          const value = profile[profileKey as keyof Profile];
-          if (value) {
-            debugLog(
-              `Autoply: IFRAME - found [name="${name}"] for ${profileKey}, value="${value}"`
-            );
-            const fieldType = (field as HTMLInputElement).type;
+        const profileKey = classifyElement(field, label);
+        if (!profileKey || filledKeys.has(profileKey)) continue;
 
-            if (fieldType === 'select' || field.tagName === 'SELECT') {
-              if (await fillSelect(field, value)) {
-                debugLog(`Autoply: IFRAME - SUCCESS filled [name="${name}"]`);
-                if (!filled.includes(profileKey)) filled.push(profileKey);
-              }
-            } else if (fieldType !== 'file') {
-              if (await fillTextInput(field, value)) {
-                debugLog(`Autoply: IFRAME - SUCCESS filled [name="${name}"]`);
-                if (!filled.includes(profileKey)) filled.push(profileKey);
-              }
-            }
-          }
+        const value = profile[profileKey as keyof Profile];
+        if (!value) continue;
+
+        const fieldType = (field as HTMLInputElement).type;
+        let success = false;
+
+        if (fieldType === 'select' || field.tagName === 'SELECT') {
+          success = await fillSelect(field, value);
+        } else if (fieldType !== 'file') {
+          success = await fillTextInput(field, value);
+        }
+
+        if (success) {
+          filledKeys.add(profileKey);
+          filled.push(profileKey);
         }
       }
-    } catch (e) {
-      debugLog('Autoply: Cannot access iframe (cross-origin or error):', e);
+    } catch {
+      // Cross-origin iframe — skip silently
     }
   }
 
-  return { filled, errors };
+  return { filled, errors: [] };
 }
 
 // Returns true if the key looks like a label string (e.g. "First Name") rather than
@@ -775,7 +637,10 @@ async function fillByFillPlan(
 
     if (looksLikeLabel(fieldKey)) {
       // Key is a human-readable label — use label-based matching
-      didFill = await findAndFillByLabelMatch({ [fieldKey]: value } as unknown as Profile, fieldKey);
+      didFill = await findAndFillByLabelMatch(
+        { [fieldKey]: value } as unknown as Profile,
+        fieldKey
+      );
     } else {
       // Key is a DOM attribute value — try name/id selectors
       const selectors = [
@@ -824,7 +689,7 @@ async function fillByFillPlan(
 
 async function handleAutofillWithProfile(
   profile: Profile,
-  _documents?: { resume?: string; coverLetter?: string },
+  _documents?: { resume?: string; coverLetter?: string; resumeFilename?: string },
   fillPlan?: Record<string, string>
 ): Promise<{ success: boolean; filled: string[]; errors: string[] }> {
   debugLog('Autoply: Starting autofill with profile:', Object.keys(profile).join(', '));
@@ -836,14 +701,17 @@ async function handleAutofillWithProfile(
     const alreadyFilled = new Set(result.filled);
     const planFilled = await fillByFillPlan(fillPlan, alreadyFilled);
     if (planFilled.length > 0) {
-      debugLog(`Autoply: fillPlan filled ${planFilled.length} additional fields:`, planFilled.join(', '));
+      debugLog(
+        `Autoply: fillPlan filled ${planFilled.length} additional fields:`,
+        planFilled.join(', ')
+      );
       result.filled.push(...planFilled);
     }
   }
 
   // Upload resume PDF if provided
   if (_documents?.resume) {
-    const filename = (_documents as any).resumeFilename || 'resume.pdf';
+    const filename = _documents.resumeFilename || 'resume.pdf';
     const uploaded = await uploadResumeFile(_documents.resume, filename);
     if (uploaded) result.filled.push('resume_upload');
   }

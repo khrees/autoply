@@ -1,4 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import type { AIProvider, Profile } from '../types';
 
 interface FormField {
@@ -9,7 +8,6 @@ interface FormField {
   currentValue?: string;
   required: boolean;
 }
-
 
 const FORM_ANALYZER_PROMPT = `You help fill job application forms. Given a candidate's profile and unfilled form fields, provide the best answers.
 
@@ -33,13 +31,15 @@ export async function analyzeAndFillFormFields(
 ): Promise<Map<string, string>> {
   if (unfilledFields.length === 0) return new Map();
 
-  const fieldsDescription = unfilledFields.map(f => {
-    let desc = `- ID: "${f.id}", Label: "${f.label}", Type: ${f.type}, Required: ${f.required}`;
-    if (f.options && f.options.length > 0) {
-      desc += `\n  Options: ${f.options.join(', ')}`;
-    }
-    return desc;
-  }).join('\n');
+  const fieldsDescription = unfilledFields
+    .map((f) => {
+      let desc = `- ID: "${f.id}", Label: "${f.label}", Type: ${f.type}, Required: ${f.required}`;
+      if (f.options && f.options.length > 0) {
+        desc += `\n  Options: ${f.options.join(', ')}`;
+      }
+      return desc;
+    })
+    .join('\n');
 
   const prompt = `Fill these application form fields for the candidate:
 
@@ -56,7 +56,10 @@ ${fieldsDescription}
 Provide answers for each field. For select/dropdown, use EXACTLY one of the provided options.`;
 
   const response = await provider.generateText(prompt, FORM_ANALYZER_PROMPT);
-  const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+  const cleaned = response
+    .replace(/```json?\n?/g, '')
+    .replace(/```/g, '')
+    .trim();
 
   const results = new Map<string, string>();
 
@@ -76,7 +79,10 @@ Provide answers for each field. For select/dropdown, use EXACTLY one of the prov
 
       if (labelLower.includes('preferred') && labelLower.includes('name')) {
         results.set(field.id, profile.name.split(' ')[0]);
-      } else if ((labelLower.includes('location') || labelLower.includes('city')) && profile.location) {
+      } else if (
+        (labelLower.includes('location') || labelLower.includes('city')) &&
+        profile.location
+      ) {
         results.set(field.id, profile.location);
       } else if (labelLower.includes('first name')) {
         results.set(field.id, profile.name.split(' ')[0]);
@@ -107,5 +113,8 @@ Candidate:
 
 Return ONLY the answer value, nothing else. For dropdowns, return EXACTLY one of the options.`;
 
-  return provider.generateText(prompt, 'You fill job application forms. Return only the answer value.');
+  return provider.generateText(
+    prompt,
+    'You fill job application forms. Return only the answer value.'
+  );
 }

@@ -43,9 +43,11 @@ export class LeverScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('.posting-headline, .content', {
-      timeout: 10000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('.posting-headline, .content', {
+        timeout: 10000,
+      })
+      .catch(() => {});
   }
 
   // ============ Lever-specific Form Submission ============
@@ -102,7 +104,10 @@ export class LeverScraper extends BaseScraper {
     }
   }
 
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
+  override async submitApplication(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<SubmissionResult> {
     const errors: string[] = [];
 
     try {
@@ -262,17 +267,11 @@ export class LeverScraper extends BaseScraper {
     );
 
     // Email
-    await this.fillInputBySelector(
-      'input[name="email"], input[type="email"]',
-      profile.email
-    );
+    await this.fillInputBySelector('input[name="email"], input[type="email"]', profile.email);
 
     // Phone
     if (profile.phone) {
-      await this.fillInputBySelector(
-        'input[name="phone"], input[type="tel"]',
-        profile.phone
-      );
+      await this.fillInputBySelector('input[name="phone"], input[type="tel"]', profile.phone);
     }
 
     if (this.shouldFillOptionalFields()) {
@@ -456,10 +455,33 @@ export class LeverScraper extends BaseScraper {
         const isVisible = await input.isVisible().catch(() => false);
         if (!isVisible) continue;
 
-        await input.click().catch((e: unknown) => { logger.debug(`Location click failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
-        await input.fill('').catch((e: unknown) => { logger.debug(`Location clear failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
-        await input.type(normalizedLocation, { delay: 40 }).catch((e: unknown) => { logger.debug(`Location type failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
-        await this.page.waitForSelector('[role="listbox"] [role="option"], [role="option"], [class*="autocomplete"] li, [class*="suggestion"]', { timeout: 2000 }).catch(() => {});
+        await input.click().catch((e: unknown) => {
+          logger.debug(
+            `Location click failed: ${e instanceof Error ? e.message : e}`,
+            {},
+            'scraper'
+          );
+        });
+        await input.fill('').catch((e: unknown) => {
+          logger.debug(
+            `Location clear failed: ${e instanceof Error ? e.message : e}`,
+            {},
+            'scraper'
+          );
+        });
+        await input.type(normalizedLocation, { delay: 40 }).catch((e: unknown) => {
+          logger.debug(
+            `Location type failed: ${e instanceof Error ? e.message : e}`,
+            {},
+            'scraper'
+          );
+        });
+        await this.page
+          .waitForSelector(
+            '[role="listbox"] [role="option"], [role="option"], [class*="autocomplete"] li, [class*="suggestion"]',
+            { timeout: 2000 }
+          )
+          .catch(() => {});
 
         const optionSelectors = [
           '[role="listbox"] [role="option"]',
@@ -476,14 +498,20 @@ export class LeverScraper extends BaseScraper {
           const optionVisible = await option.isVisible().catch(() => false);
           if (!optionVisible) continue;
 
-          await option.click().catch((e: unknown) => { logger.debug(`Location option click failed: ${e instanceof Error ? e.message : e}`, {}, 'scraper'); });
+          await option.click().catch((e: unknown) => {
+            logger.debug(
+              `Location option click failed: ${e instanceof Error ? e.message : e}`,
+              {},
+              'scraper'
+            );
+          });
           await this.humanDelay(true);
           return;
         }
 
-        await input.press('ArrowDown').catch(() => { });
-        await input.press('Enter').catch(() => { });
-        await input.press('Tab').catch(() => { });
+        await input.press('ArrowDown').catch(() => {});
+        await input.press('Enter').catch(() => {});
+        await input.press('Tab').catch(() => {});
         await this.humanDelay(true);
         return;
       }
@@ -528,7 +556,7 @@ export class LeverScraper extends BaseScraper {
     if (!this.page) return { success: false, message: 'Page not initialized' };
 
     try {
-      await this.page.waitForLoadState('domcontentloaded', { timeout: 60000 }).catch(() => { });
+      await this.page.waitForLoadState('domcontentloaded', { timeout: 60000 }).catch(() => {});
       await this.humanDelay();
 
       // Check for confirmation
@@ -562,7 +590,11 @@ export class LeverScraper extends BaseScraper {
 
       // Check URL
       const currentUrl = this.page.url();
-      if (currentUrl.includes('thank') || currentUrl.includes('success') || currentUrl.includes('confirmation')) {
+      if (
+        currentUrl.includes('thank') ||
+        currentUrl.includes('success') ||
+        currentUrl.includes('confirmation')
+      ) {
         return { success: true, message: 'Application submitted successfully' };
       }
 
@@ -578,7 +610,10 @@ export class LeverScraper extends BaseScraper {
         }
       }
 
-      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
+      return {
+        success: false,
+        message: 'Could not confirm submission status (no clear success indicator found)',
+      };
     } catch (error) {
       return {
         success: false,
@@ -591,13 +626,19 @@ export class LeverScraper extends BaseScraper {
     if (!this.page) throw new Error('Page not initialized');
 
     // Extract job title
-    const title = await this.extractText('.posting-header h2, .posting-headline h2, h1.posting-title');
+    const title = await this.extractText(
+      '.posting-header h2, .posting-headline h2, h1.posting-title'
+    );
 
     // Extract company name
-    let company = await this.extractText('.posting-header .company, .posting-headline .company, .main-header-content h1');
+    let company = await this.extractText(
+      '.posting-header .company, .posting-headline .company, .main-header-content h1'
+    );
     if (!company) {
       // Try to get from logo alt text
-      const logoAlt = await this.page.$eval('.main-header-logo img', (img) => (img as HTMLImageElement).alt).catch(() => '');
+      const logoAlt = await this.page
+        .$eval('.main-header-logo img', (img) => (img as HTMLImageElement).alt)
+        .catch(() => '');
       if (logoAlt) {
         company = logoAlt.replace(/logo/i, '').trim();
       }
@@ -652,17 +693,21 @@ export class LeverScraper extends BaseScraper {
     for (let i = 0; i < questionContainers.length; i++) {
       const container = questionContainers[i];
 
-      const questionText = await container.$eval(
-        'label, .question-label, .application-label .text, .application-label',
-        (el) => el.textContent?.trim() ?? ''
-      ).catch(() => '');
+      const questionText = await container
+        .$eval(
+          'label, .question-label, .application-label .text, .application-label',
+          (el) => el.textContent?.trim() ?? ''
+        )
+        .catch(() => '');
 
       if (!questionText) continue;
 
-      const fieldName = await container.$eval(
-        'input, textarea, select',
-        (el) => (el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).name ?? ''
-      ).catch(() => '');
+      const fieldName = await container
+        .$eval(
+          'input, textarea, select',
+          (el) => (el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).name ?? ''
+        )
+        .catch(() => '');
 
       // Skip standard profile fields — they are filled elsewhere and should not be AI-answered.
       if (shouldSkipLeverCustomQuestion(questionText, fieldName)) continue;
@@ -691,7 +736,8 @@ export class LeverScraper extends BaseScraper {
         );
       }
 
-      const required = (await container.$('[required], .required, [aria-required="true"]')) !== null;
+      const required =
+        (await container.$('[required], .required, [aria-required="true"]')) !== null;
 
       questions.push({
         id: `lever_q_${i}`,

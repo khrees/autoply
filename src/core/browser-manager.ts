@@ -5,7 +5,6 @@ import type {
   LaunchOptions,
   Page,
 } from 'playwright-core';
-import chromium from '@sparticuz/chromium';
 import { existsSync } from 'fs';
 import type { AppConfig, Platform } from '../types';
 import { configRepository } from '../db/repositories/config';

@@ -80,9 +80,13 @@ const MAX_SESSIONS = 10;
 class ScrapingBrowserPool {
   private sessions = new Map<string, ManagedSession>();
 
-  async createSession(options: CreateSessionOptions = {}): Promise<{ id: string; wsEndpoint: string }> {
+  async createSession(
+    options: CreateSessionOptions = {}
+  ): Promise<{ id: string; wsEndpoint: string }> {
     if (this.sessions.size >= MAX_SESSIONS) {
-      throw new Error(`Session limit reached (max ${MAX_SESSIONS}). Destroy an existing session first.`);
+      throw new Error(
+        `Session limit reached (max ${MAX_SESSIONS}). Destroy an existing session first.`
+      );
     }
 
     const id = randomUUID();

@@ -1,103 +1,49 @@
-import type { Profile, JobData, Application, GeneratedDocuments, Platform } from '../types';
-import { parseJobUrl } from '../utils/url-parser';
-import { scrapeJob, createScraper, BaseScraper } from '../scrapers';
-import { createAIProvider } from '../ai/provider';
+import type { JobData } from '../types';
+import { generateCoverLetter } from '../ai/cover-letter';
+import { evaluateJobFit } from '../ai/job-matcher';
 import { tailorResume } from '../ai/resume';
-import { generateCoverLetter, answerAllQuestions } from '../ai/cover-letter';
-import { evaluateJobFit, type JobFitResult } from '../ai/job-matcher';
-import { verifySubmissionScreenshot, type VerificationResult } from '../ai/screenshot-verifier';
-export type { JobFitResult } from '../ai/job-matcher';
+import { answerAllQuestions } from '../ai/cover-letter';
 import { profileRepository } from '../db/repositories/profile';
 import { applicationRepository } from '../db/repositories/application';
 import { configRepository } from '../db/repositories/config';
 import { savedAnswersRepository } from '../db/repositories/saved-answers';
 import { ApplicationQueue } from './queue';
-import {
-  requiresHumanAnswer,
-  shouldAllowAIAnswer,
-  getDeterministicFieldValue,
-} from './form-filler';
-import { generateResumePdf, generateCoverLetterPdf, generateDocumentFilename } from './document';
+import { getDeterministicFieldValue } from './form-filler';
+import { generateResumePdf, generateCoverLetterPdf, generateDocumentFilename, markdownToPdf } from './document';
 import { logger, createSpinner, withCorrelationId, generateCorrelationId } from '../utils/logger';
-import { validateJobData, validateGeneratedDocuments } from '../utils/validation';
-import { scraperRateLimiter, withRateLimit } from '../utils/rate-limiter';
+
+// ── Re-export pipeline types for external consumers ───────────────────────────
+export type {
+  ApplicationResult,
+  PassiveProcessResult,
+  GeneratedDocumentPaths,
+  DetectedFormField,
+  AutoModeOptions,
+  ApplyOptions,
+  JobFitResult,
+} from './pipeline/types';
+export { resolveAutoMode, summarizeSubmissionFailure } from './pipeline/types';
+
+// ── Import pipeline processors ────────────────────────────────────────────────
+import { scrapeJobForApplication } from './pipeline/scraper';
+import { evaluateFitForJob } from './pipeline/fit-evaluator';
+import { generateApplicationDocuments } from './pipeline/document-generator';
+import { handleCustomQuestions } from './pipeline/question-handler';
+import { submitApplicationWithRetries, fillApplicationForm } from './pipeline/form-submitter';
+import type {
+  ApplicationResult,
+  PassiveProcessResult,
+  GeneratedDocumentPaths,
+  AutoModeOptions,
+  ApplyOptions,
+} from './pipeline/types';
+
+import { parseJobUrl } from '../utils/url-parser';
+import { scrapeJob } from '../scrapers';
+import { createAIProvider } from '../ai/provider';
 import { join } from 'path';
 import { mkdir } from 'fs/promises';
-import { getAutoplyDir, ensureAutoplyDir } from '../db';
-import type { SubmissionResult } from '../scrapers/base';
-
-export interface ApplicationResult {
-  success: boolean;
-  application?: Application;
-  error?: string;
-  documents?: GeneratedDocuments;
-  fitResult?: JobFitResult;
-}
-
-export interface GeneratedDocumentPaths {
-  resumePath?: string;
-  coverLetterPath?: string;
-}
-
-export interface PassiveProcessResult extends ApplicationResult {
-  jobData?: JobData;
-  fillPlan?: Record<string, string>;
-  profileData?: Record<string, string>;
-}
-
-export interface DetectedFormField {
-  key: string;
-  type: string;
-  label: string;
-}
-
-/**
- * Explicit automation behaviour flags — replaces the ambiguous `autoMode: boolean`.
- * Each flag controls one specific behaviour independently.
- */
-export interface AutoModeOptions {
-  /** Skip interactive stdin prompts (answer required fields from profile only) */
-  skipPrompts: boolean;
-  /** Let AI answer optional custom questions (salary, visa, etc.) */
-  useAIForOptionalQuestions: boolean;
-  /** Submit the form without asking the user to confirm */
-  submitWithoutConfirmation: boolean;
-}
-
-export interface ApplyOptions {
-  dryRun?: boolean;
-  profile?: Profile;
-  generateOnly?: boolean;
-  /** Fine-grained automation flags. Pass `true` as a shorthand to enable all three. */
-  autoMode?: boolean | Partial<AutoModeOptions>;
-  resumePath?: string;
-  coverLetterPath?: string;
-}
-
-export function summarizeSubmissionFailure(
-  submissionResult: SubmissionResult,
-  verification?: VerificationResult
-): string {
-  let message =
-    submissionResult.errors.length > 0
-      ? `${submissionResult.message}: ${submissionResult.errors.join(', ')}`
-      : submissionResult.message;
-
-  if (verification) {
-    const screenshotDetail = verification.errors?.length
-      ? `${verification.reason}: ${verification.errors.join(', ')}`
-      : verification.reason;
-    message = `${message} | Screenshot check: ${screenshotDetail}`;
-  }
-
-  return message;
-}
-
-function resolveAutoMode(autoMode: ApplyOptions['autoMode']): AutoModeOptions {
-  if (!autoMode) return { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false };
-  if (autoMode === true) return { skipPrompts: true, useAIForOptionalQuestions: true, submitWithoutConfirmation: true };
-  return { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false, ...autoMode };
-}
+import type { Platform } from '../types';
 
 export class ApplicationOrchestrator {
   private queue: ApplicationQueue;
@@ -108,7 +54,6 @@ export class ApplicationOrchestrator {
 
   async applyToJob(url: string, options: ApplyOptions = {}): Promise<ApplicationResult> {
     const correlationId = generateCorrelationId();
-
     return withCorrelationId(correlationId, async () => {
       return this._applyToJobInner(url, options, correlationId);
     });
@@ -119,52 +64,30 @@ export class ApplicationOrchestrator {
     options: ApplyOptions,
     correlationId: string
   ): Promise<ApplicationResult> {
-    const {
-      dryRun = false,
-      generateOnly = false,
-      resumePath,
-      coverLetterPath,
-    } = options;
-
-    const autoOpts = resolveAutoMode(options.autoMode);
+    const { dryRun = false, generateOnly = false, resumePath, coverLetterPath } = options;
+    const autoOpts = this._resolveAutoMode(options.autoMode);
     const config = configRepository.loadAppConfig();
 
-    // Validate URL
-    const parsedUrl = parseJobUrl(url);
-    if (!parsedUrl.isValid) {
-      return { success: false, error: parsedUrl.error };
-    }
+    const provider = createAIProvider();
 
-    // Get profile
+    // Step 1: Get profile
     const profile = options.profile ?? profileRepository.findFirst();
     if (!profile) {
       return { success: false, error: 'No profile found. Run "autoply init" to create one.' };
     }
 
-    logger.debug('Starting application', { url, platform: parsedUrl.platform, correlationId }, 'cli');
-
-    const spinner = createSpinner(`Scraping job from ${parsedUrl.platform}...`);
+    logger.debug('Starting application', { url, correlationId }, 'cli');
+    const spinner = createSpinner('Scraping job...');
     spinner.start();
 
-    let jobData: JobData;
-    try {
-      logger.debug(`Scraping ${parsedUrl.platform} job at ${url}`);
-      jobData = await withRateLimit(scraperRateLimiter, () => scrapeJob(url, parsedUrl.platform));
-      spinner.succeed(`Scraped: ${jobData.title} at ${jobData.company}`);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      spinner.fail(`Failed to scrape job from ${parsedUrl.platform}`);
-      return {
-        success: false,
-        error: `[${parsedUrl.platform}] Scraping failed for ${url}: ${msg}. Check that the URL is accessible in a browser.`,
-      };
+    // Step 2: Scrape job
+    const scrapeResult = await scrapeJobForApplication(url);
+    if (!scrapeResult.success) {
+      spinner.fail('Failed to scrape job');
+      return { success: false, error: scrapeResult.error };
     }
-
-    // Validate scraped job data against schema
-    const jobValidation = validateJobData(jobData);
-    if (!jobValidation.success) {
-      logger.warn('Scraped job data has issues', { errors: jobValidation.errors, correlationId }, 'scraper');
-    }
+    const { jobData, platform } = scrapeResult;
+    spinner.succeed(`Scraped: ${jobData.title} at ${jobData.company}`);
 
     // Don't submit applications with unknown job titles
     if (jobData.title === 'Unknown Position' && !dryRun && !generateOnly) {
@@ -175,99 +98,45 @@ export class ApplicationOrchestrator {
       };
     }
 
-    // Evaluate job fit
-    let fitResult: JobFitResult | undefined;
-    try {
-      const provider = createAIProvider();
-      if (await provider.isAvailable()) {
-        spinner.start('Evaluating job fit...');
-        fitResult = await evaluateJobFit(provider, profile, jobData);
-        spinner.succeed(`Fit score: ${fitResult.score}% (${fitResult.recommendation})`);
-
-        if (fitResult.strongMatches.length > 0) {
-          logger.info(`  Strong: ${fitResult.strongMatches.slice(0, 3).join(', ')}`);
-        }
-        if (fitResult.missingSkills.length > 0) {
-          logger.info(`  Gaps: ${fitResult.missingSkills.slice(0, 3).join(', ')}`);
-        }
-
-        // Check minimum fit score threshold
-        if (config.application.minFitScore && fitResult.score < config.application.minFitScore) {
-          logger.warning(
-            `Skipping: fit score ${fitResult.score}% below threshold ${config.application.minFitScore}%`
-          );
-          return { success: false, error: `Fit score below threshold`, fitResult };
-        }
-      }
-    } catch {
-      // Fit evaluation is optional, continue without it
+    // Step 3: Evaluate job fit
+    spinner.start('Evaluating job fit...');
+    const fitResult = await evaluateFitForJob(provider, profile, jobData, config.application.minFitScore);
+    if (fitResult.belowThreshold) {
+      spinner.fail(`Fit score below threshold`);
+      return { success: false, error: `Fit score below threshold`, fitResult: fitResult.fitResult };
+    }
+    if (fitResult.fitResult) {
+      spinner.succeed(`Fit score: ${fitResult.fitResult.score}%`);
+    } else {
+      spinner.stop();
     }
 
-    // Generate documents
-    logger.debug(`Generating documents for ${jobData.title} at ${jobData.company}`);
-    spinner.start('Generating tailored resume...');
-    let documents: GeneratedDocuments;
-    try {
-      const provider = createAIProvider();
-      const isAvailable = await provider.isAvailable();
-      if (!isAvailable) {
-        spinner.fail('AI provider not available');
-        const providerName = config.ai.provider;
-        const hint =
-          providerName === 'ollama'
-            ? 'Run "ollama serve" and ensure your model is pulled (ollama pull llama3.2).'
-            : providerName === 'lmstudio'
-              ? 'Open LM Studio and start a local server on port 1234.'
-              : `Set the ${providerName.toUpperCase()}_API_KEY environment variable or run "autoply config" to store it securely.`;
-        return {
-          success: false,
-          error: `AI provider "${providerName}" is not available. ${hint}`,
-        };
-      }
-
-      spinner.start('Generating resume and cover letter...');
-      const [resume, coverLetter] = await Promise.all([
-        tailorResume(provider, profile, jobData),
-        generateCoverLetter(provider, profile, jobData),
-      ]);
-      spinner.succeed('Resume and cover letter generated');
-
-      documents = { resume, coverLetter };
-
-      // Quality gate — warn on issues, don't hard-fail
-      const docCheck = validateGeneratedDocuments(documents, { checkQuality: true });
-      if (docCheck.qualityIssues && docCheck.qualityIssues.length > 0) {
-        logger.warn('Generated documents have quality issues', {
-          issues: docCheck.qualityIssues,
-          correlationId,
-        }, 'ai');
-        for (const issue of docCheck.qualityIssues) {
-          spinner.warn(`Quality check: ${issue}`);
-        }
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      spinner.fail(`Document generation failed for ${url}`);
-      return {
-        success: false,
-        error: `[${parsedUrl.platform}] AI generation failed: ${msg}. Check your AI provider is running ("ollama serve" or set OPENAI_API_KEY / ANTHROPIC_API_KEY).`,
-      };
+    // Step 4: Generate documents
+    const docResult = await generateApplicationDocuments(
+      provider, profile, jobData, jobData.title, jobData.company, url, platform, spinner
+    );
+    if (!docResult.success) {
+      return { success: false, error: docResult.error };
     }
+    const documents = docResult.documents;
 
-    // If generate only or dry run, save and return
+    // Step 5: Handle generate-only / dry-run
     if (generateOnly || dryRun) {
       if (dryRun) {
         logger.info('Dry run mode - not submitting application');
         logger.newline();
-        logger.debug('Generated Resume Preview', { content: documents.resume.slice(0, 500) + '...' });
-        logger.debug('Generated Cover Letter Preview', { content: documents.coverLetter.slice(0, 500) + '...' });
+        logger.debug('Generated Resume Preview', {
+          content: documents.resume.slice(0, 500) + '...',
+        });
+        logger.debug('Generated Cover Letter Preview', {
+          content: documents.coverLetter.slice(0, 500) + '...',
+        });
       }
 
-      // Create application record
       const application = applicationRepository.create({
         profile_id: profile.id || 0,
         url,
-        platform: parsedUrl.platform,
+        platform,
         company: jobData.company,
         job_title: jobData.title,
         status: 'pending',
@@ -275,103 +144,17 @@ export class ApplicationOrchestrator {
         generated_cover_letter: documents.coverLetter,
       });
 
-      return { success: true, application, documents, fitResult };
+      return { success: true, application, documents, fitResult: fitResult.fitResult };
     }
 
-    // Answer custom questions
-    if (jobData.custom_questions.length > 0) {
-      const totalQuestions = jobData.custom_questions.length;
-      spinner.start(`Answering custom questions (0/${totalQuestions})...`);
-      try {
-        const provider = createAIProvider();
-        const aiAnswerableQuestions = jobData.custom_questions.filter(
-          (question) =>
-            !question.answer &&
-            (question.required || config.application.fillOptionalFields) &&
-            !requiresHumanAnswer(question.question) &&
-            shouldAllowAIAnswer({
-              label: question.question,
-              name: question.id,
-              type: question.type,
-              options: question.options,
-            })
-        );
+    // Step 6: Answer custom questions
+    await handleCustomQuestions(jobData, profile, provider, config, spinner);
 
-        // Check saved answers first — reuse past answers for similar questions
-        let fromCache = 0;
-        const stillNeedingAI: typeof aiAnswerableQuestions = [];
-        for (const q of aiAnswerableQuestions) {
-          const savedMatches = savedAnswersRepository.findSimilar(profile.id || 0, q.question, 1);
-          if (savedMatches.length > 0) {
-            q.answer = savedMatches[0].answer;
-            fromCache++;
-            spinner.start(`Answering custom questions (${fromCache}/${totalQuestions} from cache)...`);
-          } else {
-            stillNeedingAI.push(q);
-          }
-        }
-        // Replace the list so only unanswered questions go to AI
-        aiAnswerableQuestions.splice(0, aiAnswerableQuestions.length, ...stillNeedingAI);
-
-        // Get previous answers from DB for few-shot learning
-        const previousApps = applicationRepository.findAll({
-          profile_id: profile.id,
-          status: 'submitted',
-        });
-        const previousAnswers: Array<{ question: string; answer: string }> = [];
-        for (const app of previousApps.slice(0, 5)) {
-          const questions = app.form_data?.questions as
-            | Array<{ question: string; answer?: string }>
-            | undefined;
-          if (questions) {
-            for (const q of questions) {
-              if (q.answer && previousAnswers.length < 10) {
-                previousAnswers.push({ question: q.question, answer: q.answer });
-              }
-            }
-          }
-        }
-
-        if (aiAnswerableQuestions.length > 0) {
-          spinner.start(`Answering custom questions (${fromCache} cached, asking AI for ${aiAnswerableQuestions.length})...`);
-          const answers = await answerAllQuestions(
-            provider,
-            profile,
-            jobData,
-            aiAnswerableQuestions,
-            previousAnswers
-          );
-          for (const q of aiAnswerableQuestions) {
-            if (!q.answer) {
-              q.answer = answers.get(q.question);
-            }
-          }
-          // Persist answers for future reuse
-          for (const q of aiAnswerableQuestions) {
-            if (q.answer) {
-              savedAnswersRepository.upsert(profile.id || 0, q.question, q.answer);
-            }
-          }
-        }
-
-        const answeredCount = jobData.custom_questions.filter((q) => q.answer).length;
-        const skippedCount = totalQuestions - answeredCount;
-        spinner.succeed(
-          skippedCount > 0
-            ? `Custom questions answered (${answeredCount}/${totalQuestions}, ${skippedCount} skipped)`
-            : `Custom questions answered (${answeredCount}/${totalQuestions})`
-        );
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        spinner.warn(`Some questions could not be auto-answered: ${msg}`);
-      }
-    }
-
-    // Create application record
+    // Step 7: Create application record
     const application = applicationRepository.create({
       profile_id: profile.id || 0,
       url,
-      platform: parsedUrl.platform,
+      platform,
       company: jobData.company,
       job_title: jobData.title,
       status: 'pending',
@@ -383,280 +166,20 @@ export class ApplicationOrchestrator {
       },
     });
 
-    // Check if auto-submit is enabled
+    // Step 8: Auto-submit or fill-only
     if (config.application.autoSubmit) {
-      const maxRetries = Math.max(1, config.application.retryAttempts ?? 3);
-      const attemptErrors: string[] = [];
-      let lastScreenshotPath: string | undefined;
-      // Create scraper once for reuse in retries
-      const scraper = createScraper(application.platform);
-      scraper.keepAlive = true;
-
-      try {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          logger.debug(
-            `Submitting application to ${parsedUrl.platform} at ${url} (attempt ${attempt}/${maxRetries})`,
-            { correlationId }
-          );
-          spinner.start(
-            attempt === 1
-              ? 'Submitting application...'
-              : `Retrying submission (attempt ${attempt}/${maxRetries})...`
-          );
-          // Stop spinner so interactive prompts for unfillable fields can display on stdin
-          if (!autoOpts.skipPrompts) {
-            spinner.info(
-              attempt === 1
-                ? 'Filling application form...'
-                : `Retrying submission (attempt ${attempt}/${maxRetries})...`
-            );
-          }
-
-          try {
-            const submissionResult = await this.submitApplication(
-              application,
-              jobData,
-              profile,
-              documents,
-              autoOpts,
-              resumePath,
-              coverLetterPath,
-              scraper
-            );
-            lastScreenshotPath = submissionResult.screenshotPath;
-
-            // Trust the scraper's DOM confirmation when it reports success.
-            if (submissionResult.success && application.id) {
-              const submittedApplication = applicationRepository.update(application.id, {
-                status: 'submitted',
-                applied_at: new Date().toISOString(),
-              });
-              spinner.succeed('Application submitted!');
-              return {
-                success: true,
-                application: submittedApplication ?? application,
-                documents,
-                fitResult,
-              };
-            }
-
-            let verification: VerificationResult | undefined;
-            if (submissionResult.screenshotPath) {
-              spinner.start('Collecting submission diagnostics...');
-
-              // Brief pause to let confirmation page fully render before verification
-              await new Promise((r) => setTimeout(r, 2000));
-
-              verification = await verifySubmissionScreenshot(submissionResult.screenshotPath);
-              logger.debug(
-                `Screenshot diagnostic (${verification.confidence}): ${verification.reason}`
-              );
-            }
-
-            const attemptError = summarizeSubmissionFailure(submissionResult, verification);
-            attemptErrors.push(`attempt ${attempt}: ${attemptError}`);
-            spinner.warn(
-              `Submission not confirmed (attempt ${attempt}/${maxRetries}): ${attemptError}`
-            );
-
-            if (attempt < maxRetries) {
-              logger.info('Retrying submission...');
-              await new Promise((r) => setTimeout(r, 2000)); // Wait before retry
-            }
-          } catch (error) {
-            const attemptError = error instanceof Error ? error.message : 'Unknown error';
-            attemptErrors.push(`attempt ${attempt}: ${attemptError}`);
-            spinner.warn(`Submission attempt ${attempt} failed: ${attemptError}`);
-
-            if (attempt < maxRetries) {
-              await new Promise((r) => setTimeout(r, 2000));
-            }
-          }
-        }
-      } finally {
-        // Explicitly close scraper after loop
-        await scraper.close();
-      }
-
-      // All retries exhausted — surface the full history so failures are diagnosable
-      const errorSummary = attemptErrors.join(' | ');
-      const failedApplication = application.id
-        ? applicationRepository.update(application.id, {
-            status: 'failed',
-            error_message: errorSummary,
-          })
-        : undefined;
-      spinner.fail(`Submission failed after ${maxRetries} attempt${maxRetries > 1 ? 's' : ''}`);
-      if (lastScreenshotPath) {
-        logger.info(`Screenshot saved to: ${lastScreenshotPath}`);
-      }
-      return {
-        success: false,
-        application: failedApplication ?? application,
-        error: `[${parsedUrl.platform}] Submission failed after ${maxRetries} attempt${maxRetries > 1 ? 's' : ''}: ${errorSummary}`,
-        documents,
-        fitResult,
-      };
+      return submitApplicationWithRetries(
+        application, jobData, profile, documents, autoOpts,
+        resumePath, coverLetterPath, platform, url, correlationId, spinner,
+        fitResult.fitResult
+      );
     } else {
       logger.info('Auto-submit disabled. Filling application form...');
-
-      const scraper = createScraper(application.platform);
-
-      // Ensure directories exist
-      ensureAutoplyDir();
-      const docsDir = join(getAutoplyDir(), 'documents');
-      await mkdir(docsDir, { recursive: true });
-
-      const resumePdfPath =
-        resumePath ??
-        join(docsDir, generateDocumentFilename(profile.name, 'resume', jobData.company));
-      const coverLetterPdfPath =
-        coverLetterPath ??
-        join(docsDir, generateDocumentFilename(profile.name, 'cover_letter', jobData.company));
-
-      // Generate PDFs for uploading if they don't exist
-      if (!resumePath) {
-        await generateResumePdf(documents.resume, resumePdfPath, profile.name);
-      }
-      if (!coverLetterPath) {
-        await generateCoverLetterPdf(documents.coverLetter, coverLetterPdfPath, profile.name);
-      }
-
-      scraper.keepAlive = true;
-      try {
-        const fillResult = await scraper.fillApplication(url, {
-          profile,
-          jobData,
-          documents,
-          resumePath: resumePdfPath,
-          coverLetterPath: coverLetterPdfPath,
-          answeredQuestions: jobData.custom_questions,
-          autoMode: autoOpts.skipPrompts,
-          fillOnly: true,
-        });
-
-        if (fillResult.success) {
-          spinner.succeed('Application prepared for manual review.');
-          logger.info('Browser left open. You can review and submit manually.');
-          logger.info('Close the browser window when you are done.');
-
-          if (application.id) {
-            applicationRepository.update(application.id, {
-              status: 'filled',
-            });
-          }
-
-          await scraper.waitForBrowserClose();
-          await scraper.close();
-
-          return {
-            success: true,
-            application,
-            documents,
-            fitResult,
-          };
-        }
-
-        const errorMessage =
-          fillResult.errors.length > 0
-            ? `${fillResult.message}: ${fillResult.errors.join(', ')}`
-            : fillResult.message;
-        spinner.fail('Failed to fill application form.');
-        logger.error(`Error: ${errorMessage}`);
-
-        if (application.id) {
-          applicationRepository.update(application.id, {
-            status: 'failed',
-            error_message: errorMessage,
-          });
-        }
-        await scraper.close();
-        return {
-          success: false,
-          application,
-          error: `[${parsedUrl.platform}] ${errorMessage}`,
-          documents,
-          fitResult,
-        };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        spinner.fail(`Failed during form filling: ${errorMessage}`);
-        if (application.id) {
-          applicationRepository.update(application.id, {
-            status: 'failed',
-            error_message: errorMessage,
-          });
-        }
-        await scraper.close();
-        return {
-          success: false,
-          application,
-          error: `[${parsedUrl.platform}] Form filling failed: ${errorMessage}`,
-          documents,
-          fitResult,
-        };
-      }
+      return fillApplicationForm(
+        application, jobData, profile, documents, autoOpts,
+        resumePath, coverLetterPath, platform, url, spinner
+      );
     }
-  }
-
-  private async submitApplication(
-    application: Application,
-    jobData: JobData,
-    profile: Profile,
-    documents: GeneratedDocuments,
-    autoOpts: AutoModeOptions = { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false },
-    resumePathOverride?: string,
-    coverLetterPathOverride?: string,
-    scraperOverride?: BaseScraper
-  ): Promise<SubmissionResult> {
-    // Ensure directories exist
-    ensureAutoplyDir();
-    const docsDir = join(getAutoplyDir(), 'documents');
-    const screenshotsDir = join(getAutoplyDir(), 'screenshots');
-
-    await mkdir(docsDir, { recursive: true });
-    await mkdir(screenshotsDir, { recursive: true });
-
-    // Save documents (markdown and PDF)
-    const resumeMdPath = join(docsDir, `${application.id}_resume.md`);
-    const coverLetterMdPath = join(docsDir, `${application.id}_cover_letter.md`);
-    const resumePdfPath =
-      resumePathOverride ??
-      join(docsDir, generateDocumentFilename(profile.name, 'resume', jobData.company));
-    const coverLetterPdfPath =
-      coverLetterPathOverride ??
-      join(docsDir, generateDocumentFilename(profile.name, 'cover_letter', jobData.company));
-
-    // Save markdown versions
-    await Bun.write(resumeMdPath, documents.resume);
-    await Bun.write(coverLetterMdPath, documents.coverLetter);
-
-    // Generate PDFs for uploading
-    if (!resumePathOverride) {
-      await generateResumePdf(documents.resume, resumePdfPath, profile.name);
-    }
-    if (!coverLetterPathOverride) {
-      await generateCoverLetterPdf(documents.coverLetter, coverLetterPdfPath, profile.name);
-    }
-
-    // Create scraper for this platform (if not provided)
-    const scraper = scraperOverride ?? createScraper(application.platform);
-
-    // Prepare answered questions
-    const answeredQuestions = jobData.custom_questions;
-
-    // Submit the application using platform-specific scraper
-    const result = await scraper.submitApplication(application.url, {
-      profile,
-      jobData,
-      documents,
-      resumePath: resumePdfPath,
-      coverLetterPath: coverLetterPdfPath,
-      answeredQuestions,
-      autoMode: autoOpts.skipPrompts,
-    });
-
-    return result;
   }
 
   async generateDocuments(
@@ -701,13 +224,14 @@ export class ApplicationOrchestrator {
     if (type === 'resume' || type === 'both') {
       spinner.start('Generating tailored resume...');
       try {
-        const resume = await tailorResume(provider, profile, jobData);
+        const resumeContent = await tailorResume(provider, profile, jobData);
         const resumePath = join(
           outputDir,
           generateDocumentFilename(profile.name, 'resume', jobData.company)
         );
-        await generateResumePdf(resume, resumePath, profile.name);
+        await generateResumePdf(resumeContent, resumePath, profile.name);
         result.resumePath = resumePath;
+        result.resumeContent = resumeContent;
         spinner.succeed(`Resume saved to: ${resumePath}`);
       } catch (error) {
         spinner.fail('Failed to generate tailored resume');
@@ -718,13 +242,14 @@ export class ApplicationOrchestrator {
     if (type === 'cover-letter' || type === 'both') {
       spinner.start('Generating cover letter...');
       try {
-        const coverLetter = await generateCoverLetter(provider, profile, jobData);
+        const coverLetterContent = await generateCoverLetter(provider, profile, jobData);
         const coverLetterPath = join(
           outputDir,
           generateDocumentFilename(profile.name, 'cover_letter', jobData.company)
         );
-        await generateCoverLetterPdf(coverLetter, coverLetterPath, profile.name);
+        await generateCoverLetterPdf(coverLetterContent, coverLetterPath, profile.name);
         result.coverLetterPath = coverLetterPath;
+        result.coverLetterContent = coverLetterContent;
         spinner.succeed(`Cover letter saved to: ${coverLetterPath}`);
       } catch (error) {
         spinner.fail('Failed to generate cover letter');
@@ -757,21 +282,20 @@ export class ApplicationOrchestrator {
     // Strip HTML tags before sending to the LLM to prevent prompt injection
     // embedded in page content (e.g. <!-- ignore previous instructions -->)
     const safeText = html
-      .replace(/<!--[\s\S]*?-->/g, '')          // remove HTML comments first
-      .replace(/<script[\s\S]*?<\/script>/gi, '') // strip script blocks
-      .replace(/<style[\s\S]*?<\/style>/gi, '')   // strip style blocks
-      .replace(/<[^>]+>/g, ' ')                   // remove remaining tags
-      .replace(/&[a-z]+;/gi, ' ')                 // decode common entities roughly
-      .replace(/\s{2,}/g, ' ')                    // collapse whitespace
+      .replace(/<!--[\s\S]*?-->/g, '')      // remove HTML comments first
+      .replace(/<script[\s\S]*?<\/script>/gi, '')   // strip script blocks
+      .replace(/<style[\s\S]*?<\/style>/gi, '')      // strip style blocks
+      .replace(/<[^>]+>/g, ' ')              // remove remaining tags
+      .replace(/&[a-z]+;/gi, ' ')            // decode common entities roughly
+      .replace(/\s{2,}/g, ' ')               // collapse whitespace
       .trim()
-      .slice(0, 100_000);                         // hard cap at 100k chars
+      .slice(0, 100_000);                    // hard cap at 100k chars
 
     try {
       // 1. Extract job data from page text using AI
       const { extractJobDataWithAI, mergeJobData } = await import('../ai/job-extractor');
       const extracted = await extractJobDataWithAI(provider, safeText, url);
 
-      // Create full JobData with defaults
       const jobData: JobData = mergeJobData(
         {
           url,
@@ -794,15 +318,13 @@ export class ApplicationOrchestrator {
       const resumeMd = await tailorResume(provider, profile, jobData);
       const coverLetterMd = await generateCoverLetter(provider, profile, jobData);
 
-      // Convert to PDF and then to base64
-      const { markdownToPdf } = await import('./document');
       const resumeBytes = await markdownToPdf(resumeMd, { title: 'Resume' });
       const coverLetterBytes = await markdownToPdf(coverLetterMd, { title: 'Cover Letter' });
 
       const resumeBase64 = `data:application/pdf;base64,${Buffer.from(resumeBytes).toString('base64')}`;
       const coverLetterBase64 = `data:application/pdf;base64,${Buffer.from(coverLetterBytes).toString('base64')}`;
 
-      const documents: GeneratedDocuments = {
+      const documents = {
         resume: resumeBase64,
         coverLetter: coverLetterBase64,
       };
@@ -839,12 +361,9 @@ export class ApplicationOrchestrator {
       // 6. Calculate Fill Plan (Field mappings)
       const fillPlan: Record<string, string> = {};
 
-      // If we have detected fields from the live form, build fillPlan from those
       if (detectedFields && detectedFields.length > 0) {
         for (const field of detectedFields) {
           const fieldKey = field.key || field.label;
-
-          // Try to match detected field to profile data
           const normalizedFieldKey = fieldKey.toLowerCase().replace(/[^a-z0-9]/g, '');
 
           for (const [profileKey, profileValue] of Object.entries(profileData)) {
@@ -861,7 +380,6 @@ export class ApplicationOrchestrator {
             }
           }
 
-          // Try to get value using deterministic field value logic
           if (!fillPlan[fieldKey]) {
             const value = getDeterministicFieldValue(profile, {
               label: field.label,
@@ -874,14 +392,13 @@ export class ApplicationOrchestrator {
           }
         }
       } else {
-        // Fall back to using jobData.form_fields (from job listing page)
         for (const field of jobData.form_fields || []) {
           const value = getDeterministicFieldValue(profile, field);
           if (value) fillPlan[field.name || field.label || ''] = value;
         }
       }
 
-      // AI questions - check saved answers first, then call AI for the rest
+      // AI questions
       if (jobData.custom_questions && jobData.custom_questions.length > 0) {
         const unanswered = jobData.custom_questions.filter((q) => !q.answer);
         const needsAI: typeof unanswered = [];
@@ -899,7 +416,6 @@ export class ApplicationOrchestrator {
           const answers = await answerAllQuestions(provider, profile, jobData, needsAI, []);
           for (const [q, a] of answers.entries()) {
             fillPlan[q] = a;
-            // Persist for future reuse
             savedAnswersRepository.upsert(profile.id || 0, q, a);
           }
         }
@@ -920,6 +436,19 @@ export class ApplicationOrchestrator {
         error: error instanceof Error ? error.message : 'Processing failed',
       };
     }
+  }
+
+  private _resolveAutoMode(autoMode: ApplyOptions['autoMode']): AutoModeOptions {
+    if (!autoMode)
+      return { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false };
+    if (autoMode === true)
+      return { skipPrompts: true, useAIForOptionalQuestions: true, submitWithoutConfirmation: true };
+    return {
+      skipPrompts: false,
+      useAIForOptionalQuestions: false,
+      submitWithoutConfirmation: false,
+      ...autoMode,
+    };
   }
 }
 

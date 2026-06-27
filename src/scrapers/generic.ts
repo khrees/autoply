@@ -39,7 +39,10 @@ ${pageText.slice(0, 6000)}`,
         'You extract structured job data from web pages. Return valid JSON only, no markdown fences.'
       );
 
-      const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+      const cleaned = response
+        .replace(/```json?\n?/g, '')
+        .replace(/```/g, '')
+        .trim();
       const parsed = JSON.parse(cleaned);
 
       title = parsed.title || title;
@@ -88,7 +91,7 @@ ${pageText.slice(0, 6000)}`,
     for (const selector of selectors) {
       try {
         const el = await this.page.$(selector);
-        if (el && await el.isVisible()) {
+        if (el && (await el.isVisible())) {
           await this.humanDelay(true);
           await el.click();
           await this.page.waitForLoadState('domcontentloaded');
@@ -104,9 +107,11 @@ ${pageText.slice(0, 6000)}`,
 
   protected override async waitForApplicationForm(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('form, [class*="application"], [class*="apply"]', {
-      timeout: 10000,
-    }).catch(() => {});
+    await this.page
+      .waitForSelector('form, [class*="application"], [class*="apply"]', {
+        timeout: 10000,
+      })
+      .catch(() => {});
     await this.humanDelay(true);
   }
 
@@ -114,8 +119,10 @@ ${pageText.slice(0, 6000)}`,
     if (!this.page) return [];
 
     const { extractCustomQuestionsFromContainers } = await import('./helpers');
-    const questionContainers = await this.page.$$('[class*="question"], [class*="custom-field"], .field-group');
-    
+    const questionContainers = await this.page.$$(
+      '[class*="question"], [class*="custom-field"], .field-group'
+    );
+
     return extractCustomQuestionsFromContainers(this.page, questionContainers, 'generic');
   }
 }

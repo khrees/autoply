@@ -1,4 +1,5 @@
 import type { AIProvider, FormField } from '../types';
+import { calculateYearsExperience } from '../utils/experience';
 
 export interface FieldClassificationResult {
   field: FormField;
@@ -91,12 +92,15 @@ Return a JSON array of fields to auto-fill. Skip any field that should be left b
     if (!Array.isArray(parsed)) return [];
 
     return parsed
-      .map((item: any) => {
-        const matchedField = fields.find(
-          (f) =>
-            f.name.toLowerCase() === item.fieldName?.toLowerCase() ||
-            f.label?.toLowerCase().includes(item.fieldName?.toLowerCase())
-        );
+      .map((item: { fieldName?: string; matchedProfileKey?: string; confidence?: number; reasoning?: string }) => {
+        const matchedField = fields.find((f) => {
+          const fieldName = item.fieldName?.toLowerCase();
+          if (!fieldName) return false;
+          return (
+            f.name.toLowerCase() === fieldName ||
+            f.label?.toLowerCase().includes(fieldName)
+          );
+        });
 
         if (!matchedField) return null;
 
@@ -162,7 +166,7 @@ export function getProfileValueForKey(
     }
 
     case 'yearsExperience':
-      return String(calculateYearsExperience(profile));
+      return String(calculateYearsExperienceFromRecord(profile));
 
     case 'skills': {
       const skills = profile.skills as string[];
@@ -194,25 +198,8 @@ export function getProfileValueForKey(
   }
 }
 
-function calculateYearsExperience(profile: Record<string, unknown>): number {
+function calculateYearsExperienceFromRecord(profile: Record<string, unknown>): number {
   const experience = profile.experience as Array<{ start_date?: string; end_date?: string }>;
   if (!experience || experience.length === 0) return 0;
-
-  let totalMonths = 0;
-  const now = new Date();
-
-  for (const exp of experience) {
-    if (!exp.start_date) continue;
-
-    const start = new Date(exp.start_date);
-    const end =
-      exp.end_date && exp.end_date.toLowerCase() !== 'present' ? new Date(exp.end_date) : now;
-
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
-
-    const months = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30);
-    totalMonths += Math.max(0, months);
-  }
-
-  return Math.round(totalMonths / 12);
+  return calculateYearsExperience(experience as import('../types').Experience[]);
 }

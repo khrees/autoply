@@ -6,8 +6,9 @@ import { logger } from '../../utils/logger';
 import { copyFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
 import { dirname, resolve } from 'path';
 
-export const generateCommand = new Command('generate')
-  .description('Generate documents without applying');
+export const generateCommand = new Command('generate').description(
+  'Generate documents without applying'
+);
 
 generateCommand
   .command('resume <url>')
@@ -60,7 +61,9 @@ generateCommand
         logger.keyValue('Cover Letter', result.coverLetterPath);
       }
     } catch (error) {
-      logger.error(`Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
       process.exit(1);
     }
   });

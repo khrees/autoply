@@ -6,9 +6,11 @@ export class SmartRecruitersScraper extends BaseScraper {
 
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
-    await this.page.waitForSelector('.job-sections, .job-ad-container', {
-      timeout: 10000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('.job-sections, .job-ad-container', {
+        timeout: 10000,
+      })
+      .catch(() => {});
   }
 
   protected override async navigateToApplicationForm(): Promise<void> {
@@ -30,7 +32,7 @@ export class SmartRecruitersScraper extends BaseScraper {
   protected override async waitForApplicationForm(): Promise<void> {
     if (!this.page) return;
 
-    await this.page.waitForSelector('form, .application-form', { timeout: 10000 }).catch(() => { });
+    await this.page.waitForSelector('form, .application-form', { timeout: 10000 }).catch(() => {});
     await this.humanDelay(true);
   }
 
@@ -66,8 +68,6 @@ export class SmartRecruitersScraper extends BaseScraper {
       return false;
     }
   }
-
-
 
   protected async extractJobData(url: string): Promise<JobData> {
     if (!this.page) throw new Error('Page not initialized');
@@ -122,7 +122,7 @@ export class SmartRecruitersScraper extends BaseScraper {
     const questionContainers = await this.page.$$(
       '.question-container, [class*="application-question"]'
     );
-    
+
     return extractCustomQuestionsFromContainers(this.page, questionContainers, 'sr');
   }
 }

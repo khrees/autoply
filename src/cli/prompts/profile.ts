@@ -1,9 +1,16 @@
 import { input, confirm, select } from '@inquirer/prompts';
 
 import type { Profile, Education, Preferences, Experience } from '../../types';
-import { extractTextFromFile, validateDocumentPath, getSupportedFormatsDescription } from '../../utils/document-extractor';
+import {
+  extractTextFromFile,
+  validateDocumentPath,
+  getSupportedFormatsDescription,
+} from '../../utils/document-extractor';
 
-type AIExtractedProfile = Omit<Profile, 'id' | 'created_at' | 'updated_at' | 'base_resume' | 'base_cover_letter' | 'preferences'>;
+type AIExtractedProfile = Omit<
+  Profile,
+  'id' | 'created_at' | 'updated_at' | 'base_resume' | 'base_cover_letter' | 'preferences'
+>;
 
 interface ProfilePromptOptions {
   resumeText?: string;
@@ -11,9 +18,11 @@ interface ProfilePromptOptions {
   aiDefaults?: AIExtractedProfile;
 }
 
-export async function promptForProfile(options: ProfilePromptOptions = {}): Promise<Omit<Profile, 'id' | 'created_at' | 'updated_at'>> {
+export async function promptForProfile(
+  options: ProfilePromptOptions = {}
+): Promise<Omit<Profile, 'id' | 'created_at' | 'updated_at'>> {
   const defaults = options.aiDefaults;
-  console.log('\n📝 Let\'s set up your profile\n');
+  console.log("\n📝 Let's set up your profile\n");
 
   const name = await input({
     message: 'Full name:',
@@ -93,10 +102,10 @@ export async function promptForProfile(options: ProfilePromptOptions = {}): Prom
   const preferences = await promptForPreferences();
 
   // Base resume
-  const base_resume = options.resumeText ?? await promptForDocument('resume');
+  const base_resume = options.resumeText ?? (await promptForDocument('resume'));
 
   // Base cover letter
-  const base_cover_letter = options.coverLetterText ?? await promptForDocument('cover letter');
+  const base_cover_letter = options.coverLetterText ?? (await promptForDocument('cover letter'));
 
   return {
     name,
@@ -166,7 +175,9 @@ async function promptDocumentViaFile(label: string): Promise<string> {
     return promptDocumentViaPaste(label);
   }
 
-  console.log(`\n  ✓ Extracted ${result.content ? result.content.length : 0} characters from ${result.fileType} file.\n`);
+  console.log(
+    `\n  ✓ Extracted ${result.content ? result.content.length : 0} characters from ${result.fileType} file.\n`
+  );
   return result.content || '';
 }
 
@@ -195,7 +206,7 @@ async function promptForEducation(): Promise<Education> {
   });
 
   const degree = await input({
-    message: 'Degree (e.g., Bachelor\'s, Master\'s):',
+    message: "Degree (e.g., Bachelor's, Master's):",
     validate: (v) => (v.length > 0 ? true : 'Required'),
   });
 
@@ -270,9 +281,7 @@ export async function promptForPreferences(): Promise<Preferences> {
   };
 }
 
-export async function promptForProfileUpdate(
-  current: Profile
-): Promise<Partial<Profile>> {
+export async function promptForProfileUpdate(current: Profile): Promise<Partial<Profile>> {
   console.log('\n📝 Update your profile (press Enter to keep current value)\n');
 
   const name = await input({

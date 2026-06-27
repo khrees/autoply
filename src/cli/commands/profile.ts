@@ -3,8 +3,7 @@ import { profileRepository } from '../../db/repositories/profile';
 import { promptForProfileUpdate } from '../prompts/profile';
 import { logger, chalk } from '../../utils/logger';
 
-export const profileCommand = new Command('profile')
-  .description('Manage your profile');
+export const profileCommand = new Command('profile').description('Manage your profile');
 
 profileCommand
   .command('show')
@@ -88,7 +87,9 @@ profileCommand
         logger.info('Edit cancelled.');
         return;
       }
-      logger.error(`Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
   });
 

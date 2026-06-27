@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "bun run src/cli/index.ts",
     "api": "bun run src/api/server.ts",
-    "dev:api": "bun --watch src/api/server.ts",
+    "dev:api": "bun --watch src/api/server.ts && bun run dev",
     "extension:build": "vite build",
     "extension:build:firefox": "TARGET=firefox vite build",
     "extension:dev": "vite",
@@ -57,6 +57,7 @@
     "@fastify/static": "^9.0.0",
     "@inquirer/prompts": "^7.0.0",
     "@sparticuz/chromium": "^123.0.0",
+    "@tanstack/react-query": "^5.74.0",
     "ai": "^4.0.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
@@ -75,7 +76,7 @@
     "rate-limiter-flexible": "^10.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "@tanstack/react-query": "^5.74.0",
-    "zod": "^3.22.0"
+    "zod": "^3.22.0",
+    "zustand": "^5.0.12"
   }
 }

@@ -17,15 +17,15 @@ export const ConnectionBanner = ({ connected }: { connected: boolean }) => (
   </div>
 );
 
-export const Header = ({ connected }: { connected: boolean }) => (
-  <header className="flex items-center px-5 py-4 border-b border-[var(--border-subtle)]">
+export const Header = ({ connected: _connected }: { connected: boolean }) => (
+  <header className="flex items-center px-5 py-4 border-b border-(--border-subtle)">
     <div className="flex items-center gap-3">
-      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
+      <div className="w-9 h-9 rounded-lg bg-linear-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
         <Zap className="w-5 h-5 text-white" />
       </div>
       <div>
-        <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)]">Autoply</h1>
-        <p className="text-[0.6875rem] text-[var(--text-tertiary)]">Job Application Automator</p>
+        <h1 className="text-base font-bold tracking-tight text-(--text-primary)">Autoply</h1>
+        <p className="text-[0.6875rem] text-(--text-tertiary)">Job Application Automator</p>
       </div>
     </div>
   </header>

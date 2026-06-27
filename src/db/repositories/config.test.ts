@@ -39,7 +39,9 @@ describe('ConfigRepository', () => {
     const config = repo.loadAppConfig();
 
     expect(config.application.autoSubmit).toBe(true);
-    expect(config.application.fillOptionalFields).toBe(DEFAULT_CONFIG.application.fillOptionalFields);
+    expect(config.application.fillOptionalFields).toBe(
+      DEFAULT_CONFIG.application.fillOptionalFields
+    );
     expect(config.application.retryAttempts).toBe(DEFAULT_CONFIG.application.retryAttempts);
     expect(config.browser.timeout).toBe(DEFAULT_CONFIG.browser.timeout);
     expect(config.browser.engine).toBe(DEFAULT_CONFIG.browser.engine);

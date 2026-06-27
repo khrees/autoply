@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { CheckCircle, AlertCircle, X, Info, AlertTriangle } from 'lucide-react';
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
@@ -50,13 +50,7 @@ const BORDER_COLORS: Record<ToastType, string> = {
   info: 'border-blue-500/20',
 };
 
-function ToastItem({
-  toast,
-  onDismiss,
-}: {
-  toast: Toast;
-  onDismiss: (id: string) => void;
-}) {
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const [exiting, setExiting] = useState(false);
   const Icon = ICONS[toast.type];
 
@@ -85,11 +79,11 @@ function ToastItem({
         />
       </div>
       <div className="flex items-start gap-2.5 p-3">
-        <Icon className={`w-4 h-4 flex-shrink-0 mt-0.5 ${ICON_COLORS[toast.type]}`} />
-        <p className="flex-1 text-xs text-[var(--text-primary)] leading-relaxed">{toast.message}</p>
+        <Icon className={`w-4 h-4 shrink-0 mt-0.5 ${ICON_COLORS[toast.type]}`} />
+        <p className="flex-1 text-xs text-(--text-primary) leading-relaxed">{toast.message}</p>
         <button
           onClick={handleDismiss}
-          className="p-0.5 rounded hover:bg-white/10 text-[var(--text-tertiary)] transition-colors flex-shrink-0"
+          className="p-0.5 rounded hover:bg-white/10 text-(--text-tertiary) transition-colors shrink-0"
           aria-label="Dismiss"
         >
           <X className="w-3.5 h-3.5" />
@@ -108,7 +102,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const addToast = useCallback((type: ToastType, message: string, duration = 4000) => {
     const id = `toast-${++toastId}`;
-    setToasts((prev) => [...prev.slice(-4), { id, type, message, duration, createdAt: Date.now() }]);
+    setToasts((prev) => [
+      ...prev.slice(-4),
+      { id, type, message, duration, createdAt: Date.now() },
+    ]);
   }, []);
 
   const contextValue: ToastContextValue = {
@@ -123,7 +120,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       {toasts.length > 0 && (
         <div
-          className="fixed top-2 left-2 right-2 z-[100] flex flex-col gap-2 pointer-events-none"
+          className="fixed top-2 left-2 right-2 z-100 flex flex-col gap-2 pointer-events-none"
           aria-label="Notifications"
         >
           {toasts.map((toast) => (

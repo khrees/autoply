@@ -16,17 +16,17 @@ describe('selectBrowserEngine', () => {
   test('defaults to playwright', () => {
     const config = createConfig();
 
-    expect(selectBrowserEngine(config, 'greenhouse', 'https://boards.greenhouse.io/company/jobs/1')).toBe(
-      'playwright'
-    );
+    expect(
+      selectBrowserEngine(config, 'greenhouse', 'https://boards.greenhouse.io/company/jobs/1')
+    ).toBe('playwright');
   });
 
   test('uses patchright when configured as the global engine', () => {
     const config = createConfig({ engine: 'patchright' });
 
-    expect(selectBrowserEngine(config, 'greenhouse', 'https://boards.greenhouse.io/company/jobs/1')).toBe(
-      'patchright'
-    );
+    expect(
+      selectBrowserEngine(config, 'greenhouse', 'https://boards.greenhouse.io/company/jobs/1')
+    ).toBe('patchright');
   });
 
   test('uses patchright for configured hosts and their subdomains', () => {

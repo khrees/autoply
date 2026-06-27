@@ -5,8 +5,7 @@ import { configRepository } from '../../db/repositories/config';
 import { promptForProfile, promptForPreferences } from '../prompts/profile';
 import { logger } from '../../utils/logger';
 import { DEFAULT_CONFIG } from '../../types';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { getDb, ensureAutoplyDir, getAutoplyDir, getDbPath } from '../../db';
+import { getDb, ensureAutoplyDir, getAutoplyDir } from '../../db';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { extractTextFromFile } from '../../utils/document-extractor';
@@ -74,13 +73,21 @@ export const initCommand = new Command('init')
             logger.keyValue('Name', aiExtractedProfile.name);
             logger.keyValue('Email', aiExtractedProfile.email);
             if (aiExtractedProfile.phone) logger.keyValue('Phone', aiExtractedProfile.phone);
-            if (aiExtractedProfile.location) logger.keyValue('Location', aiExtractedProfile.location);
-            logger.keyValue('Skills', aiExtractedProfile.skills.slice(0, 5).join(', ') + (aiExtractedProfile.skills.length > 5 ? '...' : ''));
+            if (aiExtractedProfile.location)
+              logger.keyValue('Location', aiExtractedProfile.location);
+            logger.keyValue(
+              'Skills',
+              aiExtractedProfile.skills.slice(0, 5).join(', ') +
+                (aiExtractedProfile.skills.length > 5 ? '...' : '')
+            );
             logger.keyValue('Experience', `${aiExtractedProfile.experience.length} entries`);
             logger.keyValue('Education', `${aiExtractedProfile.education.length} entries`);
             logger.newline();
 
-            const useExtracted = await confirm({ message: 'Does this look correct?', default: true });
+            const useExtracted = await confirm({
+              message: 'Does this look correct?',
+              default: true,
+            });
             if (useExtracted) {
               const preferences = await promptForPreferences();
               const profileData = {
@@ -113,16 +120,24 @@ export const initCommand = new Command('init')
               return;
             }
           } else {
-            logger.warning('AI provider not configured. Set up with: autoply config set ai.provider ollama');
+            logger.warning(
+              'AI provider not configured. Set up with: autoply config set ai.provider ollama'
+            );
             logger.info('Continuing with manual setup...');
           }
         } catch (error) {
-          logger.warning(`AI extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using manual setup.`);
+          logger.warning(
+            `AI extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using manual setup.`
+          );
         }
       }
 
       // Prompt for profile information
-      const profileData = await promptForProfile({ resumeText, coverLetterText, aiDefaults: aiExtractedProfile ?? undefined });
+      const profileData = await promptForProfile({
+        resumeText,
+        coverLetterText,
+        aiDefaults: aiExtractedProfile ?? undefined,
+      });
 
       // Create profile
       const profile = profileRepository.create(profileData);
@@ -151,7 +166,9 @@ export const initCommand = new Command('init')
         logger.info('Setup cancelled.');
         return;
       }
-      logger.error(`Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
       process.exit(1);
     }
   });

@@ -8,9 +8,11 @@ export class BambooHRScraper extends BaseScraper {
   protected async waitForContent(): Promise<void> {
     if (!this.page) return;
     // BambooHR career pages are JS-rendered React apps
-    await this.page.waitForSelector('[class*="JobDetails"], [class*="jobDetails"], h2, .fab-Page', {
-      timeout: 15000,
-    }).catch(() => { });
+    await this.page
+      .waitForSelector('[class*="JobDetails"], [class*="jobDetails"], h2, .fab-Page', {
+        timeout: 15000,
+      })
+      .catch(() => {});
     await this.page.waitForTimeout(2000);
   }
 
@@ -22,7 +24,9 @@ export class BambooHRScraper extends BaseScraper {
 
     // Extract company from subdomain (e.g., fullbay.bamboohr.com -> Fullbay)
     const companyMatch = url.match(/\/\/([^.]+)\.bamboohr\.com/);
-    let company = companyMatch ? companyMatch[1].charAt(0).toUpperCase() + companyMatch[1].slice(1) : 'Unknown Company';
+    let company = companyMatch
+      ? companyMatch[1].charAt(0).toUpperCase() + companyMatch[1].slice(1)
+      : 'Unknown Company';
 
     let title = 'Unknown Position';
     let description = pageText.slice(0, 4000);
@@ -47,7 +51,10 @@ ${pageText.slice(0, 6000)}`,
         'You extract structured job data from web pages. Return valid JSON only, no markdown fences.'
       );
 
-      const cleaned = response.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+      const cleaned = response
+        .replace(/```json?\n?/g, '')
+        .replace(/```/g, '')
+        .trim();
       const parsed = JSON.parse(cleaned);
 
       title = parsed.title || title;
@@ -81,7 +88,10 @@ ${pageText.slice(0, 6000)}`,
     };
   }
 
-  override async submitApplication(url: string, options: SubmissionOptions): Promise<SubmissionResult> {
+  override async submitApplication(
+    url: string,
+    options: SubmissionOptions
+  ): Promise<SubmissionResult> {
     const errors: string[] = [];
 
     try {
@@ -233,10 +243,10 @@ ${pageText.slice(0, 6000)}`,
     for (const selector of selectors) {
       try {
         const button = await this.page.$(selector);
-        if (button && await button.isVisible()) {
+        if (button && (await button.isVisible())) {
           await this.humanDelay(true);
           await button.click();
-          await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+          await this.page.waitForLoadState('domcontentloaded').catch(() => {});
           await this.page.waitForTimeout(2000);
           return;
         }
@@ -326,7 +336,7 @@ ${pageText.slice(0, 6000)}`,
       for (const selector of selectors) {
         try {
           const input = await this.page.$(selector);
-          if (input && await input.isVisible()) {
+          if (input && (await input.isVisible())) {
             await input.click();
             await input.fill(value);
             await this.humanDelay(true);
@@ -406,7 +416,7 @@ ${pageText.slice(0, 6000)}`,
         const forId = await label.getAttribute('for');
         if (forId) {
           const input = await this.page.$(`#${forId}`);
-          if (input && await input.isVisible()) {
+          if (input && (await input.isVisible())) {
             const currentVal = await input.inputValue().catch(() => '');
             if (!currentVal) {
               await input.click();
@@ -418,11 +428,15 @@ ${pageText.slice(0, 6000)}`,
         }
 
         // Try sibling/child input
-        const container = await label.evaluateHandle(el => el.closest('[class*="field"], .form-group, fieldset') || el.parentElement);
+        const container = await label.evaluateHandle(
+          (el) => el.closest('[class*="field"], .form-group, fieldset') || el.parentElement
+        );
         const containerEl = container.asElement();
         if (containerEl) {
-          const input = await containerEl.$('input:not([type="hidden"]):not([type="submit"]), textarea');
-          if (input && await input.isVisible()) {
+          const input = await containerEl.$(
+            'input:not([type="hidden"]):not([type="submit"]), textarea'
+          );
+          if (input && (await input.isVisible())) {
             const currentVal = await input.inputValue().catch(() => '');
             if (!currentVal) {
               await input.click();
@@ -476,8 +490,8 @@ ${pageText.slice(0, 6000)}`,
 
     // Find all selects and identify them by label
     const selects = await this.page.$$('select');
-    let countrySelect: typeof selects[0] | null = null;
-    let stateSelect: typeof selects[0] | null = null;
+    let countrySelect: (typeof selects)[0] | null = null;
+    let stateSelect: (typeof selects)[0] | null = null;
 
     for (const select of selects) {
       const labelText = await this.page.evaluate((el) => {
@@ -502,9 +516,9 @@ ${pageText.slice(0, 6000)}`,
         const options = await countrySelect.$$eval('option', (opts) =>
           opts.map((o) => ({ value: o.value, text: o.textContent?.trim() || '' }))
         );
-        const match = country ? options.find((o) =>
-          o.text.toLowerCase().includes(country.toLowerCase())
-        ) : null;
+        const match = country
+          ? options.find((o) => o.text.toLowerCase().includes(country.toLowerCase()))
+          : null;
         if (match?.value) {
           await countrySelect.selectOption(match.value);
           await this.humanDelay(true);
@@ -531,8 +545,8 @@ ${pageText.slice(0, 6000)}`,
           const options = await stateSelect.$$eval('option', (opts) =>
             opts.map((o) => ({ value: o.value, text: o.textContent?.trim() || '' }))
           );
-          const validOption = options.find((o) =>
-            o.value && !o.text.toLowerCase().includes('select') && !o.text.startsWith('--')
+          const validOption = options.find(
+            (o) => o.value && !o.text.toLowerCase().includes('select') && !o.text.startsWith('--')
           );
           if (validOption) {
             await stateSelect.selectOption(validOption.value);
@@ -548,13 +562,16 @@ ${pageText.slice(0, 6000)}`,
         try {
           const currentVal = await select.inputValue();
           if (currentVal) continue;
-          const placeholder = await select.$eval('option:first-child', (o) => o.textContent?.trim() || '');
+          const placeholder = await select.$eval(
+            'option:first-child',
+            (o) => o.textContent?.trim() || ''
+          );
           if (placeholder.toLowerCase().includes('select')) {
             const options = await select.$$eval('option', (opts) =>
               opts.map((o) => ({ value: o.value, text: o.textContent?.trim() || '' }))
             );
-            const validOption = options.find((o) =>
-              o.value && !o.text.toLowerCase().includes('select') && !o.text.startsWith('--')
+            const validOption = options.find(
+              (o) => o.value && !o.text.toLowerCase().includes('select') && !o.text.startsWith('--')
             );
             if (validOption) {
               await select.selectOption(validOption.value);
@@ -576,7 +593,9 @@ ${pageText.slice(0, 6000)}`,
       const countryContainers = await this.page.$$('[class*="Country"], [class*="country"]');
       for (const container of countryContainers) {
         // Click the dropdown trigger (the X button or the dropdown itself)
-        const trigger = await container.$('[class*="indicator"], [class*="control"], [role="combobox"]');
+        const trigger = await container.$(
+          '[class*="indicator"], [class*="control"], [role="combobox"]'
+        );
         if (trigger) {
           await trigger.click();
           await this.humanDelay(true);
@@ -586,7 +605,9 @@ ${pageText.slice(0, 6000)}`,
           await this.page.waitForTimeout(500);
 
           // Select first matching option
-          const option = await this.page.$('[class*="option"]:first-child, [role="option"]:first-child');
+          const option = await this.page.$(
+            '[class*="option"]:first-child, [role="option"]:first-child'
+          );
           if (option) {
             await option.click();
             await this.humanDelay(true);
@@ -629,8 +650,10 @@ ${pageText.slice(0, 6000)}`,
       // Try file input directly
       const fileInputs = await this.page.$$('input[type="file"]');
       for (const input of fileInputs) {
-        const parent = await input.evaluateHandle(el =>
-          el.closest('[class*="resume"], [class*="Resume"], [class*="cv"], [class*="CV"], [class*="upload"], [class*="Upload"], .field')
+        const parent = await input.evaluateHandle((el) =>
+          el.closest(
+            '[class*="resume"], [class*="Resume"], [class*="cv"], [class*="CV"], [class*="upload"], [class*="Upload"], .field'
+          )
         );
         const parentEl = parent.asElement();
         if (parentEl) {
@@ -656,7 +679,7 @@ ${pageText.slice(0, 6000)}`,
       for (const selector of uploadSelectors) {
         try {
           const el = await this.page.$(selector);
-          if (el && await el.isVisible()) {
+          if (el && (await el.isVisible())) {
             const [fileChooser] = await Promise.all([
               this.page.waitForEvent('filechooser', { timeout: 5000 }),
               el.click(),
@@ -689,7 +712,7 @@ ${pageText.slice(0, 6000)}`,
     try {
       const fileInputs = await this.page.$$('input[type="file"]');
       for (const input of fileInputs) {
-        const parent = await input.evaluateHandle(el =>
+        const parent = await input.evaluateHandle((el) =>
           el.closest('[class*="cover"], [class*="Cover"], [class*="letter"], .field')
         );
         const parentEl = parent.asElement();
@@ -737,7 +760,9 @@ ${pageText.slice(0, 6000)}`,
           const id = el.id;
           let label = id ? document.querySelector(`label[for="${id}"]`) : null;
           if (label) return label.textContent?.trim() || '';
-          const container = el.closest('.field, .form-group, fieldset, [class*="field"], [class*="question"]');
+          const container = el.closest(
+            '.field, .form-group, fieldset, [class*="field"], [class*="question"]'
+          );
           if (container) {
             label = container.querySelector('label, .field-label, legend');
             if (label) return label.textContent?.trim() || '';
@@ -803,7 +828,9 @@ ${pageText.slice(0, 6000)}`,
 
         // Find the question text — look at parent containers
         const questionText = await radio.evaluate((el) => {
-          let container = el.closest('fieldset, [class*="question"], [class*="field"], .form-group');
+          let container = el.closest(
+            'fieldset, [class*="question"], [class*="field"], .form-group'
+          );
           if (!container) container = el.parentElement?.parentElement?.parentElement ?? null;
           if (!container) return '';
 
@@ -824,7 +851,11 @@ ${pageText.slice(0, 6000)}`,
               const value = await r.getAttribute('value');
               const label = await r.evaluate((el) => {
                 const lbl = el.closest('label') || document.querySelector(`label[for="${el.id}"]`);
-                return lbl?.textContent?.trim().toLowerCase() || el.getAttribute('value')?.toLowerCase() || '';
+                return (
+                  lbl?.textContent?.trim().toLowerCase() ||
+                  el.getAttribute('value')?.toLowerCase() ||
+                  ''
+                );
               });
 
               if (label === answer || value?.toLowerCase() === answer) {
@@ -852,17 +883,21 @@ ${pageText.slice(0, 6000)}`,
       // We need to find the Fabric UI dropdown trigger and interact with it.
 
       // Find all Fabric dropdown triggers that show "--Select--"
-      const dropdownTriggers = await this.page.$$('[class*="fab-Select"] [class*="trigger"], [class*="fab-Select"] button, [class*="Select__control"], [role="combobox"]');
+      const dropdownTriggers = await this.page.$$(
+        '[class*="fab-Select"] [class*="trigger"], [class*="fab-Select"] button, [class*="Select__control"], [role="combobox"]'
+      );
 
       for (const trigger of dropdownTriggers) {
         try {
-          if (!await trigger.isVisible()) continue;
+          if (!(await trigger.isVisible())) continue;
           const text = await trigger.textContent();
           if (!text?.includes('Select')) continue;
 
           // Check if this is the State dropdown by looking at the label
           const labelText = await trigger.evaluate((el) => {
-            const container = el.closest('[class*="field"], [class*="Field"], .form-group, [class*="fab-FormField"]');
+            const container = el.closest(
+              '[class*="field"], [class*="Field"], .form-group, [class*="fab-FormField"]'
+            );
             if (container) {
               const label = container.querySelector('label');
               return label?.textContent?.trim() || '';
@@ -876,7 +911,9 @@ ${pageText.slice(0, 6000)}`,
             await this.page.waitForTimeout(500);
 
             // Look for dropdown options
-            const option = await this.page.$('[class*="fab-SelectOption"]:not([class*="disabled"]), [class*="option"]:not([class*="disabled"]), [role="option"]');
+            const option = await this.page.$(
+              '[class*="fab-SelectOption"]:not([class*="disabled"]), [class*="option"]:not([class*="disabled"]), [role="option"]'
+            );
             if (option) {
               await option.click();
               await this.humanDelay(true);
@@ -898,7 +935,7 @@ ${pageText.slice(0, 6000)}`,
       const selectButtons = await this.page.$$('button, [role="button"], [tabindex="0"]');
       for (const btn of selectButtons) {
         try {
-          if (!await btn.isVisible()) continue;
+          if (!(await btn.isVisible())) continue;
           const text = await btn.textContent();
           if (!text?.includes('Select')) continue;
 
@@ -918,7 +955,9 @@ ${pageText.slice(0, 6000)}`,
             await this.page.waitForTimeout(500);
 
             // Select first option in the dropdown menu
-            const menuOption = await this.page.$('[role="option"], [class*="Option"], [class*="option"], li[class*="item"]');
+            const menuOption = await this.page.$(
+              '[role="option"], [class*="Option"], [class*="option"], li[class*="item"]'
+            );
             if (menuOption) {
               await menuOption.click();
               await this.humanDelay(true);
@@ -961,15 +1000,17 @@ ${pageText.slice(0, 6000)}`,
     if (!this.page) return;
 
     // Find all visible required inputs that are still empty
-    const requiredInputs = await this.page.$$('input[required]:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])');
+    const requiredInputs = await this.page.$$(
+      'input[required]:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])'
+    );
     for (const input of requiredInputs) {
       try {
-        if (!await input.isVisible()) continue;
+        if (!(await input.isVisible())) continue;
         const currentVal = await input.inputValue().catch(() => '');
         if (currentVal) continue;
 
         // Get the type to determine what value to fill
-        const type = await input.getAttribute('type') || 'text';
+        const type = (await input.getAttribute('type')) || 'text';
         const labelText = await this.findLabelForInput(input);
 
         if (type === 'date') {
@@ -983,7 +1024,8 @@ ${pageText.slice(0, 6000)}`,
         } else {
           // Fill with a sensible default based on label
           let defaultVal = 'N/A';
-          if (/college|university|school/i.test(labelText)) defaultVal = 'Ladoke Akintola University of Technology';
+          if (/college|university|school/i.test(labelText))
+            defaultVal = 'Ladoke Akintola University of Technology';
           else if (/degree/i.test(labelText)) defaultVal = 'B.Tech in Computer Science';
           else if (/gpa/i.test(labelText)) defaultVal = '3.5';
           else if (/graduation/i.test(labelText)) defaultVal = '2023';
@@ -999,7 +1041,7 @@ ${pageText.slice(0, 6000)}`,
     const requiredSelects = await this.page.$$('select[required], select');
     for (const select of requiredSelects) {
       try {
-        if (!await select.isVisible()) continue;
+        if (!(await select.isVisible())) continue;
         const currentVal = await select.inputValue();
         if (currentVal) continue;
 
@@ -1007,8 +1049,12 @@ ${pageText.slice(0, 6000)}`,
         const options = await select.$$eval('option', (opts) =>
           opts.map((o) => ({ value: o.value, text: o.textContent?.trim() || '' }))
         );
-        const validOption = options.find((o) =>
-          o.value && !o.text.toLowerCase().includes('select') && !o.text.startsWith('--') && o.text !== ''
+        const validOption = options.find(
+          (o) =>
+            o.value &&
+            !o.text.toLowerCase().includes('select') &&
+            !o.text.startsWith('--') &&
+            o.text !== ''
         );
         if (validOption) {
           await select.selectOption(validOption.value);
@@ -1023,7 +1069,7 @@ ${pageText.slice(0, 6000)}`,
     const requiredTextareas = await this.page.$$('textarea[required]');
     for (const textarea of requiredTextareas) {
       try {
-        if (!await textarea.isVisible()) continue;
+        if (!(await textarea.isVisible())) continue;
         const currentVal = await textarea.inputValue().catch(() => '');
         if (currentVal) continue;
         await textarea.fill('N/A');
@@ -1040,18 +1086,21 @@ ${pageText.slice(0, 6000)}`,
     try {
       // BambooHR shows "Please fill in this field." errors next to empty required fields
       // Find all visible inputs/textareas that are empty and near error messages
-      const emptyInputs = await this.page.$$('input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])');
+      const emptyInputs = await this.page.$$(
+        'input:not([type="hidden"]):not([type="file"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"])'
+      );
 
       for (const input of emptyInputs) {
         try {
-          if (!await input.isVisible()) continue;
+          if (!(await input.isVisible())) continue;
           const val = await input.inputValue().catch(() => '');
           if (val) continue;
 
           // Get label text to determine what to fill
           const labelText = await input.evaluate((el) => {
             // Look for label in the parent container
-            const container = el.closest('[class*="field"], [class*="Field"], .form-group') || el.parentElement;
+            const container =
+              el.closest('[class*="field"], [class*="Field"], .form-group') || el.parentElement;
             if (container) {
               const label = container.querySelector('label, [class*="label"], [class*="Label"]');
               if (label) return label.textContent?.trim() || '';
@@ -1066,7 +1115,8 @@ ${pageText.slice(0, 6000)}`,
           if (/graduation/i.test(labelText)) value = '2023';
           else if (/date/i.test(labelText)) value = '01/30/2026';
           else if (/salary|pay|compensation/i.test(labelText)) value = '$25/hr';
-          else if (/college|university/i.test(labelText)) value = 'Ladoke Akintola University of Technology';
+          else if (/college|university/i.test(labelText))
+            value = 'Ladoke Akintola University of Technology';
 
           await input.scrollIntoViewIfNeeded();
           await input.click();
@@ -1097,7 +1147,7 @@ ${pageText.slice(0, 6000)}`,
     for (const selector of submitSelectors) {
       try {
         const button = await this.page.$(selector);
-        if (button && await button.isVisible() && await button.isEnabled()) {
+        if (button && (await button.isVisible()) && (await button.isEnabled())) {
           await this.humanDelay(true);
           await button.click();
           return true;
@@ -1113,7 +1163,7 @@ ${pageText.slice(0, 6000)}`,
     if (!this.page) return { success: false, message: 'Page not initialized' };
 
     try {
-      await this.page.waitForLoadState('domcontentloaded').catch(() => { });
+      await this.page.waitForLoadState('domcontentloaded').catch(() => {});
       await this.humanDelay();
 
       const successSelectors = [
@@ -1130,7 +1180,7 @@ ${pageText.slice(0, 6000)}`,
       for (const selector of successSelectors) {
         try {
           const el = await this.page.$(selector);
-          if (el && await el.isVisible()) {
+          if (el && (await el.isVisible())) {
             const text = await el.textContent();
             return { success: true, message: text?.trim() || 'Application submitted to BambooHR' };
           }
@@ -1140,11 +1190,18 @@ ${pageText.slice(0, 6000)}`,
       }
 
       const currentUrl = this.page.url();
-      if (currentUrl.includes('thank') || currentUrl.includes('success') || currentUrl.includes('confirm')) {
+      if (
+        currentUrl.includes('thank') ||
+        currentUrl.includes('success') ||
+        currentUrl.includes('confirm')
+      ) {
         return { success: true, message: 'Application submitted successfully' };
       }
 
-      return { success: false, message: 'Could not confirm submission status (no clear success indicator found)' };
+      return {
+        success: false,
+        message: 'Could not confirm submission status (no clear success indicator found)',
+      };
     } catch (error) {
       return {
         success: false,
@@ -1163,10 +1220,9 @@ ${pageText.slice(0, 6000)}`,
 
     for (let i = 0; i < questionContainers.length; i++) {
       const container = questionContainers[i];
-      const questionText = await container.$eval(
-        'label, .question-text, [class*="label"]',
-        (el) => el.textContent?.trim() ?? ''
-      ).catch(() => '');
+      const questionText = await container
+        .$eval('label, .question-text, [class*="label"]', (el) => el.textContent?.trim() ?? '')
+        .catch(() => '');
 
       if (!questionText) continue;
 
@@ -1189,7 +1245,13 @@ ${pageText.slice(0, 6000)}`,
       }
 
       const required = (await container.$('[required]')) !== null;
-      questions.push({ id: `bamboohr_q_${i}`, question: questionText, type, required, options: opts });
+      questions.push({
+        id: `bamboohr_q_${i}`,
+        question: questionText,
+        type,
+        required,
+        options: opts,
+      });
     }
 
     return questions;

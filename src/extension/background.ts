@@ -1,6 +1,7 @@
 // Background script for Autoply Copilot
 // Detects job boards and enables the side panel on supported pages
-if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+
+if (chrome.sidePanel?.setPanelBehavior) {
   chrome.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
     .catch((error) => console.error('Error setting panel behavior:', error));
@@ -42,9 +43,7 @@ const JOB_BOARD_URLS = [
 ];
 
 async function updateSidePanelForTab(tabId: number, url: string): Promise<void> {
-  if (!chrome.sidePanel) {
-    return;
-  }
+  if (!chrome.sidePanel) return;
 
   const isJobBoard = JOB_BOARD_URLS.some((jobBoardUrl) => url.includes(jobBoardUrl));
 
@@ -68,9 +67,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // Listener for messages from content scripts or sidepanel
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'CHECK_CONNECTION') {
-    fetch(`${__API_BASE__}/health`, { signal: AbortSignal.timeout(5000) })
-      .then(res => res.json())
-      .then(data => sendResponse({ connected: true, data }))
+    const apiBase =
+      typeof globalThis !== 'undefined' && typeof (globalThis as Record<string, unknown>).__API_BASE__ === 'string'
+        ? ((globalThis as Record<string, unknown>).__API_BASE__ as string)
+        : 'http://localhost:8088';
+
+    fetch(`${apiBase}/health`, { signal: AbortSignal.timeout(5000) })
+      .then((res) => res.json())
+      .then((data) => sendResponse({ connected: true, data }))
       .catch(() => sendResponse({ connected: false }));
     return true; // Keep channel open
   }

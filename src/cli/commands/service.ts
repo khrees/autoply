@@ -9,16 +9,6 @@ export const serviceCommand = new Command('service').description(
   'Manage the Autoply API background service (auto-start on login)'
 );
 
-function getBinaryPath(): string {
-  // Try to find the autoply binary or use bun run
-  try {
-    const which = execSync('which autoply', { encoding: 'utf8' }).trim();
-    if (which) return which;
-  } catch {}
-  // Fallback: use the script path
-  return process.execPath + ' run api';
-}
-
 // ---- macOS launchd ----
 
 function getLaunchdPlistPath(): string {
@@ -87,7 +77,9 @@ function uninstallMacos(): void {
   }
   try {
     execSync(`launchctl unload "${plistPath}"`, { stdio: 'pipe' });
-  } catch {}
+  } catch {
+    /* service may already be stopped */
+  }
   unlinkSync(plistPath);
   logger.success('Service removed. Autoply API will no longer auto-start.');
 }
@@ -161,17 +153,24 @@ function uninstallLinux(): void {
   }
   try {
     execSync('systemctl --user disable --now autoply-api', { stdio: 'pipe' });
-  } catch {}
+  } catch {
+    /* service may already be stopped */
+  }
   unlinkSync(unitPath);
   try {
     execSync('systemctl --user daemon-reload', { stdio: 'pipe' });
-  } catch {}
+  } catch {
+    /* best-effort reload */
+  }
   logger.success('Service removed.');
 }
 
 function statusLinux(): void {
   try {
-    const out = execSync('systemctl --user status autoply-api', { encoding: 'utf8', stdio: 'pipe' });
+    const out = execSync('systemctl --user status autoply-api', {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
     const active = out.includes('active (running)');
     if (active) {
       logger.success('Service: running');
@@ -195,7 +194,9 @@ serviceCommand
     } else if (os === 'linux') {
       installLinux();
     } else {
-      logger.error(`Auto-start service is not supported on ${os}. Start the API manually with: bun run api`);
+      logger.error(
+        `Auto-start service is not supported on ${os}. Start the API manually with: bun run api`
+      );
     }
   });
 

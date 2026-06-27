@@ -1,5 +1,6 @@
 import type { AIProvider } from '../types';
 import type { Profile, JobData } from '../types';
+import { configRepository } from '../db/repositories/config';
 
 const COVER_LETTER_SYSTEM_PROMPT = `You are a cover letter writer who crafts warm, human, and passionate letters. Your goal is to help the candidate stand out by showing who they truly are - not just what they can do.
 
@@ -113,19 +114,31 @@ Guidelines:
     questionDetail += `\nIMPORTANT: Your answer must be exactly one of the above options.`;
   }
 
+  const config = configRepository.loadAppConfig();
+  let candidateProfileBlock = `Name: ${profile.name}
+Skills: ${profile.skills.join(', ')}
+Recent Experience:
+${profile.experience
+  .slice(0, 2)
+  .map((exp) => `- ${exp.title} at ${exp.company}: ${exp.description ?? exp.highlights.join(', ')}`)
+  .join('\n')}`;
+
+  if (config.application.useResumeForQuestions) {
+    if (profile.base_resume) {
+      candidateProfileBlock += `\n\nFull Resume Content:\n${profile.base_resume}`;
+    }
+    if (profile.base_cover_letter) {
+      candidateProfileBlock += `\n\nBase Cover Letter Content:\n${profile.base_cover_letter}`;
+    }
+  }
+
   const prompt = `Based on the following candidate profile and job posting, please answer this application question:
 
 ## Question
 ${questionDetail}
 
 ## Candidate Profile
-Name: ${profile.name}
-Skills: ${profile.skills.join(', ')}
-Recent Experience:
-${profile.experience
-  .slice(0, 2)
-  .map((exp) => `- ${exp.title} at ${exp.company}: ${exp.description ?? exp.highlights.join(', ')}`)
-  .join('\n')}
+${candidateProfileBlock}
 
 ## Job
 ${jobData.title} at ${jobData.company}
@@ -185,15 +198,27 @@ Rules:
           .join('\n\n')}\n`
       : '';
 
-  const prompt = `Answer these application questions for the candidate.
-
-## Candidate
-Name: ${profile.name}
+  const config = configRepository.loadAppConfig();
+  let candidateProfileBlock = `Name: ${profile.name}
 Skills: ${profile.skills.join(', ')}
 Experience: ${profile.experience
     .slice(0, 3)
     .map((e) => `${e.title} at ${e.company}: ${e.highlights.slice(0, 2).join('; ')}`)
-    .join(' | ')}
+    .join(' | ')}`;
+
+  if (config.application.useResumeForQuestions) {
+    if (profile.base_resume) {
+      candidateProfileBlock += `\n\nFull Resume Content:\n${profile.base_resume}`;
+    }
+    if (profile.base_cover_letter) {
+      candidateProfileBlock += `\n\nBase Cover Letter Content:\n${profile.base_cover_letter}`;
+    }
+  }
+
+  const prompt = `Answer these application questions for the candidate.
+
+## Candidate
+${candidateProfileBlock}
 ${examplesBlock}
 ## Job
 ${jobData.title} at ${jobData.company}

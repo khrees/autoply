@@ -87,16 +87,23 @@ function structuredLog(
 
 export const logger = {
   // ── Structured methods (support optional data + component) ──────────────
+  // All output goes through pino — no manual console.log echoes,
+  // which would cause double-printing when pino-pretty transport is active.
 
-  info: (message: string, data?: Record<string, unknown>, component?: keyof typeof loggerContext) => {
+  info: (
+    message: string,
+    data?: Record<string, unknown>,
+    component?: keyof typeof loggerContext
+  ) => {
     structuredLog('info', message, data, component);
-    // Also echo to console for CLI visibility when no pino transport is active
-    if (!data) console.log(chalk.blue('ℹ'), message);
   },
 
-  warn: (message: string, data?: Record<string, unknown>, component?: keyof typeof loggerContext) => {
+  warn: (
+    message: string,
+    data?: Record<string, unknown>,
+    component?: keyof typeof loggerContext
+  ) => {
     structuredLog('warn', message, data, component);
-    if (!data) console.log(chalk.yellow('⚠'), message);
   },
 
   error: (
@@ -105,13 +112,15 @@ export const logger = {
     component?: keyof typeof loggerContext
   ) => {
     structuredLog('error', message, data, component);
-    if (!data) console.log(chalk.red('✖'), message);
   },
 
-  debug: (message: string, data?: Record<string, unknown>, component?: keyof typeof loggerContext) => {
+  debug: (
+    message: string,
+    data?: Record<string, unknown>,
+    component?: keyof typeof loggerContext
+  ) => {
     if (_verbose || process.env.DEBUG) {
       structuredLog('debug', message, data, component);
-      if (!data) console.log(chalk.gray('⚙'), message);
     }
   },
 
