@@ -21,12 +21,12 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "build": "bun build ./src/cli/index.ts --compile --outfile dist/autoply --external playwright --external playwright-core --external @sparticuz/chromium --external patchright --external patchright-core",
+    "build": "bun build ./src/cli/index.ts --compile --outfile dist/autoply --external playwright --external playwright-core --external patchright --external patchright-core --external keytar",
     "build:all": "bun run build:linux && bun run build:mac && bun run build:windows",
-    "build:linux": "bun build ./src/cli/index.ts --compile --target=bun-linux-x64 --outfile dist/autoply-linux-x64 --external playwright --external playwright-core --external @sparticuz/chromium --external patchright --external patchright-core",
-    "build:mac": "bun build ./src/cli/index.ts --compile --target=bun-darwin-arm64 --outfile dist/autoply-darwin-arm64 --external playwright --external playwright-core --external @sparticuz/chromium --external patchright --external patchright-core",
-    "build:mac-intel": "bun build ./src/cli/index.ts --compile --target=bun-darwin-x64 --outfile dist/autoply-darwin-x64 --external playwright --external playwright-core --external @sparticuz/chromium --external patchright --external patchright-core",
-    "build:windows": "bun build ./src/cli/index.ts --compile --target=bun-windows-x64 --outfile dist/autoply-windows-x64.exe --external playwright --external playwright-core --external @sparticuz/chromium --external patchright --external patchright-core"
+    "build:linux": "bun build ./src/cli/index.ts --compile --target=bun-linux-x64 --outfile dist/autoply-linux-x64 --external playwright --external playwright-core --external patchright --external patchright-core --external keytar",
+    "build:mac": "bun build ./src/cli/index.ts --compile --target=bun-darwin-arm64 --outfile dist/autoply-darwin-arm64 --external playwright --external playwright-core --external patchright --external patchright-core --external keytar",
+    "build:mac-intel": "bun build ./src/cli/index.ts --compile --target=bun-darwin-x64 --outfile dist/autoply-darwin-x64 --external playwright --external playwright-core --external patchright --external patchright-core --external keytar",
+    "build:windows": "bun build ./src/cli/index.ts --compile --target=bun-windows-x64 --outfile dist/autoply-windows-x64.exe --external playwright --external playwright-core --external patchright --external patchright-core --external keytar"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -56,7 +56,6 @@
     "@fastify/multipart": "^9.4.0",
     "@fastify/static": "^9.0.0",
     "@inquirer/prompts": "^7.0.0",
-    "@sparticuz/chromium": "^123.0.0",
     "@tanstack/react-query": "^5.74.0",
     "ai": "^4.0.0",
     "chalk": "^5.3.0",

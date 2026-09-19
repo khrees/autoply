@@ -3,9 +3,6 @@
  * Centralised to avoid duplication.
  */
 
-/** Default API base URL for the extension */
-export const API_BASE = 'http://localhost:8088';
-
 /** URL protocols where the extension cannot inject content scripts */
 export const NON_SCRIPTABLE_PROTOCOLS = [
   'chrome:',

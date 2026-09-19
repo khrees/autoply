@@ -41,20 +41,7 @@ export const CustomQuestionSchema = z.object({
  */
 export const JobDataSchema = z.object({
   url: z.string().url(),
-  platform: z.enum([
-    'greenhouse',
-    'linkedin',
-    'lever',
-    'jobvite',
-    'smartrecruiters',
-    'pinpoint',
-    'teamtailor',
-    'workday',
-    'ashby',
-    'bamboohr',
-    'workable',
-    'generic',
-  ]),
+  platform: z.enum(['greenhouse', 'linkedin', 'lever', 'ashby', 'generic']),
   title: z.string().min(1, 'Job title is required'),
   company: z.string().min(1, 'Company name is required'),
   description: z.string().min(50, 'Job description too short'),

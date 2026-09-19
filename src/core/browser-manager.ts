@@ -5,7 +5,7 @@ import type {
   LaunchOptions,
   Page,
 } from 'playwright-core';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import type { AppConfig, Platform } from '../types';
 import { configRepository } from '../db/repositories/config';
 import { logger } from '../utils/logger';
@@ -66,12 +66,58 @@ function getRandomViewport(): { width: number; height: number } {
   return VIEWPORTS[Math.floor(Math.random() * VIEWPORTS.length)];
 }
 
-const DEFAULT_LAUNCH_ARGS = [
+const LOCALES = ['en-US', 'en-GB', 'en-CA', 'en-AU', 'de-DE', 'fr-FR', 'nl-NL', 'es-ES'];
+const TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'Europe/London',
+  'Europe/Berlin',
+  'Europe/Paris',
+  'Europe/Amsterdam',
+  'Australia/Sydney',
+];
+
+function getRandomLocale(): string {
+  return LOCALES[Math.floor(Math.random() * LOCALES.length)];
+}
+
+function getRandomTimezone(): string {
+  return TIMEZONES[Math.floor(Math.random() * TIMEZONES.length)];
+}
+
+const BASE_LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
   '--disable-features=IsolateOrigins,site-per-process',
   '--disable-dev-shm-usage',
-  '--no-sandbox',
 ];
+
+function isContainerized(): boolean {
+  if (process.env.AUTOPLY_CONTAINER === '1' || process.env.AUTOPLY_CONTAINER === 'true')
+    return true;
+  if (process.env.DOCKER_CONTAINER === '1' || process.env.DOCKER_CONTAINER === 'true') return true;
+  if (process.env.RENDER === 'true' || process.env.RENDER_SERVICE_ID) return true;
+  try {
+    if (existsSync('/.dockerenv')) return true;
+    if (existsSync('/proc/1/cgroup')) {
+      const cgroup = readFileSync('/proc/1/cgroup', 'utf-8');
+      if (cgroup.includes('docker') || cgroup.includes('kubepods') || cgroup.includes('render'))
+        return true;
+    }
+  } catch {
+    // Best-effort detection
+  }
+  return false;
+}
+
+function getLaunchArgs(): string[] {
+  // --no-sandbox weakens Chrome's sandbox. Only use it inside containers
+  // running as root where it is required; keep the sandbox on desktops.
+  if (isContainerized()) return [...BASE_LAUNCH_ARGS, '--no-sandbox'];
+  return [...BASE_LAUNCH_ARGS];
+}
 
 function maskAutomationIndicators(): void {
   Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -131,6 +177,8 @@ export function selectBrowserEngine(
   platform: Platform,
   url?: string
 ): BrowserEngine {
+  // Precedence (highest first): global engine > platform list > host list.
+  // If browser.engine is 'patchright' globally, the two lists below are ignored.
   if (config.browser.engine === 'patchright') {
     return 'patchright';
   }
@@ -158,10 +206,13 @@ function buildContextOptions(config: AppConfig): BrowserContextOptions {
         ? config.browser.storageState
         : undefined,
     viewport: getRandomViewport(),
-    locale: Intl.DateTimeFormat().resolvedOptions().locale || 'en-US',
-    timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    // Randomize independently of the host machine: a Render US box would
+    // otherwise leak the same timezone across every "randomized" session.
+    locale: getRandomLocale(),
+    timezoneId: getRandomTimezone(),
     deviceScaleFactor: Math.random() > 0.5 ? 1 : 2,
     hasTouch: Math.random() > 0.8,
+    proxy: config.browser.proxy,
   };
 }
 
@@ -189,7 +240,12 @@ class BrowserManager {
     const engine = selectBrowserEngine(config, platform, url);
     const pooledBrowser = await this.acquireBrowser(config, engine);
     const context = await pooledBrowser.browser.newContext(buildContextOptions(config));
-    await context.addInitScript(maskAutomationIndicators);
+    // Patchright already patches automation indicators at the CDP level.
+    // Stacking our init script on top produces inconsistent fingerprints,
+    // so only mask for the plain Playwright engine.
+    if (engine === 'playwright') {
+      await context.addInitScript(maskAutomationIndicators);
+    }
     const page = await context.newPage();
     page.setDefaultTimeout(config.browser.timeout);
 
@@ -275,11 +331,12 @@ class BrowserManager {
 
     const automation = await loadAutomationModule(engine);
     const launchArgs = config.browser.headless
-      ? [...DEFAULT_LAUNCH_ARGS, '--headless=new']
-      : DEFAULT_LAUNCH_ARGS;
+      ? [...getLaunchArgs(), '--headless=new']
+      : getLaunchArgs();
     const browser = await automation.chromium.launch({
       headless: config.browser.headless,
       args: launchArgs,
+      proxy: config.browser.proxy,
     });
 
     const createdBrowser: PooledBrowser = {

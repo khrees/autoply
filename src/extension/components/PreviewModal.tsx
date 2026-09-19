@@ -8,8 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { API_BASE } from '../constants';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { getApiBaseUrl, getApiToken } from '../utils/api-config';
 
 // ── Markdown renderer ────────────────────────────────────────────────────────
 
@@ -236,6 +236,23 @@ export const PreviewModal = ({
   const [activeTabs, setActiveTabs] = useState<Record<number, PreviewTab>>({});
   const [pdfErrors, setPdfErrors] = useState<Record<number, boolean>>({});
   const [showSplit, setShowSplit] = useState(docs.length >= 2);
+  const [apiBase, setApiBase] = useState('http://localhost:8088');
+  const [apiToken, setApiTokenState] = useState('');
+
+  useEffect(() => {
+    getApiBaseUrl()
+      .then(setApiBase)
+      .catch(() => {});
+    getApiToken()
+      .then((t) => setApiTokenState(t || ''))
+      .catch(() => {});
+  }, []);
+
+  const docUrl = (kind: 'preview' | 'download', filename?: string): string | null => {
+    if (!filename) return null;
+    const url = `${apiBase}/documents/${kind}/${encodeURIComponent(filename)}`;
+    return apiToken ? `${url}?token=${encodeURIComponent(apiToken)}` : url;
+  };
 
   useFocusTrap(containerRef, { onClose });
 
@@ -258,14 +275,13 @@ export const PreviewModal = ({
   const activeTab = activeTabs[docIndex] ?? 'pdf';
   const pdfError = pdfErrors[docIndex] ?? false;
 
-  const previewUrl = currentDoc?.filename
-    ? `${API_BASE}/documents/preview/${encodeURIComponent(currentDoc.filename)}`
-    : null;
+  const previewUrl = docUrl('preview', currentDoc?.filename);
 
   const handleDownload = () => {
-    if (!currentDoc?.filename) return;
+    const url = docUrl('download', currentDoc?.filename);
+    if (!url || !currentDoc?.filename) return;
     const link = document.createElement('a');
-    link.href = `${API_BASE}/documents/download/${encodeURIComponent(currentDoc.filename)}`;
+    link.href = url;
     link.download = currentDoc.filename;
     link.click();
   };
@@ -275,6 +291,10 @@ export const PreviewModal = ({
   };
 
   // ── Split view (both documents side-by-side) ─────────────────────────
+  // Hooks must stay above the early return — previously two useMemos
+  // lived inside this branch (conditional hooks bug).
+  const splitHtml0 = useMemo(() => renderMarkdown(docs[0]?.content || ''), [docs[0]?.content]);
+  const splitHtml1 = useMemo(() => renderMarkdown(docs[1]?.content || ''), [docs[1]?.content]);
   if (showSplit && docs.length === 2) {
     const doc0 = docs[0];
     const doc1 = docs[1];
@@ -282,14 +302,10 @@ export const PreviewModal = ({
     const tab1 = activeTabs[1] ?? 'pdf';
     const err0 = pdfErrors[0] ?? false;
     const err1 = pdfErrors[1] ?? false;
-    const url0 = doc0.filename
-      ? `${API_BASE}/documents/preview/${encodeURIComponent(doc0.filename)}`
-      : null;
-    const url1 = doc1.filename
-      ? `${API_BASE}/documents/preview/${encodeURIComponent(doc1.filename)}`
-      : null;
-    const html0 = useMemo(() => renderMarkdown(doc0.content), [doc0.content]);
-    const html1 = useMemo(() => renderMarkdown(doc1.content), [doc1.content]);
+    const url0 = docUrl('preview', doc0.filename);
+    const url1 = docUrl('preview', doc1.filename);
+    const html0 = splitHtml0;
+    const html1 = splitHtml1;
 
     return (
       <div
@@ -352,9 +368,10 @@ export const PreviewModal = ({
                 previewUrl={url0}
                 pdfError={err0}
                 onDownload={() => {
-                  if (!doc0.filename) return;
+                  const url = docUrl('download', doc0.filename);
+                  if (!doc0.filename || !url) return;
                   const link = document.createElement('a');
-                  link.href = `${API_BASE}/documents/download/${encodeURIComponent(doc0.filename)}`;
+                  link.href = url;
                   link.download = doc0.filename;
                   link.click();
                 }}
@@ -372,9 +389,10 @@ export const PreviewModal = ({
                 previewUrl={url1}
                 pdfError={err1}
                 onDownload={() => {
-                  if (!doc1.filename) return;
+                  const url = docUrl('download', doc1.filename);
+                  if (!doc1.filename || !url) return;
                   const link = document.createElement('a');
-                  link.href = `${API_BASE}/documents/download/${encodeURIComponent(doc1.filename)}`;
+                  link.href = url;
                   link.download = doc1.filename;
                   link.click();
                 }}

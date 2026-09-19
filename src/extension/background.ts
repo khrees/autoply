@@ -8,18 +8,11 @@ if (chrome.sidePanel?.setPanelBehavior) {
 }
 
 const JOB_BOARD_URLS = [
-  // Major ATS platforms
+  // Supported ATS platforms (scrape-verified)
   'greenhouse.io',
   'lever.co',
   'ashbyhq.com',
-  'smartrecruiters.com',
-  'jobvite.com',
-  'myworkdayjobs.com',
-  'teamtailor.com',
-  'pinpointhq.com',
-  'bamboohr.com',
   // Additional ATS platforms
-  'workable.com',
   'icims.com',
   'breezy.hr',
   'recruitee.com',
@@ -68,7 +61,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'CHECK_CONNECTION') {
     const apiBase =
-      typeof globalThis !== 'undefined' && typeof (globalThis as Record<string, unknown>).__API_BASE__ === 'string'
+      typeof globalThis !== 'undefined' &&
+      typeof (globalThis as Record<string, unknown>).__API_BASE__ === 'string'
         ? ((globalThis as Record<string, unknown>).__API_BASE__ as string)
         : 'http://localhost:8088';
 

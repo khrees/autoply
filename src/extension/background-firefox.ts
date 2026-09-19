@@ -1,18 +1,7 @@
 // Background script for Autoply Copilot (Firefox compatible)
 // Detects job boards and manages the extension popup
 
-const JOB_BOARD_URLS = [
-  'greenhouse.io',
-  'lever.co',
-  'linkedin.com/jobs',
-  'ashbyhq.com',
-  'smartrecruiters.com',
-  'jobvite.com',
-  'myworkdayjobs.com',
-  'teamtailor.com',
-  'pinpointhq.com',
-  'bamboohr.com',
-];
+const JOB_BOARD_URLS = ['greenhouse.io', 'lever.co', 'linkedin.com/jobs', 'ashbyhq.com'];
 
 // Helper to check if running in Firefox
 declare const browser: typeof chrome;

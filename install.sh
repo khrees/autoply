@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="khrees2412/autoply"
+REPO="khrees/autoply"
 BINARY_NAME="autoply"
 
 # Prefer ~/.local/bin if it's in PATH, otherwise fall back to /usr/local/bin
@@ -66,11 +66,28 @@ info "Downloading $ASSET_NAME..."
 
 # Get latest release download URL
 DOWNLOAD_URL="https://github.com/$REPO/releases/download/nightly/$ASSET_NAME"
+CHECKSUM_URL="${DOWNLOAD_URL}.sha256"
 
 # Download to temp
 TMP_FILE=$(mktemp)
 if ! curl -fL --http1.1 --progress-bar "$DOWNLOAD_URL" -o "$TMP_FILE"; then
   error "Failed to download from $DOWNLOAD_URL"
+fi
+
+# Verify checksum when published (warn but continue if missing for old releases)
+TMP_CHECKSUM=$(mktemp)
+if curl -fLs "$CHECKSUM_URL" -o "$TMP_CHECKSUM"; then
+  EXPECTED=$(awk '{print $1}' "$TMP_CHECKSUM")
+  ACTUAL=$(shasum -a 256 "$TMP_FILE" | awk '{print $1}')
+  if [ "$EXPECTED" != "$ACTUAL" ]; then
+    rm -f "$TMP_FILE" "$TMP_CHECKSUM"
+    error "Checksum mismatch for $ASSET_NAME (expected $EXPECTED, got $ACTUAL)"
+  fi
+  info "Checksum verified."
+  rm -f "$TMP_CHECKSUM"
+else
+  warn "No checksum file at $CHECKSUM_URL; skipping verification (old release?)."
+  rm -f "$TMP_CHECKSUM"
 fi
 
 chmod +x "$TMP_FILE"

@@ -3,28 +3,14 @@ import { BaseScraper } from './base';
 import { GreenhouseScraper } from './greenhouse';
 import { LeverScraper } from './lever';
 import { LinkedInScraper } from './linkedin';
-import { JobviteScraper } from './jobvite';
-import { SmartRecruitersScraper } from './smartrecruiters';
-import { PinpointScraper } from './pinpoint';
-import { TeamtailorScraper } from './teamtailor';
-import { WorkdayScraper } from './workday';
 import { AshbyScraper } from './ashby';
-import { BambooHRScraper } from './bamboohr';
-import { WorkableScraper } from './workable';
 import { GenericScraper } from './generic';
 
 const scraperMap: Record<Platform, new () => BaseScraper> = {
   greenhouse: GreenhouseScraper,
   lever: LeverScraper,
   linkedin: LinkedInScraper,
-  jobvite: JobviteScraper,
-  smartrecruiters: SmartRecruitersScraper,
-  pinpoint: PinpointScraper,
-  teamtailor: TeamtailorScraper,
-  workday: WorkdayScraper,
   ashby: AshbyScraper,
-  bamboohr: BambooHRScraper,
-  workable: WorkableScraper,
   generic: GenericScraper,
 };
 
@@ -46,14 +32,7 @@ export {
   GreenhouseScraper,
   LeverScraper,
   LinkedInScraper,
-  JobviteScraper,
-  SmartRecruitersScraper,
-  PinpointScraper,
-  TeamtailorScraper,
-  WorkdayScraper,
   AshbyScraper,
-  BambooHRScraper,
-  WorkableScraper,
   GenericScraper,
 };
 

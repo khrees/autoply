@@ -177,3 +177,8 @@ dist
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Autoply local secrets (never commit)
+api-token
+credentials.json
+browser-state.json

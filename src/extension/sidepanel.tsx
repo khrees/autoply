@@ -27,7 +27,7 @@ import { Providers } from './providers';
 
 // Components
 import { ToastProvider, useToast } from './components/Toast';
-import { ConfirmProvider } from './components/ConfirmDialog';
+import { ConfirmProvider, useConfirm } from './components/ConfirmDialog';
 import { ConnectionBanner, Header } from './components/Header';
 import { LoadingState, QuickStats } from './components/shared';
 import { ActionCard } from './components/ActionCard';
@@ -174,6 +174,7 @@ function buildProfileKeyToValue(profile: Profile): Record<string, string> {
 
 const AppContent = () => {
   const toast = useToast();
+  const confirm = useConfirm();
 
   // UI state via Zustand
   const {
@@ -374,9 +375,24 @@ const AppContent = () => {
   };
 
   const handleBulkProcess = async () => {
+    const autoSubmit = config?.application?.autoSubmit;
+    const pendingCount = queueStats?.pending ?? 0;
+
+    // Require explicit confirmation before a bulk auto-submit run.
+    // Fill-only mode (autoSubmit off) is non-destructive — no gate needed.
+    if (autoSubmit) {
+      const ok = await confirm({
+        title: 'Submit applications automatically?',
+        message: `Auto-submit is ON. Processing will submit ${pendingCount} job${pendingCount !== 1 ? 's' : ''} without per-job review. Make sure your profile and documents are up to date before continuing.`,
+        confirmLabel: 'Yes, process queue',
+        cancelLabel: 'Cancel',
+      });
+      if (!ok) return;
+    }
+
     try {
       await bulkProcessMutation.mutateAsync({
-        autoSubmit: config?.application?.autoSubmit,
+        autoSubmit,
         delaySeconds: config?.application?.rateLimitDelay || 0,
       });
       toast.success('Queue processing started');

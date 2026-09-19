@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { configRepository } from '../../db/repositories/config';
 import { credentialStore } from '../../db/repositories/secure-credentials';
-import { createAIProvider, testProvider } from '../../ai/provider';
+import { createAIProvider, testProvider, clearModelCache } from '../../ai/provider';
 import type { AppConfig, AIConfig } from '../../types';
 
 export function registerConfigRoutes(app: FastifyInstance): void {
@@ -20,6 +20,7 @@ export function registerConfigRoutes(app: FastifyInstance): void {
       const provider = data.ai.provider;
       if (provider === 'openai' || provider === 'anthropic' || provider === 'google') {
         await credentialStore.setApiKey(provider, data.ai.apiKey);
+        clearModelCache();
         data.ai.apiKey = undefined;
       }
     }
@@ -49,6 +50,7 @@ export function registerConfigRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ success: false, error: 'Provider and API key required' });
     }
     const success = await credentialStore.setApiKey(provider, apiKey);
+    if (success) clearModelCache();
     return { success };
   });
 
@@ -58,6 +60,7 @@ export function registerConfigRoutes(app: FastifyInstance): void {
       return reply.status(400).send({ success: false, error: 'Provider required' });
     }
     const success = await credentialStore.deleteApiKey(provider);
+    if (success) clearModelCache();
     return { success };
   });
 

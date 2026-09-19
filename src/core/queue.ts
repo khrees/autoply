@@ -67,8 +67,29 @@ export class ApplicationQueue {
     const item = this.items.get(id);
     if (item) {
       item.result = result;
+      // Link queue state to the SQLite row so a crash can't leave
+      // queue.json saying "completed" with no matching applications.id.
+      if (result && typeof result.id === 'number') {
+        item.applicationId = result.id;
+      }
       this.debouncedPersist();
     }
+  }
+
+  /**
+   * Reconcile in-memory queue state against SQLite on startup.
+   * Callers should invoke this after load() to avoid drift between
+   * queue.json ("processing") and the applications table ("pending").
+   */
+  reconcileWithApplications(
+    findByUrl: (url: string) => { id?: number; status?: string } | undefined
+  ): void {
+    for (const item of this.items.values()) {
+      if (item.applicationId) continue;
+      const row = findByUrl(item.url);
+      if (row?.id) item.applicationId = row.id;
+    }
+    this.persist();
   }
 
   remove(id: string): boolean {

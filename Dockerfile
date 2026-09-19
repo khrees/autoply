@@ -36,6 +36,7 @@ RUN bunx playwright install --with-deps chromium
 ENV PORT=3000
 ENV HOST=0.0.0.0
 ENV NODE_ENV=production
+ENV AUTOPLY_CONTAINER=1
 
 # Expose the API port
 EXPOSE 3000

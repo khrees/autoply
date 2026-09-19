@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { join } from 'path';
+import { join, resolve, basename } from 'path';
 import { tmpdir } from 'os';
 import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { applicationOrchestrator } from '../../core/application';
@@ -41,6 +41,21 @@ export function stopTempDocCleanup(): void {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
   }
+}
+
+/**
+ * Resolve a client-supplied filename to an absolute path inside TEMP_DOC_DIR.
+ * Returns null if the resolved path escapes the directory (traversal attempt).
+ */
+function safeDocPath(filename: string): string | null {
+  // basename strips any ../ or subdirectory components from the input.
+  const safe = join(TEMP_DOC_DIR, basename(filename));
+  // Double-check with resolve in case of edge cases.
+  const resolved = resolve(safe);
+  if (!resolved.startsWith(TEMP_DOC_DIR + '/') && resolved !== TEMP_DOC_DIR) {
+    return null;
+  }
+  return resolved;
 }
 
 export function registerDocumentRoutes(app: FastifyInstance): void {
@@ -90,7 +105,11 @@ export function registerDocumentRoutes(app: FastifyInstance): void {
 
   app.get('/documents/download/:filename', async (request, reply) => {
     const { filename } = request.params as { filename: string };
-    const filePath = join(TEMP_DOC_DIR, filename);
+    const filePath = safeDocPath(filename);
+
+    if (!filePath) {
+      return reply.status(400).send({ error: 'Invalid filename' });
+    }
 
     try {
       if (!existsSync(filePath)) {
@@ -99,7 +118,7 @@ export function registerDocumentRoutes(app: FastifyInstance): void {
       const fs = await import('fs');
       const stream = fs.createReadStream(filePath);
       reply.header('Content-Type', 'application/pdf');
-      reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+      reply.header('Content-Disposition', `attachment; filename="${basename(filename)}"`);
       return reply.send(stream);
     } catch (error) {
       return reply.status(500).send({ error: (error as Error).message });
@@ -108,7 +127,11 @@ export function registerDocumentRoutes(app: FastifyInstance): void {
 
   app.get('/documents/preview/:filename', async (request, reply) => {
     const { filename } = request.params as { filename: string };
-    const filePath = join(TEMP_DOC_DIR, filename);
+    const filePath = safeDocPath(filename);
+
+    if (!filePath) {
+      return reply.status(400).send({ error: 'Invalid filename' });
+    }
 
     try {
       if (!existsSync(filePath)) {
@@ -117,7 +140,7 @@ export function registerDocumentRoutes(app: FastifyInstance): void {
       const fs = await import('fs');
       const stream = fs.createReadStream(filePath);
       reply.header('Content-Type', 'application/pdf');
-      reply.header('Content-Disposition', `inline; filename="${filename}"`);
+      reply.header('Content-Disposition', `inline; filename="${basename(filename)}"`);
       return reply.send(stream);
     } catch (error) {
       return reply.status(500).send({ error: (error as Error).message });

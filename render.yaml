@@ -3,11 +3,19 @@ services:
     name: autoply-api
     runtime: docker
     plan: starter # Can be adjusted based on needs
+    disk:
+      name: autoply-data
+      mountPath: /data
+      sizeGB: 1
     envVars:
       - key: PORT
         value: 3000
       - key: HOST
         value: 0.0.0.0
+      - key: AUTOPLY_HOME
+        value: /data
+      - key: AUTOPLY_API_TOKEN
+        sync: false # Required: bearer token for all non-/health routes
       - key: ANTHROPIC_API_KEY
         sync: false # User must provide this in Render dashboard
       - key: OPENAI_API_KEY

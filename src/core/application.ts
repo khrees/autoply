@@ -1,13 +1,17 @@
 import type { JobData } from '../types';
 import { generateCoverLetter } from '../ai/cover-letter';
-import { evaluateJobFit } from '../ai/job-matcher';
 import { tailorResume } from '../ai/resume';
 import { profileRepository } from '../db/repositories/profile';
 import { applicationRepository } from '../db/repositories/application';
 import { configRepository } from '../db/repositories/config';
 import { ApplicationQueue } from './queue';
 import { FillPlanEngine } from './fill-plan-engine';
-import { generateResumePdf, generateCoverLetterPdf, generateDocumentFilename, markdownToPdf } from './document';
+import {
+  generateResumePdf,
+  generateCoverLetterPdf,
+  generateDocumentFilename,
+  markdownToPdf,
+} from './document';
 import { logger, createSpinner, withCorrelationId, generateCorrelationId } from '../utils/logger';
 
 // ── Re-export pipeline types for external consumers ───────────────────────────
@@ -15,7 +19,6 @@ export type {
   ApplicationResult,
   PassiveProcessResult,
   GeneratedDocumentPaths,
-  DetectedFormField,
   AutoModeOptions,
   ApplyOptions,
   JobFitResult,
@@ -23,6 +26,7 @@ export type {
 export { resolveAutoMode, summarizeSubmissionFailure } from './pipeline/types';
 
 // ── Import pipeline processors ────────────────────────────────────────────────
+import { resolveAutoMode } from './pipeline/types';
 import { scrapeJobForApplication } from './pipeline/scraper';
 import { evaluateFitForJob } from './pipeline/fit-evaluator';
 import { generateApplicationDocuments } from './pipeline/document-generator';
@@ -32,7 +36,6 @@ import type {
   ApplicationResult,
   PassiveProcessResult,
   GeneratedDocumentPaths,
-  AutoModeOptions,
   ApplyOptions,
 } from './pipeline/types';
 
@@ -63,7 +66,7 @@ export class ApplicationOrchestrator {
     correlationId: string
   ): Promise<ApplicationResult> {
     const { dryRun = false, generateOnly = false, resumePath, coverLetterPath } = options;
-    const autoOpts = this._resolveAutoMode(options.autoMode);
+    const autoOpts = resolveAutoMode(options.autoMode);
     const config = configRepository.loadAppConfig();
 
     const provider = createAIProvider();
@@ -98,7 +101,12 @@ export class ApplicationOrchestrator {
 
     // Step 3: Evaluate job fit
     spinner.start('Evaluating job fit...');
-    const fitResult = await evaluateFitForJob(provider, profile, jobData, config.application.minFitScore);
+    const fitResult = await evaluateFitForJob(
+      provider,
+      profile,
+      jobData,
+      config.application.minFitScore
+    );
     if (fitResult.belowThreshold) {
       spinner.fail(`Fit score below threshold`);
       return { success: false, error: `Fit score below threshold`, fitResult: fitResult.fitResult };
@@ -111,7 +119,14 @@ export class ApplicationOrchestrator {
 
     // Step 4: Generate documents
     const docResult = await generateApplicationDocuments(
-      provider, profile, jobData, jobData.title, jobData.company, url, platform, spinner
+      provider,
+      profile,
+      jobData,
+      jobData.title,
+      jobData.company,
+      url,
+      platform,
+      spinner
     );
     if (!docResult.success) {
       return { success: false, error: docResult.error };
@@ -167,15 +182,33 @@ export class ApplicationOrchestrator {
     // Step 8: Handle Submission logic
     if (config.application.autoSubmit && autoOpts.submitWithoutConfirmation) {
       return submitApplicationWithRetries(
-        application, jobData, profile, documents, autoOpts,
-        resumePath, coverLetterPath, platform, url, correlationId, spinner,
-        fitResult.fitResult
+        application,
+        jobData,
+        profile,
+        documents,
+        autoOpts,
+        resumePath,
+        coverLetterPath,
+        platform,
+        url,
+        correlationId,
+        spinner
       );
     } else {
-      logger.info('Application is now in "Review Required" state. Fill form manually or approve in extension.');
+      logger.info(
+        'Application is now in "Review Required" state. Fill form manually or approve in extension.'
+      );
       return fillApplicationForm(
-        application, jobData, profile, documents, autoOpts,
-        resumePath, coverLetterPath, platform, url, spinner
+        application,
+        jobData,
+        profile,
+        documents,
+        autoOpts,
+        resumePath,
+        coverLetterPath,
+        platform,
+        url,
+        spinner
       );
     }
   }
@@ -272,6 +305,7 @@ export class ApplicationOrchestrator {
       return { success: false, error: 'No profile found' };
     }
 
+    const config = configRepository.loadAppConfig();
     const provider = createAIProvider();
     if (!(await provider.isAvailable())) {
       return { success: false, error: 'AI provider not available' };
@@ -280,14 +314,14 @@ export class ApplicationOrchestrator {
     // Strip HTML tags before sending to the LLM to prevent prompt injection
     // embedded in page content (e.g. <!-- ignore previous instructions -->)
     const safeText = html
-      .replace(/<!--[\s\S]*?-->/g, '')      // remove HTML comments first
-      .replace(/<script[\s\S]*?<\/script>/gi, '')   // strip script blocks
-      .replace(/<style[\s\S]*?<\/style>/gi, '')      // strip style blocks
-      .replace(/<[^>]+>/g, ' ')              // remove remaining tags
-      .replace(/&[a-z]+;/gi, ' ')            // decode common entities roughly
-      .replace(/\s{2,}/g, ' ')               // collapse whitespace
+      .replace(/<!--[\s\S]*?-->/g, '') // remove HTML comments first
+      .replace(/<script[\s\S]*?<\/script>/gi, '') // strip script blocks
+      .replace(/<style[\s\S]*?<\/style>/gi, '') // strip style blocks
+      .replace(/<[^>]+>/g, ' ') // remove remaining tags
+      .replace(/&[a-z]+;/gi, ' ') // decode common entities roughly
+      .replace(/\s{2,}/g, ' ') // collapse whitespace
       .trim()
-      .slice(0, 100_000);                    // hard cap at 100k chars
+      .slice(0, 100_000); // hard cap at 100k chars
 
     try {
       // 1. Extract job data from page text using AI
@@ -309,8 +343,34 @@ export class ApplicationOrchestrator {
         extracted
       );
 
-      // 2. Evaluate Fit
-      const fitResult = await evaluateJobFit(provider, profile, jobData);
+      // 2. Evaluate Fit (same threshold gate as the CLI path).
+      // Previously the extension computed fit but never checked it, so a
+      // 10%-fit job still got documents + a DB record the CLI would refuse.
+      const { fitResult, belowThreshold } = await evaluateFitForJob(
+        provider,
+        profile,
+        jobData,
+        config.application.minFitScore
+      );
+      if (belowThreshold) {
+        return {
+          success: false,
+          error: 'Fit score below threshold',
+          fitResult,
+          jobData,
+        };
+      }
+
+      // Guard unknown titles like applyToJob does — don't mint records
+      // for pages the extractor couldn't understand.
+      if (jobData.title === 'Unknown Position' && !jobData.company) {
+        return {
+          success: false,
+          error: 'Could not extract job details from page',
+          fitResult,
+          jobData,
+        };
+      }
 
       // 3. Generate Documents
       const resumeMd = await tailorResume(provider, profile, jobData);
@@ -379,19 +439,6 @@ export class ApplicationOrchestrator {
         error: error instanceof Error ? error.message : 'Processing failed',
       };
     }
-  }
-
-  private _resolveAutoMode(autoMode: ApplyOptions['autoMode']): AutoModeOptions {
-    if (!autoMode)
-      return { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false };
-    if (autoMode === true)
-      return { skipPrompts: true, useAIForOptionalQuestions: true, submitWithoutConfirmation: true };
-    return {
-      skipPrompts: false,
-      useAIForOptionalQuestions: false,
-      submitWithoutConfirmation: false,
-      ...autoMode,
-    };
   }
 }
 

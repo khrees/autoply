@@ -63,14 +63,7 @@ export function getPlatformExamples(): Record<Platform, string> {
     greenhouse: 'https://boards.greenhouse.io/company/jobs/12345',
     linkedin: 'https://linkedin.com/jobs/view/12345',
     lever: 'https://jobs.lever.co/company/job-id',
-    jobvite: 'https://jobs.jobvite.com/company/job/12345',
-    smartrecruiters: 'https://jobs.smartrecruiters.com/Company/12345',
-    pinpoint: 'https://company.pinpointhq.com/jobs/12345',
-    teamtailor: 'https://company.teamtailor.com/jobs/12345',
-    workday: 'https://company.myworkdayjobs.com/en-US/External/job/12345',
     ashby: 'https://jobs.ashbyhq.com/company/job-id',
-    bamboohr: 'https://company.bamboohr.com/careers/123',
-    workable: 'https://apply.workable.com/company/j/1234567/apply/',
     generic: 'https://company.com/careers/job/12345',
   };
 }

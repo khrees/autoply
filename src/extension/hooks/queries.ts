@@ -1,19 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import type { Profile, AppConfig, Application } from '../../types';
-import { getApiBaseUrl } from '../utils/api-config';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function getApiUrl(path: string): Promise<string> {
-  const base = await getApiBaseUrl();
-  return `${base}${path}`;
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  return res.json();
-}
+import { getApiUrl, getAuthHeaders, apiFetchJson } from '../utils/api-config';
 
 // ── Query keys ───────────────────────────────────────────────────────────────
 
@@ -47,7 +34,8 @@ export function useConnectionStatus() {
   return useQuery({
     queryKey: queryKeys.connection,
     queryFn: async () => {
-      const res = await fetch(await getApiUrl('/extension/status'));
+      const headers = await getAuthHeaders();
+      const res = await fetch(await getApiUrl('/extension/status'), { headers });
       if (!res.ok) throw new Error('Connection failed');
       return true;
     },
@@ -62,7 +50,7 @@ export function useProfile() {
   return useQuery({
     queryKey: queryKeys.profile,
     queryFn: async (): Promise<Profile | null> => {
-      const data = await fetchJson<Profile | { error: string }>(await getApiUrl('/profile'));
+      const data = await apiFetchJson<Profile | { error: string }>('/profile');
       if ('error' in data) return null;
       return isProfile(data) ? data : null;
     },
@@ -75,7 +63,7 @@ export function useConfig() {
   return useQuery({
     queryKey: queryKeys.config,
     queryFn: async (): Promise<AppConfig> => {
-      return fetchJson<AppConfig>(await getApiUrl('/config'));
+      return apiFetchJson<AppConfig>('/config');
     },
     staleTime: 30_000,
   });
@@ -89,11 +77,11 @@ export function useApplications() {
       // Background cleanup
       fetch(await getApiUrl('/applications/cleanup'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify({ hours: 24 }),
       }).catch(() => {});
 
-      const data = await fetchJson<Application[]>(await getApiUrl('/applications'));
+      const data = await apiFetchJson<Application[]>('/applications');
       return sortApplications(data);
     },
     staleTime: 10_000,
@@ -105,9 +93,7 @@ export function useQueueStats() {
   return useQuery({
     queryKey: queryKeys.queueStats,
     queryFn: async () => {
-      return fetchJson<{ pending: number; completed: number; failed: number }>(
-        await getApiUrl('/queue/stats')
-      );
+      return apiFetchJson<{ pending: number; completed: number; failed: number }>('/queue/stats');
     },
     staleTime: 5_000,
   });
@@ -136,7 +122,7 @@ export function useAIModels(provider: 'ollama' | 'lmstudio' | string) {
   return useQuery({
     queryKey: ['ai', 'models', provider],
     queryFn: async (): Promise<string[]> => {
-      const data = await fetchJson<{ models?: string[] }>(await getApiUrl('/ai/models'));
+      const data = await apiFetchJson<{ models?: string[] }>('/ai/models');
       return data.models || [];
     },
     enabled: provider === 'ollama' || provider === 'lmstudio',
@@ -160,7 +146,8 @@ export function useExtensionData() {
     config: config.data ?? null,
     applications: applications.data ?? [],
     queueStats: queueStats.data ?? null,
-    isLoading: connection.isLoading || profile.isLoading || config.isLoading || applications.isLoading,
+    isLoading:
+      connection.isLoading || profile.isLoading || config.isLoading || applications.isLoading,
     isError: connection.isError || profile.isError || config.isError || applications.isError,
     refetch: () => {
       connection.refetch();

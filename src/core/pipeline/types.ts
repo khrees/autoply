@@ -30,13 +30,6 @@ export interface GeneratedDocumentPaths {
   coverLetterContent?: string;
 }
 
-// ── Form field ────────────────────────────────────────────────────────────────
-export interface DetectedFormField {
-  key: string;
-  type: string;
-  label: string;
-}
-
 // ── Automation flags ──────────────────────────────────────────────────────────
 export interface AutoModeOptions {
   skipPrompts: boolean;
@@ -57,7 +50,11 @@ export interface ApplyOptions {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 export function resolveAutoMode(autoMode: ApplyOptions['autoMode']): AutoModeOptions {
   if (!autoMode)
-    return { skipPrompts: false, useAIForOptionalQuestions: false, submitWithoutConfirmation: false };
+    return {
+      skipPrompts: false,
+      useAIForOptionalQuestions: false,
+      submitWithoutConfirmation: false,
+    };
   if (autoMode === true)
     return { skipPrompts: true, useAIForOptionalQuestions: true, submitWithoutConfirmation: true };
   return {

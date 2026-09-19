@@ -35,7 +35,7 @@ autoply init
 <summary><strong>Install from source</strong></summary>
 
 ```bash
-git clone https://github.com/khrees2412/autoply.git
+git clone https://github.com/khrees/autoply.git
 cd autoply
 bun install
 bun run build
@@ -124,14 +124,7 @@ A browser window opens — log in manually, and the session is saved for future 
 | Greenhouse | `boards.greenhouse.io/*` |
 | LinkedIn | `linkedin.com/jobs/*` |
 | Lever | `jobs.lever.co/*` |
-| Workday | `*.myworkdayjobs.com/*` |
 | Ashby | `jobs.ashbyhq.com/*` |
-| Jobvite | `jobs.jobvite.com/*` |
-| SmartRecruiters | `jobs.smartrecruiters.com/*` |
-| Pinpoint | `*.pinpointhq.com/*` |
-| Teamtailor | `*.teamtailor.com/*` |
-| Workable | `apply.workable.com/*` |
-| BambooHR | `*.bamboohr.com/careers/*` |
 
 ---
 
@@ -244,6 +237,21 @@ Verify your setup:
 autoply config test
 ```
 
+### API server auth
+
+All API routes except `/health` require a bearer token:
+
+```bash
+# Token lives at ~/.autoply/api-token (0600), generated on first run
+cat ~/.autoply/api-token
+curl -H "Authorization: Bearer <token>" http://localhost:8088/config
+```
+
+Override with `AUTOPLY_API_TOKEN` (required for Docker/Render where `HOST=0.0.0.0`).
+The extension stores the token in Settings → API Token.
+
+API key precedence for cloud providers: `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`GOOGLE_API_KEY` env vars → OS keychain → `~/.autoply/credentials.json` file fallback (0600, used in containers without a keychain).
+
 ### All Options
 
 ```bash
@@ -260,15 +268,16 @@ autoply config providers         # List AI providers
 | `ai.model` | varies | Model name |
 | `ai.baseUrl` | varies | API base URL (local providers) |
 | `ai.temperature` | `0.7` | Generation temperature |
-| `browser.engine` | `playwright` | Default browser engine |
+| `browser.engine` | `playwright` | Default browser engine. When set to `patchright` globally, `patchrightHosts`/`patchrightPlatforms` are ignored |
 | `browser.headless` | `false` | Run browser without UI |
 | `browser.timeout` | `30000` | Browser timeout (ms) |
 | `browser.reuseSessions` | `true` | Reuse browser processes across jobs |
 | `browser.maxOpenPagesPerBrowser` | `2` | Max concurrent pages per browser process |
 | `browser.retireBrowserAfterPageCount` | `25` | Rotate a browser process after this many pages |
 | `browser.closeInactiveBrowserAfterMillis` | `30000` | Close idle pooled browsers after this delay |
-| `browser.patchrightHosts` | `[]` | Hosts that should use Patchright instead of Playwright |
-| `browser.patchrightPlatforms` | `[]` | Platforms that should use Patchright instead of Playwright |
+| `browser.patchrightHosts` | `[]` | Hosts that should use Patchright instead of Playwright (only when `browser.engine` is `playwright`) |
+| `browser.patchrightPlatforms` | `[]` | Platforms that should use Patchright instead of Playwright (only when `browser.engine` is `playwright`) |
+| `browser.proxy` | unset | Optional `{ server, username?, password? }` proxy for bulk mode (IP diversity matters more than UA rotation at volume) |
 | `application.autoSubmit` | `false` | Auto-submit after form fill |
 | `application.fillOptionalFields` | `false` | Fill optional fields and questions instead of leaving them blank |
 | `application.saveScreenshots` | `true` | Save screenshots on submission |

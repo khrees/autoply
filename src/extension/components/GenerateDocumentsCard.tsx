@@ -1,6 +1,7 @@
 import React from 'react';
 import { FileText, Loader2, RefreshCcw, Eye, Download, LayoutTemplate } from 'lucide-react';
-import { API_BASE, NON_SCRIPTABLE_PROTOCOLS } from '../constants';
+import { NON_SCRIPTABLE_PROTOCOLS } from '../constants';
+import { getAuthedUrl } from '../utils/api-config';
 import type { GeneratedDocumentsResult } from '../hooks/mutations';
 
 export const GenerateDocumentsCard = ({
@@ -23,14 +24,13 @@ export const GenerateDocumentsCard = ({
 
   if (!isValidJobUrl) return null;
 
-
   const hasResume = !!(generatedDocs?.resume && generatedDocs?.resumeContent);
   const hasCoverLetter = !!(generatedDocs?.coverLetter && generatedDocs?.coverLetterContent);
   const hasBoth = hasResume && hasCoverLetter;
 
-  const handleDownload = (filename: string) => {
+  const handleDownload = async (filename: string) => {
     const link = document.createElement('a');
-    link.href = `${API_BASE}/documents/download/${encodeURIComponent(filename)}`;
+    link.href = await getAuthedUrl(`/documents/download/${encodeURIComponent(filename)}`);
     link.download = filename;
     link.click();
   };
@@ -87,7 +87,9 @@ export const GenerateDocumentsCard = ({
                 <div className="p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-semibold text-(--text-primary)">Cover Letter</span>
+                    <span className="text-xs font-semibold text-(--text-primary)">
+                      Cover Letter
+                    </span>
                   </div>
                   <p className="text-[10px] text-(--text-tertiary) leading-relaxed line-clamp-3">
                     {generatedDocs.coverLetterContent?.slice(0, 180)}

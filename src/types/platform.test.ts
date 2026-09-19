@@ -82,117 +82,6 @@ describe('SUPPORTED_PLATFORMS regex patterns', () => {
     });
   });
 
-  describe('jobvite', () => {
-    const regex = SUPPORTED_PLATFORMS.jobvite;
-
-    test('matches standard jobvite URL', () => {
-      expect(regex.test('https://jobs.jobvite.com/company/job/12345')).toBe(true);
-    });
-
-    test('matches jobvite careers URL', () => {
-      expect(regex.test('https://jobs.jobvite.com/company/careers')).toBe(true);
-    });
-
-    test('does not match non-jobvite URLs', () => {
-      expect(regex.test('https://jobvite.com/jobs')).toBe(false);
-    });
-  });
-
-  describe('smartrecruiters', () => {
-    const regex = SUPPORTED_PLATFORMS.smartrecruiters;
-
-    test('matches real smartrecruiters URL', () => {
-      // Real example from SmartRecruiters
-      expect(
-        regex.test(
-          'https://jobs.smartrecruiters.com/WabashValleyPowerAlliance/744000090457343-line-superintendent-kankakee-valley-remc-'
-        )
-      ).toBe(true);
-    });
-
-    test('matches smartrecruiters URL with numeric ID', () => {
-      expect(
-        regex.test('https://jobs.smartrecruiters.com/Skechers1/12308096-quality-assurance-manager')
-      ).toBe(true);
-    });
-
-    test('does not match non-smartrecruiters URLs', () => {
-      expect(regex.test('https://smartrecruiters.com/jobs')).toBe(false);
-    });
-  });
-
-  describe('pinpoint', () => {
-    const regex = SUPPORTED_PLATFORMS.pinpoint;
-
-    test('matches standard pinpoint URL', () => {
-      expect(regex.test('https://company.pinpointhq.com/jobs/12345')).toBe(true);
-    });
-
-    test('matches pinpoint URL with different subdomains', () => {
-      expect(regex.test('https://acme-corp.pinpointhq.com/postings/engineer')).toBe(true);
-    });
-
-    test('matches pinpoint URL with en subdomain', () => {
-      expect(regex.test('https://en.company.pinpointhq.com/jobs/12345')).toBe(true);
-    });
-
-    test('does not match non-pinpoint URLs', () => {
-      expect(regex.test('https://pinpointhq.com/jobs')).toBe(false);
-    });
-  });
-
-  describe('teamtailor', () => {
-    const regex = SUPPORTED_PLATFORMS.teamtailor;
-
-    test('matches standard teamtailor URL', () => {
-      expect(regex.test('https://company.teamtailor.com/jobs/12345')).toBe(true);
-    });
-
-    test('matches teamtailor URL with different subdomains', () => {
-      expect(regex.test('https://acme-corp.teamtailor.com/jobs/engineer')).toBe(true);
-    });
-
-    test('matches teamtailor careers subdomain', () => {
-      expect(regex.test('https://careers.company.teamtailor.com/jobs/12345')).toBe(true);
-    });
-
-    test('does not match non-teamtailor URLs', () => {
-      expect(regex.test('https://teamtailor.com/jobs')).toBe(false);
-    });
-  });
-
-  describe('workday', () => {
-    const regex = SUPPORTED_PLATFORMS.workday;
-
-    test('matches real Workday careers URL', () => {
-      // Real example: Workday's own careers page
-      expect(regex.test('https://workday.wd5.myworkdayjobs.com/Workday')).toBe(true);
-    });
-
-    test('matches Mastercard Workday URL', () => {
-      // Real example: Mastercard
-      expect(regex.test('https://mastercard.wd1.myworkdayjobs.com/CorporateCareers')).toBe(true);
-    });
-
-    test('matches workday.com URL with /job/ path', () => {
-      expect(regex.test('https://company.workday.com/en-US/job/12345')).toBe(true);
-    });
-
-    test('matches workday.com URL with deep path', () => {
-      expect(regex.test('https://company.workday.com/wday/cxs/company/External/job/12345')).toBe(
-        true
-      );
-    });
-
-    test('does not match workday.com without /job/ path', () => {
-      expect(regex.test('https://company.workday.com/careers')).toBe(false);
-    });
-
-    test('does not match non-workday URLs', () => {
-      expect(regex.test('https://example.com/myworkdayjobs')).toBe(false);
-    });
-  });
-
   describe('ashby', () => {
     const regex = SUPPORTED_PLATFORMS.ashby;
 
@@ -215,36 +104,9 @@ describe('SUPPORTED_PLATFORMS regex patterns', () => {
     });
   });
 
-  describe('workable', () => {
-    const regex = SUPPORTED_PLATFORMS.workable;
-
-    test('matches workable apply URL', () => {
-      expect(regex.test('https://apply.workable.com/pubgenius-1/j/9DD2F70851/apply/')).toBe(true);
-    });
-
-    test('matches workable URL without apply path', () => {
-      expect(regex.test('https://apply.workable.com/company/j/1234567/')).toBe(true);
-    });
-
-    test('does not match non-workable URLs', () => {
-      expect(regex.test('https://workable.com/jobs')).toBe(false);
-    });
-  });
-
   describe('platform coverage', () => {
     test('all expected platforms are defined', () => {
-      const expectedPlatforms: Platform[] = [
-        'greenhouse',
-        'linkedin',
-        'lever',
-        'jobvite',
-        'smartrecruiters',
-        'pinpoint',
-        'teamtailor',
-        'workday',
-        'ashby',
-        'workable',
-      ];
+      const expectedPlatforms: Platform[] = ['greenhouse', 'linkedin', 'lever', 'ashby', 'generic'];
 
       for (const platform of expectedPlatforms) {
         expect(SUPPORTED_PLATFORMS[platform]).toBeDefined();
@@ -258,15 +120,7 @@ describe('SUPPORTED_PLATFORMS regex patterns', () => {
         greenhouse: 'https://boards.greenhouse.io/vaulttec/jobs/127817',
         linkedin: 'https://www.linkedin.com/jobs/view/3812345678',
         lever: 'https://jobs.lever.co/examplecompany/4f816f9a-7f03-4e18-9710-6ec9a9c0d40e',
-        jobvite: 'https://jobs.jobvite.com/careers/company/job/12345',
-        smartrecruiters:
-          'https://jobs.smartrecruiters.com/Skechers1/12308096-quality-assurance-manager',
-        pinpoint: 'https://acme.pinpointhq.com/postings/engineer-12345',
-        teamtailor: 'https://company.teamtailor.com/jobs/software-engineer',
-        workday: 'https://workday.wd5.myworkdayjobs.com/Workday',
         ashby: 'https://jobs.ashbyhq.com/ashby',
-        bamboohr: 'https://company.bamboohr.com/careers/12345',
-        workable: 'https://apply.workable.com/pubgenius-1/j/9DD2F70851/apply/',
         generic: 'https://careers.somecompany.com/jobs/12345',
       };
 

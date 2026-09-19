@@ -2,7 +2,12 @@ import { Command } from 'commander';
 import { configRepository } from '../../db/repositories/config';
 import { credentialStore } from '../../db/repositories/secure-credentials';
 import { logger, chalk } from '../../utils/logger';
-import { getAvailableProviders, testProvider, createAIProvider } from '../../ai/provider';
+import {
+  getAvailableProviders,
+  testProvider,
+  createAIProvider,
+  clearModelCache,
+} from '../../ai/provider';
 
 export const configCommand = new Command('config').description('Manage configuration');
 
@@ -72,7 +77,10 @@ configCommand
     logger.keyValue('  Fill Optional Fields', config.application.fillOptionalFields ? 'Yes' : 'No');
     logger.keyValue('  Save Screenshots', config.application.saveScreenshots ? 'Yes' : 'No');
     logger.keyValue('  Retry Attempts', config.application.retryAttempts.toString());
-    logger.keyValue('  Use Resume for Questions', config.application.useResumeForQuestions ? 'Yes' : 'No');
+    logger.keyValue(
+      '  Use Resume for Questions',
+      config.application.useResumeForQuestions ? 'Yes' : 'No'
+    );
   });
 
 configCommand
@@ -165,6 +173,7 @@ credentialsCommand
     );
 
     if (success) {
+      clearModelCache();
       logger.success(`API key for ${provider} stored securely in keychain`);
     } else {
       logger.error('Failed to store API key');
@@ -186,6 +195,7 @@ credentialsCommand
     );
 
     if (success) {
+      clearModelCache();
       logger.success(`API key for ${provider} removed from keychain`);
     } else {
       logger.error('Failed to delete API key');

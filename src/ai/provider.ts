@@ -25,7 +25,7 @@ const API_KEY_ENV_VARS: Partial<Record<AIProviderType, string>> = {
   google: 'GOOGLE_API_KEY',
 };
 
-export interface AIConfigExtended extends AIConfig {
+interface AIConfigExtended extends AIConfig {
   apiKey?: string;
 }
 
@@ -38,7 +38,9 @@ async function resolveApiKey(provider: AIProviderType): Promise<string | null> {
 
   const cloudProvider = provider as CloudProvider;
 
-  // Priority 1: Environment variable (most secure - never stored)
+  // Precedence: env var > keychain/file store. The deprecated config-file
+  // key is intentionally not read — env and secure storage are the only
+  // sources, so `config.ai.apiKey` is never persisted.
   const envKey = API_KEY_ENV_VARS[cloudProvider];
   if (envKey && process.env[envKey]) {
     return process.env[envKey] ?? null;
@@ -56,15 +58,33 @@ async function resolveApiKey(provider: AIProviderType): Promise<string | null> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const modelCache = new Map<string, any>();
 
+function hashKey(key: string): string {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+/**
+ * Clears cached model clients. Called after credential writes so a fixed
+ * API key takes effect without a process restart.
+ */
+export function clearModelCache(): void {
+  modelCache.clear();
+}
+
 async function createModel(config: AIConfigExtended) {
   const modelId = config.model || MODEL_DEFAULTS[config.provider];
-  const cacheKey = `${config.provider}:${modelId}:${config.baseUrl ?? ''}`;
+
+  // Resolve API key first so the cache key binds to the credential.
+  // A rotated key must not reuse a client built with the stale key.
+  const apiKey = await resolveApiKey(config.provider);
+  const keyFingerprint = apiKey ? hashKey(apiKey) : 'nokey';
+  const cacheKey = `${config.provider}:${modelId}:${config.baseUrl ?? ''}:${keyFingerprint}`;
 
   const cached = modelCache.get(cacheKey);
   if (cached) return cached;
-
-  // Resolve API key from secure storage (priority: env > keychain > config)
-  const apiKey = await resolveApiKey(config.provider);
 
   const isCloudProvider = ['openai', 'anthropic', 'google'].includes(config.provider);
   if (isCloudProvider && !apiKey) {
@@ -148,12 +168,23 @@ class UnifiedAIProvider implements AIProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
-      const model = await createModel(this.config);
-      await generateText({
-        model,
-        prompt: 'Hi',
-        maxTokens: 50,
-      });
+      // Local providers: cheap TCP probe, no billed completion.
+      if (this.name === 'ollama' || this.name === 'lmstudio') {
+        const model = await createModel(this.config);
+        await generateText({
+          model,
+          prompt: 'Hi',
+          maxTokens: 50,
+        });
+        return true;
+      }
+      // Cloud providers: "available" means a syntactically valid key is
+      // configured. A full completion here would bill the user on every
+      // health check / test click, so avoid it.
+      const apiKey = await resolveApiKey(this.name);
+      if (!apiKey || apiKey.length < 8) return false;
+      // createModel throws when the key is missing/misconfigured.
+      await createModel(this.config);
       return true;
     } catch {
       return false;
@@ -209,11 +240,8 @@ export async function testProvider(
   provider: AIProvider
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const available = await provider.isAvailable();
-    if (!available) {
-      return { success: false, error: 'Provider is not available or not running' };
-    }
-
+    // Single billed completion doubles as the availability check.
+    // Do not call isAvailable() first — that would bill twice.
     const response = await provider.generateText('Say "hello" and nothing else.');
     if (!response || response.length === 0) {
       return { success: false, error: 'Provider returned empty response' };

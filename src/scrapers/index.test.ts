@@ -3,11 +3,6 @@ import { createScraper } from './index';
 import { GreenhouseScraper } from './greenhouse';
 import { LeverScraper } from './lever';
 import { LinkedInScraper } from './linkedin';
-import { JobviteScraper } from './jobvite';
-import { SmartRecruitersScraper } from './smartrecruiters';
-import { PinpointScraper } from './pinpoint';
-import { TeamtailorScraper } from './teamtailor';
-import { WorkdayScraper } from './workday';
 import { AshbyScraper } from './ashby';
 import type { Platform } from '../types';
 
@@ -30,36 +25,6 @@ describe('createScraper', () => {
     expect(scraper.platform).toBe('linkedin');
   });
 
-  test('creates JobviteScraper for jobvite platform', () => {
-    const scraper = createScraper('jobvite');
-    expect(scraper).toBeInstanceOf(JobviteScraper);
-    expect(scraper.platform).toBe('jobvite');
-  });
-
-  test('creates SmartRecruitersScraper for smartrecruiters platform', () => {
-    const scraper = createScraper('smartrecruiters');
-    expect(scraper).toBeInstanceOf(SmartRecruitersScraper);
-    expect(scraper.platform).toBe('smartrecruiters');
-  });
-
-  test('creates PinpointScraper for pinpoint platform', () => {
-    const scraper = createScraper('pinpoint');
-    expect(scraper).toBeInstanceOf(PinpointScraper);
-    expect(scraper.platform).toBe('pinpoint');
-  });
-
-  test('creates TeamtailorScraper for teamtailor platform', () => {
-    const scraper = createScraper('teamtailor');
-    expect(scraper).toBeInstanceOf(TeamtailorScraper);
-    expect(scraper.platform).toBe('teamtailor');
-  });
-
-  test('creates WorkdayScraper for workday platform', () => {
-    const scraper = createScraper('workday');
-    expect(scraper).toBeInstanceOf(WorkdayScraper);
-    expect(scraper.platform).toBe('workday');
-  });
-
   test('creates AshbyScraper for ashby platform', () => {
     const scraper = createScraper('ashby');
     expect(scraper).toBeInstanceOf(AshbyScraper);
@@ -73,17 +38,7 @@ describe('createScraper', () => {
   });
 
   test('all platforms have corresponding scrapers', () => {
-    const platforms: Platform[] = [
-      'greenhouse',
-      'lever',
-      'linkedin',
-      'jobvite',
-      'smartrecruiters',
-      'pinpoint',
-      'teamtailor',
-      'workday',
-      'ashby',
-    ];
+    const platforms: Platform[] = ['greenhouse', 'lever', 'linkedin', 'ashby', 'generic'];
 
     for (const platform of platforms) {
       const scraper = createScraper(platform);

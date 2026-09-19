@@ -42,13 +42,20 @@ jobs:
         run: bun install
 
       - name: Build binary
-        run: bun build ./src/cli/index.ts --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }} --external playwright --external playwright-core --external @sparticuz/chromium --external patchright --external patchright-core
+        run: bun build ./src/cli/index.ts --compile --target=${{ matrix.target }} --outfile ${{ matrix.artifact }} --external playwright --external playwright-core --external patchright --external patchright-core --external keytar
+
+      - name: Generate checksums
+        run: |
+          shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+          cat ${{ matrix.artifact }}.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
 
   release:
     needs: build

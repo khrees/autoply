@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import { Link2, Plus, Play, Loader2, CheckCircle, AlertCircle, Clock, X } from 'lucide-react';
 import type { QueueItem } from '../../types';
-import { getApiBaseUrl } from '../utils/api-config';
+import { apiFetchJson } from '../utils/api-config';
 
 const QUEUE_STATUS_ICON: Record<string, React.ReactNode> = {
   pending: <Clock className="w-3.5 h-3.5 text-amber-400" />,
@@ -38,13 +38,9 @@ export const BulkSection = ({
 
   const fetchQueueItems = useCallback(async () => {
     try {
-      const base = await getApiBaseUrl();
-      const res = await fetch(`${base}/queue`);
-      if (res.ok) {
-        const data = await res.json();
-        setQueueItems(data.items || []);
-        if (data.items?.length > 0) setShowQueue(true);
-      }
+      const data = await apiFetchJson<{ items?: QueueItem[] }>('/queue');
+      setQueueItems(data.items || []);
+      if ((data.items?.length ?? 0) > 0) setShowQueue(true);
     } catch {
       // Queue fetch is best-effort
     }
@@ -69,7 +65,9 @@ export const BulkSection = ({
 
   const progress = useMemo(() => {
     if (!queueItems.length) return 0;
-    const completed = queueItems.filter(i => i.status === 'completed' || i.status === 'failed').length;
+    const completed = queueItems.filter(
+      (i) => i.status === 'completed' || i.status === 'failed'
+    ).length;
     return (completed / queueItems.length) * 100;
   }, [queueItems]);
 

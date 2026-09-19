@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, ShieldCheck, CheckCircle, AlertCircle, Loader2, RefreshCw, Server } from 'lucide-react';
+import {
+  Sparkles,
+  ShieldCheck,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  RefreshCw,
+  Server,
+} from 'lucide-react';
 import type { AppConfig, AIProviderType } from '../../types';
-import { getApiBaseUrl, setApiBaseUrl } from '../utils/api-config';
+import { getApiBaseUrl, setApiBaseUrl, getApiToken, setApiToken } from '../utils/api-config';
 import { useAIModels } from '../hooks';
 
 export const SettingsSection = ({
@@ -14,9 +22,11 @@ export const SettingsSection = ({
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
   const [apiBaseUrl, setApiBaseUrlState] = useState('');
+  const [apiToken, setApiTokenState] = useState('');
 
   useEffect(() => {
     getApiBaseUrl().then(setApiBaseUrlState);
+    getApiToken().then((t) => setApiTokenState(t || ''));
   }, []);
 
   // Fetch available models for local providers
@@ -50,9 +60,13 @@ export const SettingsSection = ({
     setTestStatus('testing');
     setTestMessage('');
     try {
+      const token = await getApiToken();
       const res = await fetch(`${apiBaseUrl}/config/test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ ai: config.ai }),
       });
       const data = await res.json();
@@ -96,7 +110,28 @@ export const SettingsSection = ({
             />
           </div>
           <p className="text-xs text-(--text-tertiary)">
-            The browser extension communicates with this server to access your profile and AI configurations.
+            The browser extension communicates with this server to access your profile and AI
+            configurations.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <label className="label">API Token</label>
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={apiToken}
+              onChange={(e) => {
+                setApiTokenState(e.target.value);
+                void setApiToken(e.target.value.trim());
+              }}
+              placeholder="Bearer token from ~/.autoply/api-token"
+              className="input font-mono"
+              aria-label="API bearer token"
+            />
+          </div>
+          <p className="text-xs text-(--text-tertiary)">
+            Required by the API server. Copy it from ~/.autoply/api-token or set AUTOPLY_API_TOKEN.
           </p>
         </div>
       </div>

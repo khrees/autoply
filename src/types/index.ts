@@ -1,32 +1,13 @@
 import { z } from 'zod';
 
 // ============ Platform Types ============
-export type Platform =
-  | 'greenhouse'
-  | 'linkedin'
-  | 'lever'
-  | 'jobvite'
-  | 'smartrecruiters'
-  | 'pinpoint'
-  | 'teamtailor'
-  | 'workday'
-  | 'ashby'
-  | 'bamboohr'
-  | 'workable'
-  | 'generic';
+export type Platform = 'greenhouse' | 'linkedin' | 'lever' | 'ashby' | 'generic';
 
 export const SUPPORTED_PLATFORMS: Record<Platform, RegExp> = {
   greenhouse: /(?:job-)?boards\.greenhouse\.io|[?&]gh_jid=|greenhouse\.io\/embed/,
   linkedin: /linkedin\.com\/jobs/,
   lever: /jobs\.lever\.co/,
-  jobvite: /jobs\.jobvite\.com/,
-  smartrecruiters: /jobs\.smartrecruiters\.com/,
-  pinpoint: /\.pinpointhq\.com/,
-  teamtailor: /\.teamtailor\.com/,
-  workday: /\.myworkdayjobs\.com|workday\.com\/.*\/job/,
   ashby: /jobs\.ashbyhq\.com/,
-  bamboohr: /\.bamboohr\.com\/careers/,
-  workable: /apply\.workable\.com/,
   generic: /.*/,
 };
 
@@ -175,6 +156,16 @@ export interface AppConfig {
     closeInactiveBrowserAfterMillis: number;
     patchrightHosts: string[];
     patchrightPlatforms: Platform[];
+    /**
+     * Optional proxy for bulk mode. Rotating UA/viewport without IP
+     * diversity is the most detectable signal — set this when running
+     * `apply -f jobs.txt` at volume.
+     */
+    proxy?: {
+      server: string;
+      username?: string;
+      password?: string;
+    };
   };
   application: {
     autoSubmit: boolean;
@@ -231,6 +222,12 @@ export interface QueueItem {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   error?: string;
   result?: Application;
+  /**
+   * SQLite `applications.id` for the same real-world application.
+   * The queue is the scheduling state machine; SQLite is the record of
+   * what happened. Link them instead of tracking status twice.
+   */
+  applicationId?: number;
 }
 
 // ============ CLI Types ============

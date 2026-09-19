@@ -45,16 +45,16 @@ function buildCoverLetterPrompt(profile: Profile, jobData: JobData): string {
 ${profile.location ? `**Location:** ${profile.location}` : ''}
 
 ### Summary of Qualifications
-${profile.skills.slice(0, 10).join(', ')}
+${(profile.skills ?? []).slice(0, 10).join(', ')}
 
 ### Recent Experience
-${profile.experience
+${(profile.experience ?? [])
   .slice(0, 3)
   .map(
     (exp) => `
 **${exp.title}** at ${exp.company} (${exp.start_date} - ${exp.end_date ?? 'Present'})
 ${exp.description ?? ''}
-Key achievements: ${exp.highlights.slice(0, 3).join('; ')}
+Key achievements: ${(exp.highlights ?? []).slice(0, 3).join('; ')}
 `
   )
   .join('\n')}
@@ -116,11 +116,14 @@ Guidelines:
 
   const config = configRepository.loadAppConfig();
   let candidateProfileBlock = `Name: ${profile.name}
-Skills: ${profile.skills.join(', ')}
+Skills: ${(profile.skills ?? []).join(', ')}
 Recent Experience:
-${profile.experience
+${(profile.experience ?? [])
   .slice(0, 2)
-  .map((exp) => `- ${exp.title} at ${exp.company}: ${exp.description ?? exp.highlights.join(', ')}`)
+  .map(
+    (exp) =>
+      `- ${exp.title} at ${exp.company}: ${exp.description ?? (exp.highlights ?? []).join(', ')}`
+  )
   .join('\n')}`;
 
   if (config.application.useResumeForQuestions) {
@@ -200,10 +203,10 @@ Rules:
 
   const config = configRepository.loadAppConfig();
   let candidateProfileBlock = `Name: ${profile.name}
-Skills: ${profile.skills.join(', ')}
-Experience: ${profile.experience
+Skills: ${(profile.skills ?? []).join(', ')}
+Experience: ${(profile.experience ?? [])
     .slice(0, 3)
-    .map((e) => `${e.title} at ${e.company}: ${e.highlights.slice(0, 2).join('; ')}`)
+    .map((e) => `${e.title} at ${e.company}: ${(e.highlights ?? []).slice(0, 2).join('; ')}`)
     .join(' | ')}`;
 
   if (config.application.useResumeForQuestions) {

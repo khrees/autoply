@@ -1,21 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from './queries';
 import type { Profile, AppConfig } from '../../types';
-import { getApiBaseUrl } from '../utils/api-config';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function getApiUrl(path: string): Promise<string> {
-  const base = await getApiBaseUrl();
-  return `${base}${path}`;
-}
-
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `Request to ${url} failed`);
-  return data;
-}
+import { getApiUrl, getAuthHeaders, apiFetchJson } from '../utils/api-config';
 
 // ── Mutation Data Types ──────────────────────────────────────────────────────
 
@@ -65,7 +51,7 @@ export function useSaveProfile() {
 
   return useMutation({
     mutationFn: async ({ formData, profileId }: SaveProfileData): Promise<Profile> => {
-      return fetchJson(await getApiUrl('/profile'), {
+      return apiFetchJson('/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, id: profileId }),
@@ -83,7 +69,7 @@ export function useImportProfile() {
 
   return useMutation({
     mutationFn: async (resumeText: string): Promise<Partial<Profile>> => {
-      const data = await fetchJson<{ profile: Partial<Profile> }>(await getApiUrl('/profile/import'), {
+      const data = await apiFetchJson<{ profile: Partial<Profile> }>('/profile/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resumeText }),
@@ -104,6 +90,7 @@ export function useDeleteApplication() {
     mutationFn: async (id: number): Promise<void> => {
       const res = await fetch(await getApiUrl(`/applications/${id}`), {
         method: 'DELETE',
+        headers: await getAuthHeaders(),
       });
       if (!res.ok) throw new Error('Failed to delete application');
     },
@@ -134,9 +121,9 @@ export function useUpdateConfig() {
         updated.browser = { ...currentConfig.browser, ...newConfig.browser };
       }
 
-      const res = await fetch(await getApiUrl('/config'), {
+      const res = await fetch('/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getAuthHeaders(),
         body: JSON.stringify(updated),
       });
       if (!res.ok) throw new Error('Failed to save settings');
@@ -150,18 +137,15 @@ export function useUpdateConfig() {
 /** Generate documents (resume + cover letter) */
 export function useGenerateDocuments() {
   return useMutation({
-    mutationFn: async ({
-      url,
-      type,
-    }: GenerateDocumentsData): Promise<GeneratedDocumentsResult> => {
-      const data = await fetchJson<{
+    mutationFn: async ({ url, type }: GenerateDocumentsData): Promise<GeneratedDocumentsResult> => {
+      const data = await apiFetchJson<{
         success: boolean;
         resumePath?: string;
         coverLetterPath?: string;
         resumeContent?: string;
         coverLetterContent?: string;
         error?: string;
-      }>(await getApiUrl('/documents/generate'), {
+      }>('/documents/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, type }),
@@ -185,7 +169,7 @@ export function useBulkAdd() {
 
   return useMutation({
     mutationFn: async ({ urls }: BulkAddData): Promise<BulkAddResult> => {
-      const data = await fetchJson<{ added: number }>(await getApiUrl('/queue/add'), {
+      const data = await apiFetchJson<{ added: number }>('/queue/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls }),
@@ -206,15 +190,16 @@ export function useBulkProcess() {
     mutationFn: async ({
       autoSubmit,
       delaySeconds,
-    }: BulkProcessData): Promise<{ stats: { pending: number; completed: number; failed: number } }> => {
-      const data = await fetchJson<{ stats: { pending: number; completed: number; failed: number } }>(
-        await getApiUrl('/queue/process'),
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ autoSubmit, delaySeconds }),
-        }
-      );
+    }: BulkProcessData): Promise<{
+      stats: { pending: number; completed: number; failed: number };
+    }> => {
+      const data = await apiFetchJson<{
+        stats: { pending: number; completed: number; failed: number };
+      }>('/queue/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoSubmit, delaySeconds }),
+      });
       return { stats: data.stats };
     },
     onSuccess: () => {
@@ -227,8 +212,10 @@ export function useBulkProcess() {
 /** Map form fields to profile data */
 export function useMapFields() {
   return useMutation({
-    mutationFn: async ({ fields }: MapFieldsData): Promise<{ fillPlan: Record<string, string> }> => {
-      return fetchJson(await getApiUrl('/profile/map-fields'), {
+    mutationFn: async ({
+      fields,
+    }: MapFieldsData): Promise<{ fillPlan: Record<string, string> }> => {
+      return apiFetchJson('/profile/map-fields', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fields }),
@@ -241,7 +228,12 @@ export function useMapFields() {
 export function useDownloadDocument() {
   return useMutation({
     mutationFn: async (filename: string): Promise<Blob> => {
-      const res = await fetch(await getApiUrl(`/documents/download/${encodeURIComponent(filename)}`));
+      const res = await fetch(
+        await getApiUrl(`/documents/download/${encodeURIComponent(filename)}`),
+        {
+          headers: await getAuthHeaders(),
+        }
+      );
       if (!res.ok) throw new Error('Failed to download document');
       return res.blob();
     },
@@ -258,7 +250,7 @@ export function useSendChatMessage() {
       messages: Array<{ role: 'user' | 'assistant'; content: string }>;
       url?: string;
     }): Promise<string> => {
-      const data = await fetchJson<{ reply: string }>(await getApiUrl('/chat'), {
+      const data = await apiFetchJson<{ reply: string }>('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages, url }),

@@ -6,11 +6,7 @@ import type { Platform } from '../../types';
 const PassiveProcessSchema = z.object({
   html: z.string().min(1).max(500_000, 'HTML payload too large (max 500 KB)'),
   url: z.string().url(),
-  platform: z.enum([
-    'greenhouse', 'linkedin', 'lever', 'jobvite', 'smartrecruiters',
-    'pinpoint', 'teamtailor', 'workday', 'ashby', 'bamboohr',
-    'workable', 'generic',
-  ]),
+  platform: z.enum(['greenhouse', 'linkedin', 'lever', 'ashby', 'generic']),
   detectedFields: z
     .array(z.object({ key: z.string(), type: z.string(), label: z.string() }))
     .optional(),
@@ -25,7 +21,11 @@ export function registerJobRoutes(app: FastifyInstance): void {
     const { html, url, platform, detectedFields } = parsed.data;
     try {
       const result = await applicationOrchestrator.processJobPassively(
-        html, url, platform as Platform, {}, detectedFields
+        html,
+        url,
+        platform as Platform,
+        {},
+        detectedFields
       );
       return result;
     } catch (error) {

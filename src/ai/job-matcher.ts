@@ -35,12 +35,12 @@ export async function evaluateJobFit(
   const prompt = `Evaluate this candidate's fit for the role.
 
 ## Candidate
-Skills: ${profile.skills.join(', ')}
-Experience: ${profile.experience
+Skills: ${(profile.skills ?? []).join(', ')}
+Experience: ${(profile.experience ?? [])
     .slice(0, 3)
     .map((e) => `${e.title} at ${e.company} (${e.start_date} - ${e.end_date ?? 'Present'})`)
     .join('; ')}
-Education: ${profile.education.map((e) => `${e.degree}${e.field ? ' in ' + e.field : ''} - ${e.institution}`).join('; ')}
+Education: ${(profile.education ?? []).map((e) => `${e.degree}${e.field ? ' in ' + e.field : ''} - ${e.institution}`).join('; ')}
 
 ## Job
 Title: ${jobData.title}

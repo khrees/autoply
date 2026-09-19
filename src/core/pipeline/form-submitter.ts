@@ -1,6 +1,7 @@
 import type { Profile, JobData, Application, GeneratedDocuments, Platform } from '../../types';
 import type { SubmissionResult } from '../../scrapers/base';
 import type { AutoModeOptions } from './types';
+import { summarizeSubmissionFailure } from './types';
 import type { VerificationResult } from '../../ai/screenshot-verifier';
 import { createScraper, BaseScraper } from '../../scrapers';
 import { verifySubmissionScreenshot } from '../../ai/screenshot-verifier';
@@ -32,8 +33,7 @@ export async function submitApplicationWithRetries(
   platform: Platform,
   url: string,
   correlationId: string,
-  spinner: ReturnType<typeof createSpinner>,
-  _fitResult?: unknown
+  spinner: ReturnType<typeof createSpinner>
 ): Promise<FormSubmissionResult> {
   const config = configRepository.loadAppConfig();
   const maxRetries = Math.max(1, config.application.retryAttempts ?? 3);
@@ -92,12 +92,16 @@ export async function submitApplicationWithRetries(
           spinner.start('Collecting submission diagnostics...');
           await new Promise((r) => setTimeout(r, 2000));
           verification = await verifySubmissionScreenshot(submissionResult.screenshotPath);
-          logger.debug(`Screenshot diagnostic (${verification.confidence}): ${verification.reason}`);
+          logger.debug(
+            `Screenshot diagnostic (${verification.confidence}): ${verification.reason}`
+          );
         }
 
         const attemptError = summarizeSubmissionFailure(submissionResult, verification);
         attemptErrors.push(`attempt ${attempt}: ${attemptError}`);
-        spinner.warn(`Submission not confirmed (attempt ${attempt}/${maxRetries}): ${attemptError}`);
+        spinner.warn(
+          `Submission not confirmed (attempt ${attempt}/${maxRetries}): ${attemptError}`
+        );
 
         if (attempt < maxRetries) {
           logger.info('Retrying submission...');
@@ -157,8 +161,7 @@ export async function fillApplicationForm(
   await mkdir(docsDir, { recursive: true });
 
   const resumePdfPath =
-    resumePath ??
-    join(docsDir, generateDocumentFilename(profile.name, 'resume', jobData.company));
+    resumePath ?? join(docsDir, generateDocumentFilename(profile.name, 'resume', jobData.company));
   const coverLetterPdfPath =
     coverLetterPath ??
     join(docsDir, generateDocumentFilename(profile.name, 'cover_letter', jobData.company));
@@ -281,23 +284,4 @@ async function performSubmission(
     answeredQuestions: jobData.custom_questions,
     autoMode: autoOpts.skipPrompts,
   });
-}
-
-function summarizeSubmissionFailure(
-  submissionResult: SubmissionResult,
-  verification?: VerificationResult
-): string {
-  let message =
-    submissionResult.errors.length > 0
-      ? `${submissionResult.message}: ${submissionResult.errors.join(', ')}`
-      : submissionResult.message;
-
-  if (verification) {
-    const screenshotDetail = verification.errors?.length
-      ? `${verification.reason}: ${verification.errors.join(', ')}`
-      : verification.reason;
-    message = `${message} | Screenshot check: ${screenshotDetail}`;
-  }
-
-  return message;
 }

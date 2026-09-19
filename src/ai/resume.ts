@@ -74,22 +74,22 @@ ${profile.github_url ? `**GitHub:** ${profile.github_url}` : ''}
 ${profile.portfolio_url ? `**Portfolio:** ${profile.portfolio_url}` : ''}
 
 ### Skills
-${profile.skills.join(', ')}
+${(profile.skills ?? []).join(', ')}
 
 ### Experience
-${profile.experience
+${(profile.experience ?? [])
   .map(
     (exp) => `
 **${exp.title}** at ${exp.company}
 ${exp.location ? `${exp.location} | ` : ''}${exp.start_date} - ${exp.end_date ?? 'Present'}
 ${exp.description ?? ''}
-${exp.highlights.length > 0 ? exp.highlights.map((h) => `- ${h}`).join('\n') : ''}
+${(exp.highlights ?? []).length > 0 ? (exp.highlights ?? []).map((h) => `- ${h}`).join('\n') : ''}
 `
   )
   .join('\n')}
 
 ### Education
-${profile.education
+${(profile.education ?? [])
   .map(
     (edu) => `
 **${edu.degree}**${edu.field ? ` in ${edu.field}` : ''} - ${edu.institution}
