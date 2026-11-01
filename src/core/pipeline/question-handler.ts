@@ -43,9 +43,7 @@ export async function handleCustomQuestions(
       if (savedMatches.length > 0) {
         q.answer = savedMatches[0].answer;
         fromCache++;
-        spinner.start(
-          `Answering custom questions (${fromCache}/${totalQuestions} from cache)...`
-        );
+        spinner.start(`Answering custom questions (${fromCache}/${totalQuestions} from cache)...`);
       } else {
         stillNeedingAI.push(q);
       }

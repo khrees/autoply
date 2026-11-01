@@ -44,7 +44,11 @@ export async function generateApplicationDocuments(
     // Quality gate — warn on issues, don't hard-fail
     const docCheck = validateGeneratedDocuments(documents, { checkQuality: true });
     if (docCheck.qualityIssues && docCheck.qualityIssues.length > 0) {
-      logger.warn('Generated documents have quality issues', { issues: docCheck.qualityIssues }, 'ai');
+      logger.warn(
+        'Generated documents have quality issues',
+        { issues: docCheck.qualityIssues },
+        'ai'
+      );
       for (const issue of docCheck.qualityIssues) {
         spinner.warn(`Quality check: ${issue}`);
       }

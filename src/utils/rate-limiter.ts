@@ -229,11 +229,7 @@ export class BackpressureController {
    * Resolve as many queued waiters as the current capacity allows.
    */
   private drainQueue(): void {
-    while (
-      this.waitQueue.length > 0 &&
-      !this.paused &&
-      this.active < this.config.maxConcurrent
-    ) {
+    while (this.waitQueue.length > 0 && !this.paused && this.active < this.config.maxConcurrent) {
       const next = this.waitQueue.shift();
       if (next) {
         next(); // increments this.active inside the callback

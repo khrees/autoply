@@ -38,9 +38,7 @@ export async function evaluateFitForJob(
 
     // Check minimum fit score threshold
     if (minFitScore && fitResult.score < minFitScore) {
-      logger.warning(
-        `Skipping: fit score ${fitResult.score}% below threshold ${minFitScore}%`
-      );
+      logger.warning(`Skipping: fit score ${fitResult.score}% below threshold ${minFitScore}%`);
       return { fitResult, belowThreshold: true };
     }
 

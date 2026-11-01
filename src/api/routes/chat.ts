@@ -25,7 +25,7 @@ function formatProfileForPrompt(profile: Profile): string {
   if (profile.linkedin_url) parts.push(`LinkedIn URL: ${profile.linkedin_url}`);
   if (profile.github_url) parts.push(`GitHub URL: ${profile.github_url}`);
   if (profile.portfolio_url) parts.push(`Portfolio URL: ${profile.portfolio_url}`);
-  
+
   if (profile.skills && profile.skills.length > 0) {
     parts.push(`Skills:\n- ${profile.skills.join('\n- ')}`);
   }
@@ -112,7 +112,7 @@ ${profileContext}`;
       const conversationText = messages
         .map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
         .join('\n\n');
-      
+
       const prompt = `${conversationText}\n\nAssistant:`;
 
       const ai = createAIProvider();

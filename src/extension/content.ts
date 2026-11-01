@@ -114,7 +114,11 @@ function isFormElement(el: Element): boolean {
   }
 
   const input = el as HTMLInputElement;
-  if (['hidden', 'submit', 'button', 'reset', 'image'].includes(input.type) && input.getAttribute('role') !== 'combobox') return false;
+  if (
+    ['hidden', 'submit', 'button', 'reset', 'image'].includes(input.type) &&
+    input.getAttribute('role') !== 'combobox'
+  )
+    return false;
 
   return true;
 }

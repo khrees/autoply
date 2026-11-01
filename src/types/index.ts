@@ -133,7 +133,11 @@ export interface AIConfig {
 
 export interface AIProvider {
   name: AIProviderType;
-  generateText(prompt: string, systemPrompt?: string): Promise<string>;
+  generateText(
+    prompt: string,
+    systemPrompt?: string,
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  ): Promise<string>;
   isAvailable(): Promise<boolean>;
 }
 

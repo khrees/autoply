@@ -24,9 +24,17 @@ export const SkeletonCard = () => (
 );
 
 export const LoadingState = () => (
-  <div className="flex flex-col items-center justify-center h-full gap-4">
-    <div className="w-10 h-10 border-2 border-zinc-800 border-t-blue-500 rounded-full animate-spin" />
-    <p className="text-sm text-zinc-500">Connecting to Autoply…</p>
+  <div className="flex flex-col items-center justify-center h-full gap-6 animate-fade-in">
+    <div className="relative">
+      <div className="w-16 h-16 border-4 border-zinc-800 border-t-blue-500 rounded-full animate-spin" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-8 h-8 bg-blue-500/20 rounded-full animate-pulse" />
+      </div>
+    </div>
+    <div className="text-center space-y-2">
+      <p className="text-sm font-medium text-zinc-300 tracking-wide">Connecting to Autoply…</p>
+      <p className="text-[10px] text-zinc-500 uppercase tracking-widest opacity-60">Initializing secure session</p>
+    </div>
   </div>
 );
 

@@ -106,7 +106,8 @@ async function fetchGithubContext(url: string): Promise<string> {
       if (userData.bio) parts.push(`- Bio: ${userData.bio}`);
       if (userData.company) parts.push(`- Company: ${userData.company}`);
       if (userData.location) parts.push(`- Location: ${userData.location}`);
-      if (userData.public_repos !== undefined) parts.push(`- Public Repos: ${userData.public_repos}`);
+      if (userData.public_repos !== undefined)
+        parts.push(`- Public Repos: ${userData.public_repos}`);
     }
 
     if (reposRes.status === 'fulfilled' && reposRes.value.ok) {

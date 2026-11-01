@@ -92,25 +92,29 @@ Return a JSON array of fields to auto-fill. Skip any field that should be left b
     if (!Array.isArray(parsed)) return [];
 
     return parsed
-      .map((item: { fieldName?: string; matchedProfileKey?: string; confidence?: number; reasoning?: string }) => {
-        const matchedField = fields.find((f) => {
-          const fieldName = item.fieldName?.toLowerCase();
-          if (!fieldName) return false;
-          return (
-            f.name.toLowerCase() === fieldName ||
-            f.label?.toLowerCase().includes(fieldName)
-          );
-        });
+      .map(
+        (item: {
+          fieldName?: string;
+          matchedProfileKey?: string;
+          confidence?: number;
+          reasoning?: string;
+        }) => {
+          const matchedField = fields.find((f) => {
+            const fieldName = item.fieldName?.toLowerCase();
+            if (!fieldName) return false;
+            return f.name.toLowerCase() === fieldName || f.label?.toLowerCase().includes(fieldName);
+          });
 
-        if (!matchedField) return null;
+          if (!matchedField) return null;
 
-        return {
-          field: matchedField,
-          matchedProfileKey: item.matchedProfileKey || '',
-          confidence: typeof item.confidence === 'number' ? item.confidence : 0.8,
-          reasoning: item.reasoning || '',
-        };
-      })
+          return {
+            field: matchedField,
+            matchedProfileKey: item.matchedProfileKey || '',
+            confidence: typeof item.confidence === 'number' ? item.confidence : 0.8,
+            reasoning: item.reasoning || '',
+          };
+        }
+      )
       .filter(Boolean) as FieldClassificationResult[];
   } catch {
     // If parsing fails, return empty - AI couldn't help

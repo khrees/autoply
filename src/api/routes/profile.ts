@@ -41,7 +41,9 @@ export function registerProfileRoutes(app: FastifyInstance): void {
         const updated = profileRepository.update(data.id, data as unknown as Partial<Profile>);
         return updated;
       }
-      const created = profileRepository.create(data as unknown as Omit<Profile, 'id' | 'created_at' | 'updated_at'>);
+      const created = profileRepository.create(
+        data as unknown as Omit<Profile, 'id' | 'created_at' | 'updated_at'>
+      );
       return { success: true, profile: created };
     } catch (error) {
       return reply.status(400).send({ error: (error as Error).message });

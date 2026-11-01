@@ -25,7 +25,10 @@ export function registerAIRoutes(app: FastifyInstance): void {
         const data = (await response.json()) as {
           models?: Array<{ name: string; size?: number; modified_at?: string }>;
         };
-        const models = (data.models || []).map((m) => m.name).filter(Boolean).sort();
+        const models = (data.models || [])
+          .map((m) => m.name)
+          .filter(Boolean)
+          .sort();
         return { success: true, models, provider: 'ollama' };
       } else {
         const lmBaseUrl = baseUrl.replace(/\/$/, '') + '/v1';
@@ -34,7 +37,10 @@ export function registerAIRoutes(app: FastifyInstance): void {
           throw new Error(`LM Studio returned ${response.status}`);
         }
         const data = (await response.json()) as { data?: Array<{ id: string }> };
-        const models = (data.data || []).map((m) => m.id).filter(Boolean).sort();
+        const models = (data.data || [])
+          .map((m) => m.id)
+          .filter(Boolean)
+          .sort();
         return { success: true, models, provider: 'lmstudio' };
       }
     } catch (error) {

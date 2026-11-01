@@ -9,7 +9,14 @@ export interface DocPreviewState {
   type: 'resume' | 'cover-letter';
 }
 
-type ActiveTab = 'dashboard' | 'chat' | 'history' | 'analytics' | 'profile' | 'settings' | 'discovery';
+type ActiveTab =
+  | 'dashboard'
+  | 'chat'
+  | 'history'
+  | 'analytics'
+  | 'profile'
+  | 'settings'
+  | 'discovery';
 
 export interface FillReport {
   filled: Array<{ key: string; value: string }>;
@@ -25,6 +32,7 @@ export interface ChatMessage {
 
 interface AppUIState {
   activeTab: ActiveTab;
+  currentTabUrl: string | null;
   recentFilter: string;
   showProfileForm: boolean;
   previewApp: Application | null;
@@ -39,6 +47,7 @@ interface AppUIState {
   isChatLoading: boolean;
 
   setActiveTab: (tab: ActiveTab) => void;
+  setCurrentTabUrl: (url: string | null) => void;
   setRecentFilter: (filter: string) => void;
   setShowProfileForm: (show: boolean) => void;
   setPreviewApp: (app: Application | null) => void;
@@ -57,6 +66,7 @@ interface AppUIState {
 
 export const useAppStore = create<AppUIState>((set) => ({
   activeTab: 'dashboard',
+  currentTabUrl: null,
   recentFilter: 'all',
   showProfileForm: false,
   previewApp: null,
@@ -71,6 +81,7 @@ export const useAppStore = create<AppUIState>((set) => ({
   isChatLoading: false,
 
   setActiveTab: (activeTab) => set({ activeTab }),
+  setCurrentTabUrl: (currentTabUrl) => set({ currentTabUrl }),
   setRecentFilter: (recentFilter) => set({ recentFilter }),
   setShowProfileForm: (showProfileForm) => set({ showProfileForm }),
   setPreviewApp: (previewApp) => set({ previewApp }),
@@ -82,9 +93,7 @@ export const useAppStore = create<AppUIState>((set) => ({
       fillReport: state.fillReport
         ? {
             ...state.fillReport,
-            filled: state.fillReport.filled.map((f) =>
-              f.key === fieldKey ? { ...f, value } : f
-            ),
+            filled: state.fillReport.filled.map((f) => (f.key === fieldKey ? { ...f, value } : f)),
           }
         : null,
     })),
@@ -92,8 +101,7 @@ export const useAppStore = create<AppUIState>((set) => ({
   setBulkUrls: (bulkUrls) => set({ bulkUrls }),
   setIsApplying: (isApplying) => set({ isApplying }),
   setAutofillError: (autofillError) => set({ autofillError }),
-  addChatMessage: (message) =>
-    set((state) => ({ chatMessages: [...state.chatMessages, message] })),
+  addChatMessage: (message) => set((state) => ({ chatMessages: [...state.chatMessages, message] })),
   clearChatMessages: () => set({ chatMessages: [], isChatLoading: false }),
   setIsChatLoading: (isChatLoading) => set({ isChatLoading }),
 }));

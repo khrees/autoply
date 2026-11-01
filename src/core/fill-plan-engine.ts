@@ -25,8 +25,8 @@ export class FillPlanEngine {
 
     // 2. AI-Powered Answer Generation for Custom Questions
     if (jobData.custom_questions && jobData.custom_questions.length > 0) {
-      const unanswered = jobData.custom_questions.filter(q => !q.answer);
-      
+      const unanswered = jobData.custom_questions.filter((q) => !q.answer);
+
       if (unanswered.length > 0) {
         // We delegate the bulk answering to the AI provider
         // but the coordination happens here.
@@ -60,7 +60,7 @@ export class FillPlanEngine {
     _profile: Profile
   ): string | null {
     const fieldKey = (field.key || field.label).toLowerCase().replace(/[^a-z0-9]/g, '');
-    
+
     for (const [pKey, pValue] of Object.entries(profileData)) {
       const normPKey = pKey.toLowerCase().replace(/[^a-z0-9]/g, '');
       if ((fieldKey.includes(normPKey) || normPKey.includes(fieldKey)) && pValue) {
@@ -84,6 +84,6 @@ export class FillPlanEngine {
   ): Promise<Record<string, string>> {
     // This is a placeholder for the actual AI call logic found in ai/cover-letter.ts
     // To keep it clean, the Orchestrator will pass this to the AI provider.
-    return {}; 
+    return {};
   }
 }

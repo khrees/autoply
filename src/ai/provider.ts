@@ -12,10 +12,10 @@ import { logger } from '../utils/logger';
 
 // Model mappings for each provider
 const MODEL_DEFAULTS: Record<AIProviderType, string> = {
-  openai: 'gpt-5.4-mini',
-  anthropic: 'claude-sonnet-4-6',
-  google: 'gemini-3.1-flash-lite-preview',
-  ollama: 'llama3.2',
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-3-7-sonnet-20250224',
+  google: 'gemini-2.0-flash',
+  ollama: 'deepseek-r1:8b',
   lmstudio: 'local-model',
 };
 
@@ -191,7 +191,11 @@ class UnifiedAIProvider implements AIProvider {
     }
   }
 
-  async generateText(prompt: string, systemPrompt?: string): Promise<string> {
+  async generateText(
+    prompt: string,
+    systemPrompt?: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  ): Promise<string> {
     return withRateLimit(aiRateLimiter, async () => {
       return circuitBreakers.ai.execute(async () => {
         return withRetry(
@@ -200,7 +204,7 @@ class UnifiedAIProvider implements AIProvider {
             const result = await generateText({
               model,
               system: systemPrompt,
-              prompt,
+              messages: [...history, { role: 'user', content: prompt }],
               temperature: this.config.temperature ?? 0.7,
             });
             return result.text;

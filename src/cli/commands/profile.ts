@@ -159,7 +159,9 @@ profileCommand
       }
     } catch (error) {
       aiSpinner.fail();
-      logger.error(`Failed to parse resume: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `Failed to parse resume: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
       process.exit(1);
     }
   });
@@ -223,7 +225,9 @@ profileCommand
       }
     } catch (error) {
       spinner.fail();
-      logger.error(`LinkedIn sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(
+        `LinkedIn sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
       process.exit(1);
     }
   });

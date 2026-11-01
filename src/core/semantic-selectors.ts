@@ -135,6 +135,37 @@ export async function findInputBySemanticSearch(
         if (placeholder?.toLowerCase().includes(normalizedLabel)) {
           return el;
         }
+
+        // New: Check surrounding text if the element itself has no label
+        const isLabelledByText = await el.evaluate((element) => {
+          const parent = element.parentElement;
+          if (!parent) return false;
+
+          // Search for label element linked by 'for'
+          const id = element.id;
+          if (id) {
+            const label = document.querySelector(`label[for="${id}"]`);
+            if (label && label.textContent?.toLowerCase().includes(normalizedLabel)) return true;
+          }
+
+          // Search for nearby text that looks like a label
+          const siblings = Array.from(parent.children);
+          const index = siblings.indexOf(element);
+          const prev = siblings[index - 1];
+          if (prev && prev.textContent?.toLowerCase().includes(normalizedLabel)) return true;
+
+          // Search within parent for any text content
+          if (parent.textContent?.toLowerCase().includes(normalizedLabel)) {
+            // Heuristic: if the parent is small and contains the label, it's likely the label
+            const rect = parent.getBoundingClientRect();
+            if (rect.width < 500) return true;
+          }
+
+          return false;
+        });
+
+        if (isLabelledByText) return el;
+
         if (inputType === fieldType) {
           const labelId = await el.getAttribute('id');
           if (labelId) {

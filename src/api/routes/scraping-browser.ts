@@ -15,8 +15,7 @@ export function registerScrapingBrowserRoutes(app: FastifyInstance): void {
   });
 
   app.post('/scraping-browser/sessions', async (request, reply) => {
-    const { ttlMs, headless } =
-      (request.body as { ttlMs?: number; headless?: boolean }) ?? {};
+    const { ttlMs, headless } = (request.body as { ttlMs?: number; headless?: boolean }) ?? {};
     try {
       const { pool } = await getPool();
       const session = await pool.createSession({ ttlMs, headless });
